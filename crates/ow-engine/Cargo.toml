@@ -12,6 +12,8 @@ assert_no_alloc = { version = "1.1.2", features = ["disable_release"] }
 audio_thread_priority = { version = "0.38.0", default-features = false }
 num_cpus = "1.17.0"
 ow-io = { path = "../ow-io" }
+# Only the telemetry bank (atomics the audio thread writes); `ow-ipc` depends on `ow-model` alone.
+ow-ipc = { path = "../ow-ipc" }
 ow-model = { path = "../ow-model" }
 rtrb = "0.4.1"
 

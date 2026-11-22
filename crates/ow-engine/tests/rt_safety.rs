@@ -25,10 +25,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use assert_no_alloc::AllocDisabler;
-use ow_engine::graph::nodes::{GAIN_PARAM, GainNode, MasterNode, OscillatorNode};
+use ow_engine::graph::nodes::{GAIN_PARAM, GainNode, MasterNode, OscillatorNode, TONE_PARAM_ON};
 use ow_engine::{
-    CoreBuilder, Graph, MAX_BLOCK, Message, MidiMessage, Node, NodeId, ProcessContext, RenderPlan,
-    TransportCommand,
+    CoreBuilder, Graph, MAX_BLOCK, Message, MidiMessage, Node, NodeId, NodeKey, ProcessContext,
+    RenderPlan, TransportCommand, compile_project_metered,
+};
+use ow_ipc::{Overflow, TelemetryBank, meter_slot};
+use ow_model::{
+    Clip, ClipContent, EditCommand, Editor, MediaItem, MixerRef, Owned, Project, Strip, Track,
+    TrackKind,
 };
 
 #[global_allocator]
@@ -409,4 +414,93 @@ fn a_full_retire_ring_delays_swaps_without_freeing_on_the_audio_thread() {
         collected, 3,
         "every swapped-out plan came back to the control thread"
     );
+}
+
+/// The audio thread writes strip meters, transport position, load and overflow counters into the
+/// telemetry bank on every cycle, under the allocation guard (the guard wraps `process`, and the
+/// bank writes sit inside the metered faders it runs).
+#[test]
+fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
+    let mut editor = Editor::new(Project::new("metered"));
+    let media = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::AddMedia {
+            item: MediaItem {
+                id: media,
+                name: "m".into(),
+                path: "audio/m.wav".into(),
+                hash: "00".into(),
+                sample_rate: SAMPLE_RATE,
+                channels: 1,
+                frames: 1,
+            },
+        })
+        .unwrap();
+    let track = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::InsertTrack {
+            index: 0,
+            bundle: Box::new(Owned::new(Track {
+                id: track,
+                name: "t".into(),
+                color: 0,
+                kind: TrackKind::Audio,
+                strip: Strip::default(),
+                instrument: None,
+            })),
+        })
+        .unwrap();
+    let clip = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::AddClip {
+            clip: Box::new(Clip {
+                id: clip,
+                track,
+                name: "c".into(),
+                start: 0.0,
+                length: 4.0,
+                muted: false,
+                content: ClipContent::Audio {
+                    media,
+                    source_offset: 0,
+                    gain_db: 0.0,
+                    fade_in: 0.0,
+                    fade_out: 0.0,
+                },
+            }),
+        })
+        .unwrap();
+
+    let bank = Arc::new(TelemetryBank::new());
+    let compiled =
+        compile_project_metered(editor.project(), SAMPLE_RATE, MAX_BLOCK, Some(&bank)).unwrap();
+    let tone = compiled.nodes.get(NodeKey::Clips(track)).unwrap();
+    let (mut link, mut core) = builder().build();
+    link.swap_timeline(compiled.timeline).unwrap();
+    link.swap_plan(compiled.plan).unwrap();
+    assert!(link.send(Message::SetParam {
+        node: tone,
+        param: TONE_PARAM_ON,
+        value: 1.0,
+    }));
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+
+    let telemetry = Arc::clone(link.telemetry());
+    let mut buffer = vec![0.0_f32; 64 * 2];
+    for _ in 0..2000 {
+        core.process(&mut buffer, 2, None);
+        bank.set_position(telemetry.transport_position());
+        bank.set_cpu_load(0.25);
+        bank.set_overflow(Overflow::Ring, core.overflow_total());
+        bank.set_overflow(Overflow::Unrouted, telemetry.unrouted());
+    }
+    let slot = meter_slot(editor.project(), MixerRef::Track(track)).unwrap();
+    let (peak, rms) = bank.take_meter(slot).unwrap();
+    assert!(
+        peak[0] > 0.1 && rms[0] > 0.05,
+        "meter saw the tone: {peak:?} {rms:?}"
+    );
+    assert!(bank.take_meter(0).unwrap().0[0] > 0.1, "master meter too");
+    assert!(bank.position() > 0, "the transport position was published");
+    assert_eq!(bank.cpu_load(), 0.25);
 }

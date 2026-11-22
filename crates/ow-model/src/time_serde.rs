@@ -9,11 +9,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::time::{TempoMap, TempoPoint, TimeSignature, TimeSignatureMap};
 
 #[derive(Serialize, Deserialize)]
-struct PointRepr {
-    beat: f64,
-    bpm: f64,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "TempoPointJson"))]
+pub struct PointRepr {
+    pub beat: f64,
+    pub bpm: f64,
     #[serde(default)]
-    ramp: bool,
+    pub ramp: bool,
 }
 
 impl Serialize for TempoMap {
@@ -65,10 +66,11 @@ impl<'de> Deserialize<'de> for TimeSignature {
 }
 
 #[derive(Serialize, Deserialize)]
-struct ChangeRepr {
-    bar: u32,
-    numerator: u32,
-    denominator: u32,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "SignatureChangeJson"))]
+pub struct ChangeRepr {
+    pub bar: u32,
+    pub numerator: u32,
+    pub denominator: u32,
 }
 
 impl Serialize for TimeSignatureMap {

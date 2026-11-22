@@ -1,0 +1,167 @@
+//! Tauri side of the IPC bridge (architecture section 7).
+//!
+//! * `ipc_attach` / `ipc_snapshot` / `ipc_command` / `ipc_alloc_ids`: the state mirror. The
+//!   project lives in [`control::Control`] behind one mutex on the control side; every command
+//!   runs there, its patch goes out on an `ipc::Channel` while the lock is held (that is what
+//!   keeps patches ordered), and the edited project is compiled and swapped into the engine
+//!   ([`ow_engine::Engine::set_project`]). The audio callback never sees the project.
+//! * `telemetry_start` / `telemetry_set_strips` / `telemetry_stop`: the 60 Hz bridge thread
+//!   ([`bridge::Bridge`]) that sends packed `f32` frames over a second channel as raw bytes.
+//! * `peaks_range`: waveform min/max pairs as a raw-byte `ipc::Response` ([`peaks::PeakStore`],
+//!   a stub source until stage 11).
+//!
+//! What is not wired yet: fine-grained updates that skip the recompile (fader and mute changes
+//! could travel as `Message::SetParam` using `ow_engine::fader_gain`), project open and save
+//! commands (`Control::replace_project` is ready for them), and telemetry for strips beyond the
+//! 256 meter slots.
+
+pub mod bridge;
+pub mod control;
+pub mod peaks;
+
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use ow_ipc::{CommandReply, ModelPatch, Overflow, Snapshot, Subscriptions, UiCommand};
+use tauri::State;
+use tauri::ipc::{Channel, InvokeResponseBody, Response};
+
+use crate::engine::EngineState;
+use control::{Control, PatchSink};
+
+impl PatchSink for Channel<ModelPatch> {
+    fn send(&self, patch: &ModelPatch) -> bool {
+        Channel::send(self, patch.clone()).is_ok()
+    }
+}
+
+/// Managed state of the IPC bridge.
+pub struct IpcState {
+    control: Mutex<Control>,
+    subscriptions: Arc<Subscriptions>,
+    bridge: Mutex<Option<bridge::Bridge>>,
+    peaks: peaks::PeakStore,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+impl IpcState {
+    /// State over an empty project.
+    pub fn new() -> Self {
+        Self {
+            control: Mutex::new(Control::new()),
+            subscriptions: Arc::new(Subscriptions::new()),
+            bridge: Mutex::new(None),
+            peaks: peaks::PeakStore::default(),
+        }
+    }
+}
+
+impl Default for IpcState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Registers the UI's patch channel and returns the snapshot to continue from.
+#[tauri::command]
+pub async fn ipc_attach(
+    state: State<'_, IpcState>,
+    patches: Channel<ModelPatch>,
+) -> Result<Snapshot, String> {
+    Ok(lock(&state.control).attach(Box::new(patches)))
+}
+
+/// The whole project at the current sequence number (the answer to a detected gap).
+#[tauri::command]
+pub async fn ipc_snapshot(state: State<'_, IpcState>) -> Result<Snapshot, String> {
+    Ok(lock(&state.control).snapshot())
+}
+
+/// Applies one UI command; the patch it produces arrives on the attached channel.
+#[tauri::command]
+pub async fn ipc_command(
+    state: State<'_, IpcState>,
+    engine: State<'_, EngineState>,
+    command: UiCommand,
+) -> Result<CommandReply, String> {
+    lock(&state.control).command(command, engine.engine())
+}
+
+/// Reserves `count` entity ids for the UI's next edits.
+#[tauri::command]
+pub async fn ipc_alloc_ids(
+    state: State<'_, IpcState>,
+    engine: State<'_, EngineState>,
+    count: u32,
+) -> Result<CommandReply, String> {
+    lock(&state.control).command(UiCommand::AllocIds { count }, engine.engine())
+}
+
+/// Starts (or restarts) the telemetry bridge: frames go to `frames` as raw bytes at `hz`
+/// (at most 60).
+#[tauri::command]
+pub async fn telemetry_start(
+    state: State<'_, IpcState>,
+    engine: State<'_, EngineState>,
+    frames: Channel<InvokeResponseBody>,
+    hz: u32,
+) -> Result<(), String> {
+    let mut slot = lock(&state.bridge);
+    if let Some(mut old) = slot.take() {
+        old.stop();
+    }
+    let bank = Arc::clone(engine.engine().telemetry_bank());
+    let midi_source = Arc::clone(engine.engine().midi());
+    let mut tick = 0_u32;
+    *slot = Some(bridge::Bridge::start(
+        bank,
+        Arc::clone(&state.subscriptions),
+        hz,
+        move |bank| {
+            // MIDI drops are counted by the hub, not on the audio thread; copy them over about
+            // ten times a second.
+            if tick.is_multiple_of(6) {
+                bank.set_overflow(Overflow::Midi, midi_source.status().dropped);
+            }
+            tick = tick.wrapping_add(1);
+        },
+        move |bytes| frames.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok(),
+    ));
+    Ok(())
+}
+
+/// Replaces the set of meter slots the UI can currently see.
+#[tauri::command]
+pub async fn telemetry_set_strips(
+    state: State<'_, IpcState>,
+    slots: Vec<u16>,
+) -> Result<(), String> {
+    state.subscriptions.set(&slots);
+    Ok(())
+}
+
+/// Stops the telemetry bridge.
+#[tauri::command]
+pub async fn telemetry_stop(state: State<'_, IpcState>) -> Result<(), String> {
+    if let Some(mut bridge) = lock(&state.bridge).take() {
+        bridge.stop();
+    }
+    Ok(())
+}
+
+/// `bins` min/max pairs over frames `[start, end)` of a media item, as raw bytes (layout in
+/// `ow_ipc::peaks`). Stub source until the peak cache exists.
+#[tauri::command]
+pub async fn peaks_range(
+    state: State<'_, IpcState>,
+    media: u64,
+    start: u64,
+    end: u64,
+    bins: u32,
+) -> Result<Response, String> {
+    Ok(Response::new(state.peaks.range(media, start, end, bins)))
+}

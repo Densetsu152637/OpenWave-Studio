@@ -38,10 +38,13 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use ow_model::{
     AuxSend, BusId, DeviceId, MixerRef, Output, Project, Strip, TrackId, ValidationError,
 };
+
+use ow_ipc::TelemetryBank;
 
 use crate::graph::nodes::{GainNode, TestToneNode};
 use crate::{Graph, GraphError, NodeId, RenderPlan, Timeline};
@@ -261,6 +264,18 @@ pub fn compile_project(
     sample_rate: u32,
     max_block: usize,
 ) -> Result<Compiled, CompileError> {
+    compile_project_metered(project, sample_rate, max_block, None)
+}
+
+/// Like [`compile_project`], and when `meters` is given every strip's fader publishes its peak
+/// and RMS to the bank slot [`ow_ipc::meter_slot`] assigns it (the UI reads them through the
+/// telemetry channel). Strips beyond the bank's slots are not metered.
+pub fn compile_project_metered(
+    project: &Project,
+    sample_rate: u32,
+    max_block: usize,
+    meters: Option<&Arc<TelemetryBank>>,
+) -> Result<Compiled, CompileError> {
     project.validate().map_err(CompileError::Model)?;
 
     let mut graph = Graph::new();
@@ -279,6 +294,7 @@ pub fn compile_project(
         project,
         MixerRef::Master,
         &project.master,
+        meters,
     );
     let mut strips: Vec<(u64, MixerRef)> = project
         .tracks
@@ -290,7 +306,7 @@ pub fn compile_project(
     let mut built: BTreeMap<MixerRef, StripNodes> = BTreeMap::new();
     for (_, target) in &strips {
         if let Some(strip) = project.strip(*target) {
-            let nodes = build_strip(&mut graph, &mut add, project, *target, strip);
+            let nodes = build_strip(&mut graph, &mut add, project, *target, strip, meters);
             built.insert(*target, nodes);
         }
     }
@@ -365,6 +381,7 @@ fn build_strip(
     project: &Project,
     target: MixerRef,
     strip: &Strip,
+    meters: Option<&Arc<TelemetryBank>>,
 ) -> StripNodes {
     // Source: a placeholder for the track's clips or for its instrument.
     let mut source: Option<Tap> = None;
@@ -402,11 +419,13 @@ fn build_strip(
     }
 
     // The master's fader is a plain stereo gain too: its two outputs are the plan's output.
-    let fader = add(
-        graph,
-        NodeKey::Fader(target),
-        Box::new(GainNode::new(2, fader_gain(project, target))),
-    );
+    let mut fader_node = GainNode::new(2, fader_gain(project, target));
+    if let Some(bank) = meters
+        && let Some(slot) = ow_ipc::meter_slot(project, target)
+    {
+        fader_node = fader_node.with_meter(Arc::clone(bank), slot);
+    }
+    let fader = add(graph, NodeKey::Fader(target), Box::new(fader_node));
     let entry = entry.unwrap_or(fader);
     if let Some(from) = previous {
         wire.push((from, fader));
@@ -425,6 +444,7 @@ fn build_strip(
 
 #[cfg(test)]
 mod tests {
+    use ow_ipc::TelemetryBank;
     use ow_model::{
         AuxSend, Bus, Clip, ClipContent, Device, EditCommand, Editor, MediaItem, Owned, Strip,
         StripSettings, Track, TrackKind,
@@ -852,6 +872,38 @@ mod tests {
         renderer.render(1024, 256); // the gain ramps over one block
         let out = renderer.render(2048, 256);
         assert!(out.iter().all(|s| s.abs() < 1e-6));
+    }
+
+    #[test]
+    fn compile_metered_faders_publish_peak_and_rms_to_their_slots() {
+        let mut ed = Editor::new(Project::new("p"));
+        let m = media(&mut ed);
+        let a = audio_track(&mut ed, m, db(0.0));
+        let b = audio_track(&mut ed, m, db(-6.0206));
+        let bank = Arc::new(TelemetryBank::new());
+        let compiled = compile_project_metered(ed.project(), RATE, 256, Some(&bank)).unwrap();
+        let mut renderer = OfflineRenderer::new(compiled.plan, 2);
+        for track in [a, b] {
+            renderer.send(Message::SetParam {
+                node: compiled.nodes.get(NodeKey::Clips(track)).unwrap(),
+                param: TONE_PARAM_ON,
+                value: 1.0,
+            });
+        }
+        renderer.render(FRAMES, 256);
+        let slot = |strip| ow_ipc::meter_slot(ed.project(), strip).unwrap();
+        let (peak_a, rms_a) = bank.take_meter(slot(MixerRef::Track(a))).unwrap();
+        let (peak_b, rms_b) = bank.take_meter(slot(MixerRef::Track(b))).unwrap();
+        let (peak_master, _) = bank.take_meter(slot(MixerRef::Master)).unwrap();
+        assert!((peak_a[0] - 0.2).abs() < 0.01, "{peak_a:?}");
+        assert!((rms_a[0] - SOURCE_RMS).abs() < 2e-3, "{rms_a:?}");
+        assert!((peak_b[1] - 0.1).abs() < 0.01, "{peak_b:?}");
+        assert!((rms_b[0] - SOURCE_RMS / 2.0).abs() < 2e-3, "{rms_b:?}");
+        assert!(peak_master[0] > peak_a[0], "the master carries both tracks");
+        // Unmetered compiles leave the bank alone.
+        let silent = TelemetryBank::new();
+        let _ = compile_project(ed.project(), RATE, 256).unwrap();
+        assert_eq!(silent.take_meter(0).unwrap().0, [0.0, 0.0]);
     }
 
     #[test]

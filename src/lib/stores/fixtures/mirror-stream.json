@@ -1,0 +1,6067 @@
+{
+  "initial": {
+    "seq": 0,
+    "project": {
+      "name": "Fixture",
+      "settings": {
+        "sample_rate": 48000,
+        "loop_range": null,
+        "count_in_bars": 0
+      },
+      "tempo_map": [
+        {
+          "beat": 0.0,
+          "bpm": 120.0,
+          "ramp": false
+        }
+      ],
+      "time_signature_map": [
+        {
+          "bar": 0,
+          "numerator": 4,
+          "denominator": 4
+        }
+      ],
+      "tracks": [],
+      "buses": [],
+      "master": {
+        "settings": {
+          "gain_db": 0.0,
+          "pan": 0.0,
+          "mute": false,
+          "solo": false,
+          "solo_safe": false,
+          "invert_phase": false,
+          "output": "master"
+        },
+        "sends": [],
+        "inserts": []
+      },
+      "clips": [],
+      "patterns": [],
+      "media_pool": [],
+      "devices": [],
+      "automation": [],
+      "markers": [],
+      "next_id": 1
+    },
+    "history": {
+      "canUndo": false,
+      "canRedo": false,
+      "undoLabel": null,
+      "redoLabel": null,
+      "inTransaction": false,
+      "dirty": false
+    }
+  },
+  "patches": [
+    {
+      "seq": 1,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 2
+        }
+      ],
+      "history": {
+        "canUndo": false,
+        "canRedo": false,
+        "undoLabel": null,
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false
+      }
+    },
+    {
+      "seq": 2,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 3
+        }
+      ],
+      "history": {
+        "canUndo": false,
+        "canRedo": false,
+        "undoLabel": null,
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false
+      }
+    },
+    {
+      "seq": 3,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 4,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 4
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 5,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 3,
+            "name": "Bus 3",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 6,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 5
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 7,
+      "ops": [
+        {
+          "op": "upsert_lane",
+          "lane": {
+            "id": 4,
+            "target": {
+              "type": "strip",
+              "strip": "master",
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 8,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 6
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 9,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 7
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 10,
+      "ops": [
+        {
+          "op": "remove_lane",
+          "id": 4
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 11,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 8
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 12,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 9
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 13,
+      "ops": [
+        {
+          "op": "remove_bus",
+          "id": 3
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add bus",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 14,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 10
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add bus",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 15,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 3,
+            "name": "Bus 3",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 16,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 11
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 17,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 12
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 18,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 13
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 19,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 14
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 20,
+      "ops": [
+        {
+          "op": "upsert_lane",
+          "lane": {
+            "id": 13,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "bus": 3
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 21,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 15
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 22,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 16
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 23,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 17
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 24,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 18
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 25,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 19
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 26,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            18,
+            2
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 27,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 20
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 28,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 19,
+            "name": "Track 19",
+            "color": 18563,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 29,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 21
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 30,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 22
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 31,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 23
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 32,
+      "ops": [
+        {
+          "op": "remove_track",
+          "id": 19
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 33,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 24
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 34,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 25
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 35,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 26
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 36,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 27
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 37,
+      "ops": [
+        {
+          "op": "remove_bus",
+          "id": 3
+        },
+        {
+          "op": "remove_lane",
+          "id": 13
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 38,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 28
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 39,
+      "ops": [
+        {
+          "op": "set_name",
+          "name": "Project 91"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 40,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 29
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 41,
+      "ops": [
+        {
+          "op": "set_master",
+          "master": {
+            "settings": {
+              "gain_db": -6.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 42,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 30
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 43,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 31
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 44,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 30,
+            "name": "Track 30",
+            "color": 29310,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 45,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 32
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 46,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 33
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 47,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 34
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 48,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 35
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 49,
+      "ops": [
+        {
+          "op": "remove_track",
+          "id": 30
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 50,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 36
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 51,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 52,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 37
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 53,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 1.5,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 54,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 38
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 55,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 56,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 39
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 57,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 40
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 58,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 41
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 59,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 42
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 60,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 43
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 61,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -0.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 62,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 44
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 63,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 45
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 64,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Change mixer",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 65,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 46
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Change mixer",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 66,
+      "ops": [
+        {
+          "op": "upsert_lane",
+          "lane": {
+            "id": 45,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 18
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 67,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 47
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 68,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 48
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 69,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 70,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 49
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 71,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 50
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 72,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 51
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 73,
+      "ops": [
+        {
+          "op": "set_name",
+          "name": "Project 164"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 74,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 52
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 75,
+      "ops": [
+        {
+          "op": "remove_track",
+          "id": 18
+        },
+        {
+          "op": "remove_lane",
+          "id": 45
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 76,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 53
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 77,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 54
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 78,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            2,
+            53,
+            37
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 79,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 55
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 80,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 56
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 81,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 82,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 57
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 83,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 58
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 84,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 85,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 59
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 86,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 60
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 87,
+      "ops": [
+        {
+          "op": "set_name",
+          "name": "Project 29"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 88,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 61
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 89,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 60,
+            "name": "Track 60",
+            "color": 58620,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            2,
+            53,
+            37,
+            60,
+            57
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 90,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 62
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 91,
+      "ops": [
+        {
+          "op": "set_name",
+          "name": "Project 111"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 92,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 63
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 93,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 64
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 94,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 65
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 95,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            64,
+            2,
+            53,
+            37,
+            60,
+            57
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 96,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 66
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 97,
+      "ops": [
+        {
+          "op": "set_master",
+          "master": {
+            "settings": {
+              "gain_db": -24.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 98,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 67
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 99,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 68
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 100,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 71
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 101,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 72
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 102,
+      "ops": [
+        {
+          "op": "remove_bus",
+          "id": 35
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 103,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 73
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 104,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Delete bus",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 105,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 74
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Delete bus",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 106,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 75
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Delete bus",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 107,
+      "ops": [
+        {
+          "op": "set_tempo_map",
+          "tempo_map": [
+            {
+              "beat": 0.0,
+              "bpm": 114.0,
+              "ramp": false
+            }
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 108,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 76
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 109,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 77
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 110,
+      "ops": [
+        {
+          "op": "set_tempo_map",
+          "tempo_map": [
+            {
+              "beat": 0.0,
+              "bpm": 182.0,
+              "ramp": false
+            }
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 111,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 78
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 112,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 79
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 113,
+      "ops": [
+        {
+          "op": "upsert_clip",
+          "clip": {
+            "id": 78,
+            "track": 37,
+            "name": "Clip 78",
+            "start": 51.0,
+            "length": 4.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [
+                {
+                  "start": 0.0,
+                  "length": 1.0,
+                  "key": 60,
+                  "velocity": 100
+                }
+              ],
+              "controllers": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 114,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 80
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 115,
+      "ops": [
+        {
+          "op": "remove_clip",
+          "id": 78
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change tempo",
+        "redoLabel": "Add clip",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 116,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 81
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change tempo",
+        "redoLabel": "Add clip",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 117,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 84
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change tempo",
+        "redoLabel": "Add clip",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 118,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 85
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change tempo",
+        "redoLabel": "Add clip",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 119,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 84,
+            "name": "Track 84",
+            "color": 82068,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            64,
+            2,
+            53,
+            37,
+            84,
+            60,
+            57
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 120,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 86
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 121,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -26.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 122,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 87
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 123,
+      "ops": [
+        {
+          "op": "upsert_bus",
+          "bus": {
+            "id": 86,
+            "name": "Bus 86",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 124,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 88
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 125,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 89
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 126,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 88,
+            "name": "Track 88",
+            "color": 85976,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            64,
+            2,
+            53,
+            37,
+            88,
+            84,
+            60,
+            57
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 127,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 90
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 128,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 60,
+            "name": "n218",
+            "color": 218000,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 129,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 91
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 130,
+      "ops": [
+        {
+          "op": "upsert_lane",
+          "lane": {
+            "id": 90,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 88
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 131,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 92
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 132,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 93
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 133,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 94
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 134,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 95
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 135,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -26.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 136,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 96
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 137,
+      "ops": [
+        {
+          "op": "upsert_track",
+          "track": {
+            "id": 95,
+            "name": "Track 95",
+            "color": 92815,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        },
+        {
+          "op": "order_tracks",
+          "ids": [
+            64,
+            2,
+            53,
+            37,
+            88,
+            95,
+            84,
+            60,
+            57
+          ]
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 138,
+      "ops": [
+        {
+          "op": "set_next_id",
+          "next_id": 97
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 139,
+      "ops": [
+        {
+          "op": "remove_track",
+          "id": 95
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 8,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 3,
+            "name": "Bus 3",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 4,
+            "target": {
+              "type": "strip",
+              "strip": "master",
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 6
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 16,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 3,
+            "name": "Bus 3",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 11
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add bus",
+        "redoLabel": "Add automation",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 24,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 3,
+            "name": "Bus 3",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 13,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "bus": 3
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 18
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add automation",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 32,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 3,
+            "name": "Bus 3",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 13,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "bus": 3
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 23
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 40,
+      "project": {
+        "name": "Project 91",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 29
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 48,
+      "project": {
+        "name": "Project 91",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 30,
+            "name": "Track 30",
+            "color": 29310,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 35
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 56,
+      "project": {
+        "name": "Project 91",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 1.5,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 39
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 64,
+      "project": {
+        "name": "Project 91",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 1.5,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 45
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Change mixer",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 72,
+      "project": {
+        "name": "Project 91",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 18,
+            "name": "Track 18",
+            "color": 17586,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 45,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 18
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 51
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 80,
+      "project": {
+        "name": "Project 164",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 56
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 88,
+      "project": {
+        "name": "Project 29",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 61
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename project",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 96,
+      "project": {
+        "name": "Project 111",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 60,
+            "name": "Track 60",
+            "color": 58620,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -6.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 66
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 104,
+      "project": {
+        "name": "Project 111",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 120.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 60,
+            "name": "Track 60",
+            "color": 58620,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -24.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 73
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Change mixer",
+        "redoLabel": "Delete bus",
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 112,
+      "project": {
+        "name": "Project 111",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 182.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 60,
+            "name": "Track 60",
+            "color": 58620,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -24.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 79
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 120,
+      "project": {
+        "name": "Project 111",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 182.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 84,
+            "name": "Track 84",
+            "color": 82068,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 60,
+            "name": "Track 60",
+            "color": 58620,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -24.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 86
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 128,
+      "project": {
+        "name": "Project 111",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 182.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 88,
+            "name": "Track 88",
+            "color": 85976,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 84,
+            "name": "Track 84",
+            "color": 82068,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 60,
+            "name": "n218",
+            "color": 218000,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -26.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          },
+          {
+            "id": 86,
+            "name": "Bus 86",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -24.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
+        "markers": [],
+        "next_id": 90
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Rename",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    },
+    {
+      "seq": 136,
+      "project": {
+        "name": "Project 111",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 182.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 4,
+            "denominator": 4
+          }
+        ],
+        "tracks": [
+          {
+            "id": 64,
+            "name": "Track 64",
+            "color": 62528,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 2,
+            "name": "Track 2",
+            "color": 1954,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -12.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 53,
+            "name": "Track 53",
+            "color": 51781,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -26.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 37,
+            "name": "Track 37",
+            "color": 36149,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 88,
+            "name": "Track 88",
+            "color": 85976,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 84,
+            "name": "Track 84",
+            "color": 82068,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 60,
+            "name": "n218",
+            "color": 218000,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 57,
+            "name": "Track 57",
+            "color": 55689,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": -26.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 35,
+            "name": "Bus 35",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -6.0,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          },
+          {
+            "id": 86,
+            "name": "Bus 86",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -24.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 90,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 88
+              },
+              "param": "pan"
+            },
+            "points": [
+              {
+                "beat": 0.0,
+                "value": 0.0,
+                "curve": 0.0
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 96
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true
+      }
+    }
+  ],
+  "last": {
+    "seq": 139,
+    "project": {
+      "name": "Project 111",
+      "settings": {
+        "sample_rate": 48000,
+        "loop_range": null,
+        "count_in_bars": 0
+      },
+      "tempo_map": [
+        {
+          "beat": 0.0,
+          "bpm": 182.0,
+          "ramp": false
+        }
+      ],
+      "time_signature_map": [
+        {
+          "bar": 0,
+          "numerator": 4,
+          "denominator": 4
+        }
+      ],
+      "tracks": [
+        {
+          "id": 64,
+          "name": "Track 64",
+          "color": 62528,
+          "kind": "midi",
+          "strip": {
+            "settings": {
+              "gain_db": 0.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 2,
+          "name": "Track 2",
+          "color": 1954,
+          "kind": "audio",
+          "strip": {
+            "settings": {
+              "gain_db": -12.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 53,
+          "name": "Track 53",
+          "color": 51781,
+          "kind": "audio",
+          "strip": {
+            "settings": {
+              "gain_db": -26.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 37,
+          "name": "Track 37",
+          "color": 36149,
+          "kind": "midi",
+          "strip": {
+            "settings": {
+              "gain_db": 0.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 88,
+          "name": "Track 88",
+          "color": 85976,
+          "kind": "midi",
+          "strip": {
+            "settings": {
+              "gain_db": 0.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 84,
+          "name": "Track 84",
+          "color": 82068,
+          "kind": "audio",
+          "strip": {
+            "settings": {
+              "gain_db": 0.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 60,
+          "name": "n218",
+          "color": 218000,
+          "kind": "audio",
+          "strip": {
+            "settings": {
+              "gain_db": 0.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        },
+        {
+          "id": 57,
+          "name": "Track 57",
+          "color": 55689,
+          "kind": "audio",
+          "strip": {
+            "settings": {
+              "gain_db": -26.5,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          },
+          "instrument": null
+        }
+      ],
+      "buses": [
+        {
+          "id": 35,
+          "name": "Bus 35",
+          "color": 3368652,
+          "strip": {
+            "settings": {
+              "gain_db": -6.0,
+              "pan": 0.0,
+              "mute": true,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          }
+        },
+        {
+          "id": 86,
+          "name": "Bus 86",
+          "color": 3368652,
+          "strip": {
+            "settings": {
+              "gain_db": 0.0,
+              "pan": 0.0,
+              "mute": false,
+              "solo": false,
+              "solo_safe": false,
+              "invert_phase": false,
+              "output": "master"
+            },
+            "sends": [],
+            "inserts": []
+          }
+        }
+      ],
+      "master": {
+        "settings": {
+          "gain_db": -24.0,
+          "pan": 0.0,
+          "mute": false,
+          "solo": false,
+          "solo_safe": false,
+          "invert_phase": false,
+          "output": "master"
+        },
+        "sends": [],
+        "inserts": []
+      },
+      "clips": [],
+      "patterns": [],
+      "media_pool": [],
+      "devices": [],
+      "automation": [
+        {
+          "id": 90,
+          "target": {
+            "type": "strip",
+            "strip": {
+              "track": 88
+            },
+            "param": "pan"
+          },
+          "points": [
+            {
+              "beat": 0.0,
+              "value": 0.0,
+              "curve": 0.0
+            }
+          ],
+          "enabled": true
+        }
+      ],
+      "markers": [],
+      "next_id": 97
+    },
+    "history": {
+      "canUndo": true,
+      "canRedo": true,
+      "undoLabel": "Change mixer",
+      "redoLabel": "Add track",
+      "inTransaction": false,
+      "dirty": true
+    }
+  }
+}

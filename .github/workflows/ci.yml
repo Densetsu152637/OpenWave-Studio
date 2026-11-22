@@ -104,6 +104,18 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 10
         run: cargo test -p ow-engine --locked --lib workgroup -- --nocapture
+      # IPC stage 10: the generated TypeScript types and the stream fixture the UI tests replay
+      # must be current (Linux only: Windows checkouts convert line endings).
+      - name: IPC bindings are current
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          cargo test -p ow-ipc --locked export_bindings
+          git diff --exit-code src/lib/ipc/generated src/lib/stores/fixtures
+      # IPC stage 10: sampling and packing 128 meters plus the transport, median under 100 us.
+      - name: Telemetry budget (release)
+        timeout-minutes: 10
+        run: cargo test -p ow-ipc --locked --release telemetry_budget
       # Track-count benchmark: tracked for trends, timings are not gated.
       - name: Track-count benchmark
         if: runner.os == 'Linux'

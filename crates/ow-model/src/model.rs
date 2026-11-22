@@ -26,6 +26,7 @@ pub trait Keyed {
 }
 
 /// Reference to a mixer strip: a track, a bus or the master.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MixerRef {
@@ -38,6 +39,7 @@ pub enum MixerRef {
 }
 
 /// Where a strip's output goes.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Output {
@@ -49,6 +51,7 @@ pub enum Output {
 }
 
 /// A send from a strip to a bus.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AuxSend {
     /// Destination bus.
@@ -60,6 +63,7 @@ pub struct AuxSend {
 }
 
 /// The scalar settings of a strip.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct StripSettings {
     /// Fader gain in dB.
@@ -93,6 +97,7 @@ impl Default for StripSettings {
 }
 
 /// A mixer strip: settings, sends and the insert chain.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Strip {
     /// Fader, pan, mute, solo and routing.
@@ -106,6 +111,7 @@ pub struct Strip {
 }
 
 /// What a track carries.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackKind {
@@ -116,6 +122,7 @@ pub enum TrackKind {
 }
 
 /// A track.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     /// Id.
@@ -134,6 +141,7 @@ pub struct Track {
 }
 
 /// A bus or group channel: tracks and other buses route or send into it.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bus {
     /// Id.
@@ -147,6 +155,7 @@ pub struct Bus {
 }
 
 /// A MIDI note, positioned relative to its clip or pattern.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Note {
     /// Start in beats.
@@ -160,6 +169,7 @@ pub struct Note {
 }
 
 /// A MIDI controller event, positioned relative to its clip.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Controller {
     /// Position in beats.
@@ -171,6 +181,7 @@ pub struct Controller {
 }
 
 /// What a clip plays.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClipContent {
@@ -179,6 +190,7 @@ pub enum ClipContent {
         /// Source media.
         media: MediaId,
         /// First source frame played (at the media's own sample rate).
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         source_offset: u64,
         /// Clip gain in dB.
         gain_db: f64,
@@ -203,6 +215,7 @@ pub enum ClipContent {
 }
 
 /// A clip on a track.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     /// Id.
@@ -223,6 +236,7 @@ pub struct Clip {
 }
 
 /// A pattern shared by its instances: editing it changes every instance.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pattern {
     /// Id.
@@ -239,6 +253,7 @@ pub struct Pattern {
 }
 
 /// An imported or recorded audio file inside the bundle.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaItem {
     /// Id.
@@ -254,10 +269,12 @@ pub struct MediaItem {
     /// Channel count of the file.
     pub channels: u16,
     /// Length in frames.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub frames: u64,
 }
 
 /// An opaque saved plugin or device state of one format.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StateChunk {
     /// Format tag such as `clap`, `vst3` or `builtin`.
@@ -267,6 +284,7 @@ pub struct StateChunk {
 }
 
 /// An instrument, effect or hosted plugin instance.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
     /// Id.
@@ -289,6 +307,7 @@ pub struct Device {
 }
 
 /// Which strip parameter an automation lane drives.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StripParam {
@@ -299,6 +318,7 @@ pub enum StripParam {
 }
 
 /// What an automation lane drives.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AutomationTarget {
@@ -319,6 +339,7 @@ pub enum AutomationTarget {
 }
 
 /// A breakpoint of an automation lane.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AutomationPoint {
     /// Position in beats.
@@ -330,6 +351,7 @@ pub struct AutomationPoint {
 }
 
 /// An automation lane: a breakpoint envelope over the timeline.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AutomationLane {
     /// Id.
@@ -343,6 +365,7 @@ pub struct AutomationLane {
 }
 
 /// A named position on the timeline.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Marker {
     /// Id.
@@ -356,6 +379,7 @@ pub struct Marker {
 }
 
 /// A beat range.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BeatRange {
     /// Start, in beats.
@@ -365,6 +389,7 @@ pub struct BeatRange {
 }
 
 /// Project-wide settings.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSettings {
     /// Preferred sample rate in hertz.
@@ -420,6 +445,7 @@ impl std::fmt::Display for IdExhausted {
 impl std::error::Error for IdExhausted {}
 
 /// The whole project.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     /// Display name.
@@ -428,8 +454,10 @@ pub struct Project {
     #[serde(default)]
     pub settings: ProjectSettings,
     /// Tempo over the timeline.
+    #[cfg_attr(feature = "ts", ts(as = "Vec<crate::time_serde::PointRepr>"))]
     pub tempo_map: TempoMap,
     /// Time signatures over the timeline.
+    #[cfg_attr(feature = "ts", ts(as = "Vec<crate::time_serde::ChangeRepr>"))]
     pub time_signature_map: TimeSignatureMap,
     /// Tracks in display order.
     #[serde(default)]
@@ -442,23 +470,30 @@ pub struct Project {
     pub master: Strip,
     /// Clips.
     #[serde(default, with = "keyed")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<Clip>"))]
     pub clips: BTreeMap<ClipId, Clip>,
     /// Patterns.
     #[serde(default, with = "keyed")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<Pattern>"))]
     pub patterns: BTreeMap<PatternId, Pattern>,
     /// The media pool.
     #[serde(default, with = "keyed")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<MediaItem>"))]
     pub media_pool: BTreeMap<MediaId, MediaItem>,
     /// Devices; each sits in exactly one strip's insert chain or is a track's instrument.
     #[serde(default, with = "keyed")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<Device>"))]
     pub devices: BTreeMap<DeviceId, Device>,
     /// Automation lanes.
     #[serde(default, with = "keyed")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<AutomationLane>"))]
     pub automation: BTreeMap<LaneId, AutomationLane>,
     /// Markers.
     #[serde(default, with = "keyed")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<Marker>"))]
     pub markers: BTreeMap<MarkerId, Marker>,
     /// Next id [`alloc_id`](Self::alloc_id) hands out; above every id in use.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub next_id: u64,
 }
 

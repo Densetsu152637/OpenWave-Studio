@@ -40,3 +40,8 @@ pub use history::Editor;
 pub use ids::{BusId, ClipId, DeviceId, LaneId, MarkerId, MediaId, PatternId, TrackId};
 pub use model::*;
 pub use validate::ValidationError;
+
+/// JSON shapes of the tempo and time-signature maps, exposed only so `ow-ipc` can generate their
+/// TypeScript types.
+#[cfg(feature = "ts")]
+pub use time_serde::{ChangeRepr as SignatureChangeJson, PointRepr as TempoPointJson};

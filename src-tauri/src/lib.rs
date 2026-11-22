@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod engine;
+pub mod ipc;
 pub mod paths;
 pub mod portable_update;
 pub mod prefs;
@@ -49,6 +50,7 @@ pub fn run() {
             window.build()?;
 
             app.manage(EngineState::start(&paths));
+            app.manage(ipc::IpcState::new());
             app.manage(paths);
             update::setup(app.handle());
             Ok(())
@@ -60,6 +62,14 @@ pub fn run() {
             engine::prefs_set,
             engine::audio_devices,
             engine::audio_retry,
+            ipc::ipc_attach,
+            ipc::ipc_snapshot,
+            ipc::ipc_command,
+            ipc::ipc_alloc_ids,
+            ipc::telemetry_start,
+            ipc::telemetry_set_strips,
+            ipc::telemetry_stop,
+            ipc::peaks_range,
             update::update_status,
             update::update_check,
             update::update_set_channel,

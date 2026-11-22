@@ -30,11 +30,14 @@ use ow_io::{
     AudioCallback, AudioSelection, AudioStatus, BackendRegistry, IoError, MidiBackend,
     MidirBackend, Opener, RecoveryPolicy, StreamInfo, Supervisor,
 };
+use ow_ipc::{Overflow, TelemetryBank};
+use ow_model::Project;
 
 use crate::midi_hub::MidiRings;
 
 pub use compile::{
-    Carry, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project, fader_gain,
+    Carry, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
+    compile_project_metered, fader_gain,
 };
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{
@@ -131,8 +134,48 @@ struct Shared {
 struct Live {
     control: ControlLink,
     telemetry: Arc<Telemetry>,
-    tone_node: NodeId,
+    /// The smoke-path test tone; `None` once a project plan replaced it.
+    tone_node: Option<NodeId>,
+    /// The node table of the plan that is live (empty for the smoke plan).
+    nodes: NodeMap,
+    /// The project the live plan was compiled from.
+    project: Option<Arc<Project>>,
+    sample_rate: u32,
 }
+
+/// The project the engine plays: the latest one handed to [`Engine::set_project`].
+type ProjectSlot = Arc<Mutex<Option<Arc<Project>>>>;
+
+/// What [`Engine::set_project`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProjectSwap {
+    /// The plan was sent to the audio thread. False when no stream is open: the project is
+    /// kept and compiled as soon as one opens.
+    pub applied: bool,
+    /// Which node keys survived the swap (their state carries over by key), appeared or went
+    /// away, compared with the previous live plan. Empty when `applied` is false.
+    pub diff: NodeDiff,
+}
+
+/// Why [`Engine::set_project`] failed. The previous plan keeps playing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProjectError {
+    /// The project could not be compiled.
+    Compile(CompileError),
+    /// The audio thread's plan or timeline queue was full.
+    Busy,
+}
+
+impl fmt::Display for ProjectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Compile(error) => error.fmt(f),
+            Self::Busy => f.write_str("the audio engine is busy; try again"),
+        }
+    }
+}
+
+impl std::error::Error for ProjectError {}
 
 type Started = Result<(Live, MidiRings), String>;
 
@@ -176,6 +219,8 @@ pub struct Engine {
     registry: BackendRegistry,
     midi: Arc<MidiHub>,
     supervisor: Supervisor,
+    project: ProjectSlot,
+    bank: Arc<TelemetryBank>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -214,6 +259,8 @@ impl Engine {
     ) -> Self {
         let shared = Arc::new(Shared::default());
         let live: Arc<Mutex<Option<Live>>> = Arc::new(Mutex::new(None));
+        let project: ProjectSlot = Arc::new(Mutex::new(None));
+        let bank = Arc::new(TelemetryBank::new());
         let midi = Arc::new(MidiHub::new(midi_backend));
         midi.set_inputs(config.midi_inputs);
 
@@ -222,16 +269,20 @@ impl Engine {
             let live = Arc::clone(&live);
             let registry = registry.clone();
             let midi = Arc::clone(&midi);
+            let project = Arc::clone(&project);
+            let bank = Arc::clone(&bank);
             Box::new(move |selection: &AudioSelection| {
                 // The old stream is already closed; its core and rings are gone.
                 midi.detach();
                 *lock(&live) = None;
                 let (started_tx, started_rx) = mpsc::channel::<Started>();
                 let callback_shared = Arc::clone(&shared);
+                let callback_bank = Arc::clone(&bank);
+                let wanted = lock(&project).clone();
                 let opened = registry.open(
                     selection,
                     Box::new(move |info: &StreamInfo| {
-                        make_callback(info, callback_shared, started_tx)
+                        make_callback(info, callback_shared, callback_bank, wanted, started_tx)
                     }),
                 );
                 let stream = opened?;
@@ -240,7 +291,23 @@ impl Engine {
                     .map_err(|_| IoError::new("starting the engine", "no audio core was built"))?
                     .map_err(|error| IoError::new("building the audio graph", error))?;
                 shared.tone.store(false, Ordering::Relaxed);
-                *lock(&live) = Some(new_live);
+                {
+                    let mut guard = lock(&live);
+                    let mut new_live = new_live;
+                    // `set_project` may have stored a newer project while this stream was
+                    // opening (it found no live stream); bring the new plan up to date. The
+                    // lock order is always live, then project.
+                    let current = lock(&project).clone();
+                    let stale = match (&current, &new_live.project) {
+                        (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+                        (Some(_), None) => true,
+                        (None, _) => false,
+                    };
+                    if stale && let Some(current) = current {
+                        let _ = install_project(&mut new_live, current, &bank);
+                    }
+                    *guard = Some(new_live);
+                }
                 midi.attach(rings);
                 Ok(stream)
             })
@@ -252,6 +319,34 @@ impl Engine {
             registry,
             midi,
             supervisor,
+            project,
+            bank,
+        }
+    }
+
+    /// The telemetry bank the audio thread writes: strip meters, transport position, CPU load
+    /// and overflow counters (see `ow-ipc`). It outlives stream reopenings.
+    pub fn telemetry_bank(&self) -> &Arc<TelemetryBank> {
+        &self.bank
+    }
+
+    /// Makes `project` what the engine plays: compiles it for the live stream's sample rate
+    /// ([`compile_project_metered`], meters on the telemetry bank) and sends the plan and
+    /// timeline to the audio thread, which swaps them in at its next cycle boundary. Node state
+    /// carries over by [`NodeKey`] ([`NodeMap::diff`], reported in the result); the compiled
+    /// nodes hold none yet. With no stream open the project is kept and compiled when one
+    /// opens, after a device change or after recovery too.
+    ///
+    /// Replaces the smoke-path test tone ([`set_test_tone`](Self::set_test_tone) then returns
+    /// false), so the app only calls this once a project is being edited. Runs on the caller's
+    /// (control) thread and allocates.
+    pub fn set_project(&self, project: Project) -> Result<ProjectSwap, ProjectError> {
+        let project = Arc::new(project);
+        let mut guard = lock(&self.live);
+        *lock(&self.project) = Some(Arc::clone(&project));
+        match guard.as_mut() {
+            Some(live) => install_project(live, project, &self.bank),
+            None => Ok(ProjectSwap::default()),
         }
     }
 
@@ -291,8 +386,11 @@ impl Engine {
         let Some(live) = guard.as_mut() else {
             return false;
         };
+        let Some(tone_node) = live.tone_node else {
+            return false;
+        };
         let mut message = Message::SetParam {
-            node: live.tone_node,
+            node: tone_node,
             param: graph::nodes::TONE_PARAM_ON,
             value: if on { 1.0 } else { 0.0 },
         };
@@ -333,11 +431,74 @@ impl Engine {
     }
 }
 
+/// Compiles `project` for the live stream and sends plan and timeline to the audio thread.
+fn install_project(
+    live: &mut Live,
+    project: Arc<Project>,
+    bank: &Arc<TelemetryBank>,
+) -> Result<ProjectSwap, ProjectError> {
+    let compiled = compile_project_metered(&project, live.sample_rate, MAX_BLOCK, Some(bank))
+        .map_err(ProjectError::Compile)?;
+    let Compiled {
+        plan,
+        timeline,
+        nodes,
+    } = compiled;
+    live.control
+        .swap_plan(plan)
+        .map_err(|_| ProjectError::Busy)?;
+    // A full timeline ring after the plan went through leaves the old tempo until the next
+    // edit, which sends a fresh timeline.
+    live.control
+        .swap_timeline(timeline)
+        .map_err(|_| ProjectError::Busy)?;
+    let diff = live.nodes.diff(&nodes);
+    live.nodes = nodes;
+    live.tone_node = None;
+    live.project = Some(project);
+    Ok(ProjectSwap {
+        applied: true,
+        diff,
+    })
+}
+
+/// The first plan of a stream: the project's when one is set, else the smoke plan. Returns the
+/// test-tone node (smoke plan only), the node table and the node MIDI is routed to.
+fn first_plan(
+    link: &mut ControlLink,
+    project: Option<&Arc<Project>>,
+    sample_rate: u32,
+    bank: &Arc<TelemetryBank>,
+) -> Result<(Option<NodeId>, NodeMap, NodeId), String> {
+    match project {
+        Some(project) => {
+            let compiled = compile_project_metered(project, sample_rate, MAX_BLOCK, Some(bank))
+                .map_err(|error| error.to_string())?;
+            let target = compiled
+                .nodes
+                .fader(ow_model::MixerRef::Master)
+                .ok_or_else(|| "the compiled project has no master".to_string())?;
+            link.swap_timeline(compiled.timeline)
+                .map_err(|error| error.to_string())?;
+            link.swap_plan(compiled.plan)
+                .map_err(|error| error.to_string())?;
+            Ok((None, compiled.nodes, target))
+        }
+        None => {
+            let (plan, tone) = smoke_plan(sample_rate).map_err(|error| error.to_string())?;
+            link.swap_plan(plan).map_err(|error| error.to_string())?;
+            Ok((Some(tone), NodeMap::default(), tone))
+        }
+    }
+}
+
 /// Runs on the stream thread once the device format is known: builds the core, its MIDI rings
-/// and the smoke plan, hands the control side to the opener and returns the render callback.
+/// and the first plan, hands the control side to the opener and returns the render callback.
 fn make_callback(
     info: &StreamInfo,
     shared: Arc<Shared>,
+    bank: Arc<TelemetryBank>,
+    project: Option<Arc<Project>>,
     started_tx: mpsc::Sender<Started>,
 ) -> AudioCallback {
     let mut builder = CoreBuilder::new()
@@ -351,25 +512,29 @@ fn make_callback(
         .collect();
     let control_surface = builder.producer_ring(MIDI_RING_CAPACITY);
     let (mut link, mut core) = builder.build();
-    let started = smoke_plan(info.sample_rate)
-        .map_err(|error| error.to_string())
-        .and_then(|(plan, tone)| {
-            link.swap_plan(plan).map_err(|error| error.to_string())?;
-            Ok((
+    let telemetry = Arc::clone(link.telemetry());
+    let started = first_plan(&mut link, project.as_ref(), info.sample_rate, &bank).map(
+        |(tone_node, nodes, target)| {
+            (
                 Live {
-                    telemetry: Arc::clone(link.telemetry()),
+                    telemetry: Arc::clone(&telemetry),
                     control: link,
-                    tone_node: tone,
+                    tone_node,
+                    nodes,
+                    project: project.clone(),
+                    sample_rate: info.sample_rate,
                 },
                 MidiRings {
                     pool,
                     control_surface,
-                    // Until the MIDI stages route to instruments, MIDI goes to the tone node,
-                    // which ignores it; the ring path and counters are exercised end to end.
-                    target: tone,
+                    // Until the MIDI stages route to instruments, MIDI goes to a node that
+                    // ignores it (the tone, or the master fader); the ring path and counters
+                    // are exercised end to end.
+                    target,
                 },
-            ))
-        });
+            )
+        },
+    );
     let _ = started_tx.send(started);
     let sample_rate = info.sample_rate.max(1) as f32;
     let channels = usize::from(info.output_channels).max(1);
@@ -384,6 +549,11 @@ fn make_callback(
             cpu += (load - cpu) * CPU_SMOOTHING;
             shared.cpu.store(cpu.to_bits(), Ordering::Relaxed);
         }
+        // Relaxed atomic stores into the preallocated bank: nothing here allocates or locks.
+        bank.set_position(telemetry.transport_position());
+        bank.set_cpu_load(cpu);
+        bank.set_overflow(Overflow::Ring, core.overflow_total());
+        bank.set_overflow(Overflow::Unrouted, telemetry.unrouted());
     })
 }
 

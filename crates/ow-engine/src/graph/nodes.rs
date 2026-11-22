@@ -2,6 +2,9 @@
 //! later stages.
 
 use std::f64::consts::TAU;
+use std::sync::Arc;
+
+use ow_ipc::TelemetryBank;
 
 use super::{Node, ProcessContext};
 use crate::{TEST_TONE_HZ, ToneGenerator};
@@ -76,6 +79,7 @@ pub struct GainNode {
     channels: usize,
     current: f32,
     target: f32,
+    meter: Option<(Arc<TelemetryBank>, usize)>,
 }
 
 impl GainNode {
@@ -85,7 +89,16 @@ impl GainNode {
             channels,
             current: gain,
             target: gain,
+            meter: None,
         }
+    }
+
+    /// Publishes the block peak and RMS of the output (the first two channels, the first one
+    /// twice for a mono node) to meter `slot` of `bank` after every block. The writes are
+    /// relaxed atomic stores, safe on the audio thread.
+    pub fn with_meter(mut self, bank: Arc<TelemetryBank>, slot: usize) -> Self {
+        self.meter = Some((bank, slot));
+        self
     }
 }
 
@@ -101,6 +114,8 @@ impl Node for GainNode {
     }
     fn process(&mut self, ctx: &mut ProcessContext<'_>) {
         let step = (self.target - self.current) / ctx.frames as f32;
+        let mut peak = [0.0_f32; 2];
+        let mut mean_square = [0.0_f32; 2];
         for channel in 0..self.channels {
             let input = ctx.inputs.channel(channel);
             let output = ctx.outputs.channel_mut(channel);
@@ -116,8 +131,24 @@ impl Node for GainNode {
                     *out = sample * gain;
                 }
             }
+            if self.meter.is_some() && channel < 2 {
+                let (mut top, mut sum) = (0.0_f32, 0.0_f32);
+                for sample in output.iter() {
+                    top = top.max(sample.abs());
+                    sum += sample * sample;
+                }
+                peak[channel] = top;
+                mean_square[channel] = sum / output.len().max(1) as f32;
+            }
         }
         self.current = self.target;
+        if let Some((bank, slot)) = &self.meter {
+            if self.channels < 2 {
+                peak[1] = peak[0];
+                mean_square[1] = mean_square[0];
+            }
+            bank.write_meter(*slot, peak, [mean_square[0].sqrt(), mean_square[1].sqrt()]);
+        }
     }
     fn set_param(&mut self, param: u32, value: f32) {
         if param == GAIN_PARAM && value.is_finite() {

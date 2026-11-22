@@ -144,6 +144,11 @@ impl EngineState {
         }
     }
 
+    /// The engine handle (the IPC layer hands compiled projects to it).
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
     pub fn status(&self) -> EngineStatus {
         let audio = self.engine.audio_status();
         let midi = self.engine.midi().status();
