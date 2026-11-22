@@ -6,8 +6,15 @@ license.workspace = true
 repository.workspace = true
 description = "Project model for OpenWave Studio: timeline math, tracks, clips, edit commands"
 
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+# `.owz` archives (project sharing and templates); deflate only, no encryption or other codecs.
+zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
 [dev-dependencies]
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
+tempfile = "3.27.0"
 
 [lints]
 workspace = true

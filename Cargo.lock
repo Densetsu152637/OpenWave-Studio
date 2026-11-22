@@ -2866,6 +2866,10 @@ name = "ow-model"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]

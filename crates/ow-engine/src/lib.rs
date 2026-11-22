@@ -6,8 +6,10 @@
 //! an [`AudioCore`] each device callback, with a pool of real-time DSP workers running
 //! independent nodes in parallel (see [`sched`]). The callback stays allocation-free and
 //! lock-free; control flows in through [`ProducerRing`]s carrying [`Message`]s. The transport,
-//! tempo map and sample-accurate block timing live in [`transport`].
+//! tempo map and sample-accurate block timing live in [`transport`]. [`compile`] turns an
+//! `ow-model` project into a plan and timeline.
 
+pub mod compile;
 pub mod graph;
 pub mod offline;
 pub mod pdc;
@@ -25,6 +27,9 @@ use std::time::{Duration, Instant};
 
 use ow_io::{OutputInfo, OutputStream};
 
+pub use compile::{
+    Carry, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project, fader_gain,
+};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
