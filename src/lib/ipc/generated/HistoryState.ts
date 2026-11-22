@@ -27,4 +27,9 @@ inTransaction: boolean,
 /**
  * The project differs from what was last marked saved.
  */
-dirty: boolean, };
+dirty: boolean, 
+/**
+ * Why the audio engine is not playing the current project (its plan could not be swapped
+ * in); null while it is. The engine keeps the previous plan and the app retries.
+ */
+engineError: string | null, };

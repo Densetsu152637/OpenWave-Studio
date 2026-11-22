@@ -30,17 +30,19 @@ pub struct Session {
     editor: Editor,
     seq: u64,
     history: HistoryState,
+    engine_error: Option<String>,
 }
 
 impl Session {
     /// A session over `project`, at sequence 0.
     pub fn new(project: Project) -> Self {
         let editor = Editor::new(project);
-        let history = history_of(&editor);
+        let history = history_of(&editor, None);
         Self {
             editor,
             seq: 0,
             history,
+            engine_error: None,
         }
     }
 
@@ -74,12 +76,23 @@ impl Session {
         self.finish(Vec::new())
     }
 
+    /// Records whether the engine plays the current project (`None`) or why it does not. Yields a
+    /// patch (no operations, new history) only when the state changed, so the UI hears about a
+    /// failed swap right away and about its recovery.
+    pub fn set_engine_error(&mut self, error: Option<String>) -> Option<ModelPatch> {
+        if self.engine_error == error {
+            return None;
+        }
+        self.engine_error = error;
+        self.finish(Vec::new())
+    }
+
     /// Swaps in another project (one was opened): the history is discarded and the UI receives
     /// one `Reset` patch.
     pub fn replace_project(&mut self, project: Project) -> ModelPatch {
         self.editor = Editor::new(project);
         self.seq += 1;
-        self.history = history_of(&self.editor);
+        self.history = history_of(&self.editor, self.engine_error.clone());
         ModelPatch {
             seq: self.seq,
             ops: vec![PatchOp::Reset {
@@ -147,7 +160,7 @@ impl Session {
 
     /// Wraps `ops` into the next patch when there is anything to report.
     fn finish(&mut self, ops: Vec<PatchOp>) -> Option<ModelPatch> {
-        let history = history_of(&self.editor);
+        let history = history_of(&self.editor, self.engine_error.clone());
         if ops.is_empty() && history == self.history {
             return None;
         }
@@ -161,7 +174,7 @@ impl Session {
     }
 }
 
-fn history_of(editor: &Editor) -> HistoryState {
+fn history_of(editor: &Editor, engine_error: Option<String>) -> HistoryState {
     HistoryState {
         can_undo: editor.can_undo(),
         can_redo: editor.can_redo(),
@@ -169,5 +182,6 @@ fn history_of(editor: &Editor) -> HistoryState {
         redo_label: editor.redo_label().map(str::to_owned),
         in_transaction: editor.in_transaction(),
         dirty: editor.is_dirty(),
+        engine_error,
     }
 }

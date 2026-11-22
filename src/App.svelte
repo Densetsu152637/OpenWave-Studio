@@ -7,11 +7,13 @@
   import SettingsDialog from "./routes/settings/SettingsDialog.svelte";
   import { engineStatus, offlineStatus, prefsGet, setTestTone, type EngineStatus } from "./lib/ipc";
   import { applyTheme } from "./lib/prefs";
+  import { modelMirror, type MirrorState } from "./lib/stores";
 
   const POLL_MS = 500;
 
   let status = $state<EngineStatus>(offlineStatus);
   let settingsOpen = $state(false);
+  let mirror = $state<MirrorState>(modelMirror.state);
 
   async function refresh() {
     try {
@@ -31,12 +33,18 @@
 
   onMount(() => {
     void refresh();
+    // The project mirror: patches (including engine swap failures) arrive on its channel.
+    const stopMirror = modelMirror.subscribe((state) => (mirror = state));
+    void modelMirror.attach();
     // The saved theme applies at launch, not only when Settings opens.
     prefsGet()
       .then((snapshot) => applyTheme(snapshot.prefs.appearance.theme))
       .catch(() => {});
     const timer = setInterval(refresh, POLL_MS);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      stopMirror();
+    };
   });
 </script>
 
@@ -44,7 +52,7 @@
   <MenuBar onSettings={() => (settingsOpen = true)} />
   <Transport {status} onToggle={toggleTone} />
   <Arrangement />
-  <StatusBar {status} />
+  <StatusBar {status} engineError={mirror.history?.engineError ?? null} />
 </div>
 
 {#if settingsOpen}

@@ -64,6 +64,9 @@ pub struct HistoryState {
     pub in_transaction: bool,
     /// The project differs from what was last marked saved.
     pub dirty: bool,
+    /// Why the audio engine is not playing the current project (its plan could not be swapped
+    /// in); null while it is. The engine keeps the previous plan and the app retries.
+    pub engine_error: Option<String>,
 }
 
 /// One change to the mirrored project. Applying a patch's operations in order to the mirror

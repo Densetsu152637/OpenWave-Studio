@@ -118,6 +118,10 @@ impl Control {
                 Some(error)
             }
         };
+        // The UI hears about a failure (and its recovery) as a patch, not on the next command.
+        if let Some(patch) = self.session.set_engine_error(self.engine_error.clone()) {
+            self.deliver(&patch);
+        }
     }
 
     /// Swaps in another project (a project was opened): one `Reset` patch to the UI and a fresh
@@ -274,7 +278,8 @@ mod tests {
             ..Engineish::default()
         };
         assert!(control.command(set_tempo(130.0), &target).is_ok());
-        assert_eq!(control.session().seq(), 1);
+        // The edit's patch, then the patch that reports the engine failure.
+        assert_eq!(control.session().seq(), 2);
     }
 
     #[test]
@@ -295,12 +300,31 @@ mod tests {
         let mut control = Control::new();
         let target = Engineish::default();
         target.fail_next.set(1);
+        let sink = Collect::default();
+        let snapshot = control.attach(Box::new(sink.clone()));
         let reply = control.command(set_tempo(95.0), &target).unwrap();
         assert_eq!(reply.engine_error.as_deref(), Some("busy"));
         assert_eq!(control.engine_error(), Some("busy"));
         // A rename does not affect the sound, but the pending failure is retried anyway.
         let reply = control.command(rename("x"), &target).unwrap();
         assert_eq!(reply.engine_error, None);
+        let errors: Vec<Option<String>> = sink
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|p| p.history.engine_error.clone())
+            .collect();
+        // Edit patch, failure patch, rename patch, recovery patch.
+        assert_eq!(
+            errors,
+            [None, Some("busy".into()), Some("busy".into()), None]
+        );
+        let mut mirror = Mirror::from_snapshot(snapshot);
+        for patch in sink.0.lock().unwrap().iter() {
+            mirror.apply(patch).unwrap();
+        }
+        assert_eq!(mirror.history.engine_error, None);
         assert_eq!(target.applied.borrow().len(), 2);
         assert_eq!(control.engine_error(), None);
     }

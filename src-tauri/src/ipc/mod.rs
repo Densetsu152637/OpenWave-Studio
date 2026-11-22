@@ -1,5 +1,8 @@
 //! Tauri side of the IPC bridge (architecture section 7).
 //!
+//! All commands except the strip subscription run on the blocking pool (`blocking`), so the
+//! control lock, plan compiles and thread joins never stall the async runtime.
+//!
 //! * `ipc_attach` / `ipc_snapshot` / `ipc_command` / `ipc_alloc_ids`: the state mirror. The
 //!   project lives in [`control::Control`] behind one mutex on the control side; every command
 //!   runs there, its patch goes out on an `ipc::Channel` while the lock is held (that is what
@@ -22,8 +25,8 @@ pub mod peaks;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use ow_ipc::{CommandReply, ModelPatch, Overflow, Snapshot, Subscriptions, UiCommand};
-use tauri::State;
 use tauri::ipc::{Channel, InvokeResponseBody, Response};
+use tauri::{AppHandle, Manager, State};
 
 use crate::engine::EngineState;
 use control::{Control, PatchSink};
@@ -66,75 +69,88 @@ impl Default for IpcState {
     }
 }
 
+/// Runs `work` on Tauri's blocking pool. The commands below lock the control state, compile
+/// plans and join threads; none of that may run on an async worker or the main thread.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Registers the UI's patch channel and returns the snapshot to continue from.
 #[tauri::command]
-pub async fn ipc_attach(
-    state: State<'_, IpcState>,
-    patches: Channel<ModelPatch>,
-) -> Result<Snapshot, String> {
-    Ok(lock(&state.control).attach(Box::new(patches)))
+pub async fn ipc_attach(app: AppHandle, patches: Channel<ModelPatch>) -> Result<Snapshot, String> {
+    blocking(move || Ok(lock(&app.state::<IpcState>().control).attach(Box::new(patches)))).await
 }
 
 /// The whole project at the current sequence number (the answer to a detected gap).
 #[tauri::command]
-pub async fn ipc_snapshot(state: State<'_, IpcState>) -> Result<Snapshot, String> {
-    Ok(lock(&state.control).snapshot())
+pub async fn ipc_snapshot(app: AppHandle) -> Result<Snapshot, String> {
+    blocking(move || Ok(lock(&app.state::<IpcState>().control).snapshot())).await
 }
 
 /// Applies one UI command; the patch it produces arrives on the attached channel.
 #[tauri::command]
-pub async fn ipc_command(
-    state: State<'_, IpcState>,
-    engine: State<'_, EngineState>,
-    command: UiCommand,
-) -> Result<CommandReply, String> {
-    lock(&state.control).command(command, engine.engine())
+pub async fn ipc_command(app: AppHandle, command: UiCommand) -> Result<CommandReply, String> {
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        lock(&state.control).command(command, engine.engine())
+    })
+    .await
 }
 
 /// Reserves `count` entity ids for the UI's next edits.
 #[tauri::command]
-pub async fn ipc_alloc_ids(
-    state: State<'_, IpcState>,
-    engine: State<'_, EngineState>,
-    count: u32,
-) -> Result<CommandReply, String> {
-    lock(&state.control).command(UiCommand::AllocIds { count }, engine.engine())
+pub async fn ipc_alloc_ids(app: AppHandle, count: u32) -> Result<CommandReply, String> {
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        lock(&state.control).command(UiCommand::AllocIds { count }, engine.engine())
+    })
+    .await
 }
 
 /// Starts (or restarts) the telemetry bridge: frames go to `frames` as raw bytes at `hz`
 /// (at most 60).
 #[tauri::command]
 pub async fn telemetry_start(
-    state: State<'_, IpcState>,
-    engine: State<'_, EngineState>,
+    app: AppHandle,
     frames: Channel<InvokeResponseBody>,
     hz: u32,
 ) -> Result<(), String> {
-    let mut slot = lock(&state.bridge);
-    if let Some(mut old) = slot.take() {
-        old.stop();
-    }
-    let bank = Arc::clone(engine.engine().telemetry_bank());
-    let midi_source = Arc::clone(engine.engine().midi());
-    let mut tick = 0_u32;
-    *slot = Some(bridge::Bridge::start(
-        bank,
-        Arc::clone(&state.subscriptions),
-        hz,
-        move |bank| {
-            // MIDI drops are counted by the hub, not on the audio thread; copy them over about
-            // ten times a second.
-            if tick.is_multiple_of(6) {
-                bank.set_overflow(Overflow::Midi, midi_source.status().dropped);
-            }
-            tick = tick.wrapping_add(1);
-        },
-        move |bytes| frames.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok(),
-    ));
-    Ok(())
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        let mut slot = lock(&state.bridge);
+        if let Some(mut old) = slot.take() {
+            old.stop();
+        }
+        let bank = Arc::clone(engine.engine().telemetry_bank());
+        let midi_source = Arc::clone(engine.engine().midi());
+        let mut tick = 0_u32;
+        *slot = Some(bridge::Bridge::start(
+            bank,
+            Arc::clone(&state.subscriptions),
+            hz,
+            move |bank| {
+                // MIDI drops are counted by the hub, not on the audio thread; copy them over
+                // about ten times a second.
+                if tick.is_multiple_of(6) {
+                    bank.set_overflow(Overflow::Midi, midi_source.status().dropped);
+                }
+                tick = tick.wrapping_add(1);
+            },
+            move |bytes| frames.send(InvokeResponseBody::Raw(bytes.to_vec())).is_ok(),
+        ));
+        Ok(())
+    })
+    .await
 }
 
-/// Replaces the set of meter slots the UI can currently see.
+/// Replaces the set of meter slots the UI can currently see (a few atomic stores).
 #[tauri::command]
 pub async fn telemetry_set_strips(
     state: State<'_, IpcState>,
@@ -144,24 +160,32 @@ pub async fn telemetry_set_strips(
     Ok(())
 }
 
-/// Stops the telemetry bridge.
+/// Stops the telemetry bridge (joins its thread).
 #[tauri::command]
-pub async fn telemetry_stop(state: State<'_, IpcState>) -> Result<(), String> {
-    if let Some(mut bridge) = lock(&state.bridge).take() {
-        bridge.stop();
-    }
-    Ok(())
+pub async fn telemetry_stop(app: AppHandle) -> Result<(), String> {
+    blocking(move || {
+        if let Some(mut bridge) = lock(&app.state::<IpcState>().bridge).take() {
+            bridge.stop();
+        }
+        Ok(())
+    })
+    .await
 }
 
 /// `bins` min/max pairs over frames `[start, end)` of a media item, as raw bytes (layout in
 /// `ow_ipc::peaks`). Stub source until the peak cache exists.
 #[tauri::command]
 pub async fn peaks_range(
-    state: State<'_, IpcState>,
+    app: AppHandle,
     media: u64,
     start: u64,
     end: u64,
     bins: u32,
 ) -> Result<Response, String> {
-    Ok(Response::new(state.peaks.range(media, start, end, bins)))
+    blocking(move || {
+        Ok(Response::new(
+            app.state::<IpcState>().peaks.range(media, start, end, bins),
+        ))
+    })
+    .await
 }

@@ -690,4 +690,95 @@ mod tests {
         let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
         assert!((peak - TEST_TONE_GAIN).abs() < 0.01, "peak = {peak}");
     }
+
+    fn project_at(bpm: f64) -> Arc<Project> {
+        let mut project = Project::new("tempo");
+        project.tempo_map = ow_model::time::TempoMap::constant(bpm).unwrap();
+        Arc::new(project)
+    }
+
+    fn test_live() -> (Live, AudioCore) {
+        let (link, core) = CoreBuilder::new()
+            .workers(0)
+            .plan_queue(64)
+            .retire_queue(64)
+            .build();
+        let live = Live {
+            telemetry: Arc::clone(link.telemetry()),
+            control: link,
+            tone_node: None,
+            nodes: NodeMap::default(),
+            project: None,
+            sample_rate: 48_000,
+            pending_timeline: None,
+        };
+        (live, core)
+    }
+
+    /// The sample position 4 beats lands on under the timeline the audio thread has live, which
+    /// reveals its tempo: `4 * 60 / bpm * 48000`.
+    fn live_tempo(live: &mut Live, core: &mut AudioCore) -> f64 {
+        assert!(
+            live.control
+                .send(Message::Transport(TransportCommand::LocateBeats(4.0)))
+        );
+        let mut buffer = vec![0.0_f32; 64 * 2];
+        for _ in 0..8 {
+            core.process(&mut buffer, 2, None);
+        }
+        4.0 * 60.0 * 48_000.0 / core.transport().position as f64
+    }
+
+    #[test]
+    fn pending_timeline_never_lets_an_older_tempo_overtake_a_newer_one() {
+        let bank = Arc::new(TelemetryBank::new());
+        let (mut live, mut core) = test_live();
+        let mut installed = 0_u64;
+        let mut bpm = 100.0;
+        // Fill the timeline ring (the audio thread is not running) until a swap leaves its
+        // timeline pending; the plan is live nonetheless.
+        let mut last = project_at(bpm);
+        while live.pending_timeline.is_none() {
+            assert!(installed < 12, "the timeline ring never filled");
+            bpm += 1.0;
+            last = project_at(bpm);
+            let swap = install_project(&mut live, Arc::clone(&last), &bank).unwrap();
+            installed += 1;
+            assert!(swap.applied);
+            assert_eq!(swap.timeline_pending, live.pending_timeline.is_some());
+        }
+        // Plan and bookkeeping are consistent with the swap that left the timeline pending.
+        assert!(Arc::ptr_eq(live.project.as_ref().unwrap(), &last));
+        assert_eq!(
+            live.pending_timeline.as_ref().unwrap().tempo(),
+            &last.tempo_map
+        );
+
+        // The ring is still full: a newer swap cannot send anything and its timeline replaces
+        // the pending one, so the older tempo is dropped instead of queued behind it.
+        let newer = project_at(150.0);
+        let swap = install_project(&mut live, Arc::clone(&newer), &bank).unwrap();
+        installed += 1;
+        assert!(swap.timeline_pending);
+        assert_eq!(
+            live.pending_timeline.as_ref().unwrap().tempo(),
+            &newer.tempo_map
+        );
+
+        // The audio thread catches up; the next swap flushes the pending timeline first and the
+        // newest after it.
+        let mut buffer = vec![0.0_f32; 64 * 2];
+        for _ in 0..4 {
+            core.process(&mut buffer, 2, None);
+        }
+        let newest = project_at(160.0);
+        let swap = install_project(&mut live, Arc::clone(&newest), &bank).unwrap();
+        installed += 1;
+        assert!(!swap.timeline_pending && live.pending_timeline.is_none());
+        assert!(Arc::ptr_eq(live.project.as_ref().unwrap(), &newest));
+        let tempo = live_tempo(&mut live, &mut core);
+        assert!((tempo - 160.0).abs() < 0.01, "the live tempo is {tempo}");
+        // Every plan reached the audio thread, in step with the project the engine remembers.
+        assert_eq!(live.telemetry.plan_swaps(), installed);
+    }
 }

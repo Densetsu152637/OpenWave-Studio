@@ -283,3 +283,19 @@ describe("model mirror", () => {
     expectMirrors(mirror.state, fixture.last);
   });
 });
+
+describe("engine swap failures", () => {
+  it("shows the engine error from a patch right away and clears it when a later patch recovers", async () => {
+    const mock = mockBackend(() => fixture.last);
+    const mirror = new ModelMirror(mock.transport);
+    await mirror.attach();
+    const base = fixture.patches[0];
+    const failed: ModelPatch = { seq: 1, ops: [], history: { ...base.history, engineError: "the audio engine is busy" } };
+    const recovered: ModelPatch = { seq: 2, ops: [], history: { ...base.history, engineError: null } };
+    mock.deliver(failed);
+    expect(mirror.state.history?.engineError).toBe("the audio engine is busy");
+    mock.deliver(recovered);
+    expect(mirror.state.history?.engineError).toBeNull();
+    expect(mirror.state.seq).toBe(2);
+  });
+});

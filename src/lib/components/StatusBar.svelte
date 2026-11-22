@@ -2,13 +2,19 @@
   import { formatCpu, formatDevice } from "../format";
   import type { EngineStatus } from "../ipc";
 
-  let { status }: { status: EngineStatus } = $props();
+  let { status, engineError = null }: { status: EngineStatus; engineError?: string | null } =
+    $props();
 </script>
 
 <footer class="statusbar">
   <span class="device" class:error={!status.running} title="Audio output device">
     {formatDevice(status)}
   </span>
+  {#if engineError}
+    <span class="error" role="alert" title="The audio engine is still playing the previous version of the project">
+      Engine: {engineError}
+    </span>
+  {/if}
   <span class="cpu" title="Audio engine load">CPU {formatCpu(status.cpuLoad)}</span>
 </footer>
 
