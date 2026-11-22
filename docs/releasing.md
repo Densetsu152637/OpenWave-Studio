@@ -32,11 +32,11 @@ Every release carries, per target, the installers plus a portable package, and o
 - macOS: `OpenWave-Studio_<version>_universal.dmg` and `OpenWave-Studio_<version>_universal_portable.zip` (the `.app` bundle, a `portable` marker beside it and the license).
 - Linux: the `.AppImage` is the portable artifact (place a `portable` marker beside it), plus `.deb` and `.rpm`.
 
-`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), checks that each portable zip holds the program, `LICENSE` and the `portable` marker at its top level, and requires the `.rpm` files for versions without a hyphen, and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. Updater artifacts are off (`createUpdaterArtifacts` is `false`) until the updater stage adds a signing key, so no `latest.json` feed is written yet.
+`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), checks that each portable zip holds the program, `LICENSE` and the `portable` marker at its top level, and requires the `.rpm` files for versions without a hyphen, and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. `scripts/ci/prepare-build.sh` turns `bundle.createUpdaterArtifacts` on through the `--config` overlay, so every NSIS installer, `.app.tar.gz` and AppImage is built with a `.sig` beside it, and `collect-dist.sh` fails if one is missing. The signatures use the repository secrets below.
 
 ## Required secrets
 
-None today. The updater stage adds `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Apple secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`) are optional: when present, `build.yml` signs with that Developer ID and notarizes; when absent, nothing else changes. `release.yml` and `experimental.yml` pass these secrets to `build.yml` explicitly (no `secrets: inherit`), and `build.yml` hands them only to the tauri-action step, through `scripts/ci/tauri.sh`, which drops the empty ones. The publish jobs use only the workflow's `GITHUB_TOKEN` (`contents: write`).
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` sign the updater artifacts; see [Update feeds and signing keys](#update-feeds-and-signing-keys). Apple secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`) are optional: when present, `build.yml` signs with that Developer ID and notarizes; when absent, nothing else changes. `release.yml` and `experimental.yml` pass these secrets to `build.yml` explicitly (no `secrets: inherit`), and `build.yml` hands them only to the tauri-action step, through `scripts/ci/tauri.sh`, which drops the empty ones. The publish jobs use only the workflow's `GITHUB_TOKEN` (`contents: write`).
 
 ## macOS signing and Gatekeeper
 
@@ -50,11 +50,36 @@ Ad-hoc signing binds the macOS privacy (TCC) microphone grant to the code-direct
 
 ## Verifying a download
 
-Every release lists `SHA256SUMS`, which covers the installers, portable packages and signatures published with that release. The update feed `latest.json` (from the updater stage) lives in the `updater-<channel>` releases and is not in `SHA256SUMS`. Download it next to the files you want and check them (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS, or compare `Get-FileHash <file>` with the matching line on Windows).
+Every release lists `SHA256SUMS`, which covers the installers, portable packages and signatures published with that release. The update feed `latest.json` lives in the `updater-<channel>` releases and is not in `SHA256SUMS`. Download it next to the files you want and check them (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS, or compare `Get-FileHash <file>` with the matching line on Windows).
 
-## Forcing the update feed
+## Update feeds and signing keys
 
-The update feed (stage 3) normally refuses to move backwards: a publish whose version is lower than the current feed's is skipped. For an intentional version reset, such as after a mistakenly high version, dispatch the workflow manually with `force_feed` set to `true`: `experimental.yml` from the `experimental` branch, or `release.yml` on an existing tag ref. The input counts only when it is exactly `true`. The override applies to that run only: it skips the newer-feed check and also the newer-release check above (so a lower version can be published; the newer release is not deleted and must be removed by hand), and it never bypasses the branch-ancestry check. The input and the `FORCE_FEED` variable are already wired through the publish scripts; the feed itself arrives with the updater stage.
+Each channel has a feed: the asset `latest.json` of a fixed release, `updater-main` or `updater-experimental` (the tags start with `updater-`, so they never match the `v*` trigger and the prune scripts skip them). The app reads `https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-<channel>/latest.json`. Both releases are pre-releases that are never marked latest, and are created by CI when absent.
+
+Publish order, in `scripts/ci/publish-release.sh` and `publish-experimental.sh`: (1) create the versioned release with all assets, (2) `scripts/ci/publish-feed.sh` writes the feed, (3) prune older releases. So the feed never points at a missing asset. The feed step:
+
+1. Downloads the current `latest.json` and skips the upload, with a notice, when its version is greater than the one being published (a late older run cannot roll the channel back).
+2. Runs `scripts/ci/updater-manifest.sh`, which builds `latest.json` from the `.sig` files in `release-dist/` and fails unless all ten installer keys are present: `windows-x86_64`, `windows-x86_64-nsis`, `windows-aarch64`, `windows-aarch64-nsis`, `darwin-x86_64`, `darwin-aarch64`, `linux-x86_64`, `linux-x86_64-appimage`, `linux-aarch64`, `linux-aarch64-appimage`. The two macOS keys point at the same universal `.app.tar.gz`.
+3. Runs `scripts/ci/check-feed.sh`, which requests every URL in the new feed (redirects followed, with retries) and fails unless each answers HTTP 200.
+4. Uploads it with `gh release upload --clobber`.
+
+The publish job of each workflow holds `concurrency: { group: updater-feed-<channel>, cancel-in-progress: false }`, so two runs never write one feed at once. Only stable main releases write the main feed: a main pre-release (for example `v0.2.0-rc.1`) never feeds the stable channel.
+
+Check a feed from outside: `curl -sL <feed url> | jq -r '.platforms | keys[]'` and `scripts/ci/check-feed.sh <feed url>`.
+
+### Signing keys
+
+The updater verifies every download against the public key in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The matching private key and its password are the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; the public key is also kept as the secret `TAURI_SIGNING_PUBLIC_KEY` for reference. Generate a pair with `pnpm tauri signer generate`. The private key must never be committed or printed. Rotating the key strands installed builds: they accept only updates signed by the key they carry, so a rotation needs a release signed with the old key that carries the new public key first.
+
+### Forcing the update feed
+
+The feed normally refuses to move backwards. For an intentional version reset, such as after a mistakenly high version, dispatch the workflow manually with `force_feed` set to `true`: `experimental.yml` from the `experimental` branch, or `release.yml` on an existing tag ref (`prepare` fails on a branch ref). The input counts only when it is exactly `true`. The override applies to that run only: it skips the newer-release check and the feed's newer-version check, so a lower version can be published and written to the feed (the newer release is not deleted and must be removed by hand), and it never bypasses the branch-ancestry check. Afterwards restore the feed with a normal publish of the newest build.
+
+Note that a fresh dispatch always gets a new, higher run number. To publish an older build on purpose, re-run the publish job of an older run that was itself started with `force_feed=true` (a re-run keeps its original inputs).
+
+## Update behavior in the app
+
+The channel defaults to the one the running version was released on (a version containing `-experimental` follows experimental, anything else main) and can be switched in Settings. Checks run 20 s after start and every 6 h; a newer build downloads in the background and installs when the app quits, or at once with "Restart now". After a channel switch exactly one check accepts any different version (so experimental can move back to the current stable); it is not saved. Linux installs without `$APPIMAGE` (deb, rpm) are package-managed: no checks, no feed requests, and the panel says "Update OpenWave Studio through your package manager". Windows portable folders do not self-update until the portable update stage; the panel says so.
 
 ## Local checks
 

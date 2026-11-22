@@ -60,6 +60,11 @@ jobs:
     needs: [prepare, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # One feed writer at a time per channel; a queued run waits instead of cancelling the one
+    # that is writing.
+    concurrency:
+      group: updater-feed-main
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:

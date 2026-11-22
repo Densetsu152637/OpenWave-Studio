@@ -1,0 +1,541 @@
+//! Self-update for installed builds.
+//!
+//! The app follows one of two channels, `main` (stable) and `experimental`. Each channel's feed
+//! is the fixed-URL `latest.json` asset of the `updater-<channel>` GitHub Release, written by the
+//! publish scripts after the versioned release exists. The updater checks 20 s after start and
+//! every 6 h, downloads a newer signed build in the background, and installs it when the app
+//! quits or when the user asks to restart now. The signature in the feed is verified against the
+//! public key in `tauri.conf.json`.
+//!
+//! After a channel switch exactly one check accepts any different version (so moving from
+//! experimental back to main can "downgrade"); that relaxation is never persisted.
+
+use std::ffi::OsStr;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::Duration;
+
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_updater::{Update, UpdaterExt};
+use tokio::sync::Notify;
+
+use crate::paths::Paths;
+
+/// The repository whose releases carry the update feeds.
+const REPOSITORY: &str = "Densetsu152637/OpenWave-Studio";
+/// Delay before the first check, so it does not compete with opening the window.
+const FIRST_CHECK_AFTER: Duration = Duration::from_secs(20);
+/// Interval between checks while the app stays open.
+const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// Network timeout for one feed or installer request.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// Event carrying every status change to the UI.
+const STATUS_EVENT: &str = "update://status";
+/// Marks experimental versions.
+const EXPERIMENTAL_MARK: &str = "-experimental";
+/// Message shown (and logged) for a package-managed Linux install.
+pub const PACKAGE_MANAGED_MESSAGE: &str = "Update OpenWave Studio through your package manager";
+/// Message shown for a portable Windows install, which the installer-based updater cannot update.
+pub const PORTABLE_MESSAGE: &str =
+    "Portable builds do not update themselves yet. Download the new portable zip to update.";
+
+/// The release line an install follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    Main,
+    Experimental,
+}
+
+impl Channel {
+    /// The channel a build was released on: the one it follows until the user switches.
+    pub fn of_version(version: &str) -> Self {
+        if version.contains(EXPERIMENTAL_MARK) {
+            Self::Experimental
+        } else {
+            Self::Main
+        }
+    }
+
+    /// Name used in the feed release tag (`updater-<name>`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Main => "main",
+            Self::Experimental => "experimental",
+        }
+    }
+
+    /// The fixed feed URL of this channel.
+    pub fn feed_url(self) -> String {
+        format!(
+            "https://github.com/{REPOSITORY}/releases/download/updater-{}/latest.json",
+            self.name()
+        )
+    }
+}
+
+/// Which remote versions a check accepts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Comparator {
+    /// Only a version newer than the running one (every ordinary check).
+    Newer,
+    /// Any version different from the running one (the single check after a channel switch).
+    AnyDifferent,
+}
+
+impl Comparator {
+    pub fn accepts(self, current: &Version, remote: &Version) -> bool {
+        match self {
+            Self::Newer => remote > current,
+            Self::AnyDifferent => remote != current,
+        }
+    }
+}
+
+/// Why this install does not update itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Disabled {
+    /// Linux without `$APPIMAGE`: a deb or rpm install, updated by the package manager.
+    PackageManaged,
+    /// A Windows portable folder: the installer-based updater would not update it.
+    Portable,
+}
+
+impl Disabled {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::PackageManaged => PACKAGE_MANAGED_MESSAGE,
+            Self::Portable => PORTABLE_MESSAGE,
+        }
+    }
+}
+
+/// Decides whether updates are disabled for this install. Pure, so tests can cover every
+/// platform: `appimage` is the value of `$APPIMAGE`.
+pub fn disabled_reason(
+    linux: bool,
+    windows: bool,
+    appimage: Option<&OsStr>,
+    portable: bool,
+) -> Option<Disabled> {
+    if linux && appimage.is_none_or(OsStr::is_empty) {
+        return Some(Disabled::PackageManaged);
+    }
+    if windows && portable {
+        return Some(Disabled::Portable);
+    }
+    None
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum UpdateState {
+    Idle,
+    Checking,
+    UpToDate,
+    Downloading {
+        version: String,
+    },
+    Ready {
+        version: String,
+        notes: Option<String>,
+    },
+    Failed {
+        message: String,
+    },
+    Disabled {
+        reason: Disabled,
+        message: String,
+    },
+}
+
+/// What the UI shows about updates. Mirrored in `src/lib/update/index.ts`.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateStatus {
+    current_version: String,
+    channel: Channel,
+    /// Whether the app checks by itself (off in development builds and when updates are disabled).
+    automatic: bool,
+    #[serde(flatten)]
+    state: UpdateState,
+}
+
+/// The saved channel choice.
+#[derive(Serialize, Deserialize)]
+struct Preferences {
+    channel: Channel,
+}
+
+pub struct Updater {
+    inner: Mutex<Inner>,
+    check_requested: Notify,
+    /// Held for a whole check, so a requested check never overlaps a scheduled one.
+    checking: tokio::sync::Mutex<()>,
+    disabled: Option<Disabled>,
+    preferences: Option<PathBuf>,
+}
+
+struct Inner {
+    channel: Channel,
+    state: UpdateState,
+    /// A downloaded update waiting to be installed.
+    ready: Option<(Update, Vec<u8>)>,
+    /// Set by a channel switch; consumed by the next check that reaches the feed.
+    relaxed: bool,
+}
+
+impl Updater {
+    fn status<R: Runtime>(&self, app: &AppHandle<R>) -> UpdateStatus {
+        let inner = self.inner.lock().expect("updater state");
+        let state = match self.disabled {
+            Some(reason) => UpdateState::Disabled {
+                reason,
+                message: reason.message().to_owned(),
+            },
+            None => inner.state.clone(),
+        };
+        UpdateStatus {
+            current_version: app.package_info().version.to_string(),
+            channel: inner.channel,
+            automatic: self.disabled.is_none() && automatic(),
+            state,
+        }
+    }
+
+    fn set_state<R: Runtime>(&self, app: &AppHandle<R>, state: UpdateState) {
+        self.inner.lock().expect("updater state").state = state;
+        let _ = app.emit(STATUS_EVENT, self.status(app));
+    }
+}
+
+/// Development builds only check when asked.
+fn automatic() -> bool {
+    !cfg!(debug_assertions)
+}
+
+/// Registers the updater state and starts the periodic check.
+pub fn setup<R: Runtime>(app: &AppHandle<R>) {
+    let version = app.package_info().version.to_string();
+    let preferences = app
+        .try_state::<Paths>()
+        .map(|paths| paths.config_dir.join("update.json"));
+    let saved = preferences
+        .as_ref()
+        .and_then(|file| std::fs::read(file).ok())
+        .and_then(|bytes| serde_json::from_slice::<Preferences>(&bytes).ok());
+    let channel = saved.map_or_else(|| Channel::of_version(&version), |saved| saved.channel);
+    let portable = app.try_state::<Paths>().is_some_and(|paths| paths.portable);
+    let disabled = disabled_reason(
+        cfg!(target_os = "linux"),
+        cfg!(windows),
+        std::env::var_os("APPIMAGE").as_deref(),
+        portable,
+    );
+    app.manage(Updater {
+        inner: Mutex::new(Inner {
+            channel,
+            state: UpdateState::Idle,
+            ready: None,
+            relaxed: false,
+        }),
+        check_requested: Notify::new(),
+        checking: tokio::sync::Mutex::new(()),
+        disabled,
+        preferences,
+    });
+
+    if let Some(reason) = disabled {
+        eprintln!("[openwave] update: checks disabled ({})", reason.message());
+        return;
+    }
+    eprintln!(
+        "[openwave] update: version {version}, channel {}, automatic checks {}",
+        channel.name(),
+        if automatic() {
+            "on"
+        } else {
+            "off (development build)"
+        }
+    );
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let updater = app.state::<Updater>();
+        if automatic() {
+            tokio::time::sleep(FIRST_CHECK_AFTER).await;
+        } else {
+            updater.check_requested.notified().await;
+        }
+        loop {
+            check(&app).await;
+            if automatic() {
+                // Either the interval passes or a check is requested.
+                let _ = tokio::time::timeout(CHECK_EVERY, updater.check_requested.notified()).await;
+            } else {
+                updater.check_requested.notified().await;
+            }
+        }
+    });
+}
+
+/// Installs a downloaded update as the app exits. On Windows the installer takes over and exits
+/// the process; it is told not to start the new version, since the user chose to quit.
+pub fn install_on_exit<R: Runtime>(app: &AppHandle<R>) {
+    let Some(updater) = app.try_state::<Updater>() else {
+        return;
+    };
+    let ready = updater.inner.lock().expect("updater state").ready.take();
+    if let Some((update, bytes)) = ready {
+        eprintln!("[openwave] update: installing {} on exit", update.version);
+        if let Err(error) = update.restart_after_install(false).install(bytes) {
+            eprintln!("[openwave] update: install on exit failed: {error}");
+        }
+    }
+}
+
+async fn check<R: Runtime>(app: &AppHandle<R>) {
+    let updater = app.state::<Updater>();
+    let _checking = updater.checking.lock().await;
+    let (channel, downloaded, relaxed) = {
+        let mut inner = updater.inner.lock().expect("updater state");
+        let downloaded = inner
+            .ready
+            .as_ref()
+            .map(|(update, _)| update.version.clone());
+        (
+            inner.channel,
+            downloaded,
+            std::mem::take(&mut inner.relaxed),
+        )
+    };
+    updater.set_state(app, UpdateState::Checking);
+    let comparator = if relaxed {
+        Comparator::AnyDifferent
+    } else {
+        Comparator::Newer
+    };
+    let state = match find(app, channel, comparator).await {
+        Ok(None) => {
+            updater.inner.lock().expect("updater state").ready = None;
+            UpdateState::UpToDate
+        }
+        Ok(Some(update)) if downloaded.as_deref() == Some(&update.version) => UpdateState::Ready {
+            version: update.version,
+            notes: update.body,
+        },
+        Ok(Some(update)) => {
+            updater.set_state(
+                app,
+                UpdateState::Downloading {
+                    version: update.version.clone(),
+                },
+            );
+            match update.download(|_, _| {}, || {}).await {
+                Ok(bytes) => {
+                    let state = UpdateState::Ready {
+                        version: update.version.clone(),
+                        notes: update.body.clone(),
+                    };
+                    updater.inner.lock().expect("updater state").ready = Some((update, bytes));
+                    state
+                }
+                Err(error) => UpdateState::Failed {
+                    message: format!("Downloading {} failed: {error}", update.version),
+                },
+            }
+        }
+        Err(message) => {
+            // The relaxed check was not used up: give it to the next attempt.
+            if relaxed {
+                updater.inner.lock().expect("updater state").relaxed = true;
+            }
+            UpdateState::Failed { message }
+        }
+    };
+    eprintln!("[openwave] update: {state:?}");
+    updater.set_state(app, state);
+}
+
+/// An update on `channel` that `comparator` accepts, if the feed offers one.
+async fn find<R: Runtime>(
+    app: &AppHandle<R>,
+    channel: Channel,
+    comparator: Comparator,
+) -> Result<Option<Update>, String> {
+    let url = channel.feed_url();
+    eprintln!("[openwave] update: checking {url} ({comparator:?})");
+    let endpoint = tauri::Url::parse(&url).map_err(|error| error.to_string())?;
+    app.updater_builder()
+        .endpoints(vec![endpoint])
+        .map_err(|error| error.to_string())?
+        .timeout(REQUEST_TIMEOUT)
+        .version_comparator(move |current, remote| comparator.accepts(&current, &remote.version))
+        .build()
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| format!("Checking for updates failed: {error}"))
+}
+
+#[tauri::command]
+pub fn update_status<R: Runtime>(
+    app: AppHandle<R>,
+    updater: tauri::State<'_, Updater>,
+) -> UpdateStatus {
+    updater.status(&app)
+}
+
+/// Starts a check now; the result arrives as a status event. Does nothing, and makes no request,
+/// when updates are disabled for this install.
+#[tauri::command]
+pub fn update_check(updater: tauri::State<'_, Updater>) {
+    if updater.disabled.is_none() {
+        updater.check_requested.notify_one();
+    }
+}
+
+/// Switches channel, saves the choice and checks the new channel once with the relaxed
+/// comparator.
+#[tauri::command]
+pub fn update_set_channel<R: Runtime>(
+    app: AppHandle<R>,
+    updater: tauri::State<'_, Updater>,
+    channel: Channel,
+) -> Result<UpdateStatus, String> {
+    if let Some(file) = &updater.preferences {
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+        }
+        let bytes =
+            serde_json::to_vec(&Preferences { channel }).map_err(|error| error.to_string())?;
+        std::fs::write(file, bytes).map_err(|error| error.to_string())?;
+    }
+    {
+        let mut inner = updater.inner.lock().expect("updater state");
+        if inner.channel != channel {
+            inner.channel = channel;
+            inner.ready = None;
+            inner.state = UpdateState::Idle;
+            inner.relaxed = true;
+        }
+    }
+    update_check(updater.clone());
+    Ok(updater.status(&app))
+}
+
+/// Installs the downloaded update and starts the new version.
+#[tauri::command]
+pub fn update_restart<R: Runtime>(
+    app: AppHandle<R>,
+    updater: tauri::State<'_, Updater>,
+) -> Result<(), String> {
+    let ready = updater.inner.lock().expect("updater state").ready.take();
+    let Some((update, bytes)) = ready else {
+        return Err("No update has been downloaded.".into());
+    };
+    // On Windows the installer takes over here, exits this process and starts the new version.
+    update.install(bytes).map_err(|error| error.to_string())?;
+    app.restart()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(text: &str) -> Version {
+        Version::parse(text).expect("version")
+    }
+
+    #[test]
+    fn a_build_follows_the_channel_it_was_released_on() {
+        assert_eq!(Channel::of_version("0.1.0"), Channel::Main);
+        assert_eq!(Channel::of_version("0.2.0-rc.1"), Channel::Main);
+        assert_eq!(
+            Channel::of_version("0.1.9-experimental"),
+            Channel::Experimental
+        );
+    }
+
+    #[test]
+    fn update_feed_urls_are_fixed_per_channel() {
+        assert_eq!(
+            Channel::Main.feed_url(),
+            "https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-main/latest.json"
+        );
+        assert_eq!(
+            Channel::Experimental.feed_url(),
+            "https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-experimental/latest.json"
+        );
+        for channel in [Channel::Main, Channel::Experimental] {
+            tauri::Url::parse(&channel.feed_url()).expect("valid url");
+        }
+    }
+
+    #[test]
+    fn update_channel_names_round_trip_through_preferences() {
+        let saved = serde_json::to_string(&Preferences {
+            channel: Channel::Experimental,
+        })
+        .expect("serialize");
+        assert_eq!(saved, r#"{"channel":"experimental"}"#);
+        let loaded: Preferences = serde_json::from_str(&saved).expect("deserialize");
+        assert_eq!(loaded.channel, Channel::Experimental);
+    }
+
+    #[test]
+    fn update_comparator_newer_only_accepts_greater_versions() {
+        let newer = Comparator::Newer;
+        assert!(newer.accepts(&v("0.1.8-experimental"), &v("0.1.9-experimental")));
+        assert!(newer.accepts(&v("0.1.9-experimental"), &v("0.2.0")));
+        assert!(!newer.accepts(&v("0.1.9-experimental"), &v("0.1.9-experimental")));
+        // Moving from experimental to an older stable is not an update.
+        assert!(!newer.accepts(&v("0.1.9-experimental"), &v("0.1.0")));
+    }
+
+    #[test]
+    fn update_comparator_after_a_switch_accepts_any_different_version() {
+        let relaxed = Comparator::AnyDifferent;
+        assert!(relaxed.accepts(&v("0.1.9-experimental"), &v("0.1.0")));
+        assert!(relaxed.accepts(&v("0.1.0"), &v("0.1.9-experimental")));
+        // Already on the channel's current build: up to date.
+        assert!(!relaxed.accepts(&v("0.1.0"), &v("0.1.0")));
+    }
+
+    #[test]
+    fn update_is_disabled_for_package_managed_linux_installs() {
+        let appimage = OsStr::new("/home/u/OpenWave.AppImage");
+        assert_eq!(
+            disabled_reason(true, false, None, false),
+            Some(Disabled::PackageManaged)
+        );
+        assert_eq!(
+            disabled_reason(true, false, Some(OsStr::new("")), false),
+            Some(Disabled::PackageManaged)
+        );
+        assert_eq!(disabled_reason(true, false, Some(appimage), false), None);
+        // Package management only concerns Linux; other platforms have no `$APPIMAGE`.
+        assert_eq!(disabled_reason(false, false, None, false), None);
+        assert_eq!(disabled_reason(false, false, None, true), None);
+    }
+
+    #[test]
+    fn update_is_disabled_for_windows_portable_folders() {
+        assert_eq!(
+            disabled_reason(false, true, None, true),
+            Some(Disabled::Portable)
+        );
+        assert_eq!(disabled_reason(false, true, None, false), None);
+    }
+
+    #[test]
+    fn update_package_managed_message_is_the_documented_text() {
+        assert_eq!(
+            Disabled::PackageManaged.message(),
+            "Update OpenWave Studio through your package manager"
+        );
+    }
+}

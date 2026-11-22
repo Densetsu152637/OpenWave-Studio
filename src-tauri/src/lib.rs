@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod engine;
 pub mod paths;
+pub mod update;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -12,6 +13,7 @@ use crate::paths::{DefaultDirs, Paths};
 /// Starts the application. Never returns until the last window closes.
 pub fn run() {
     let result = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let resolver = app.path();
             let data = resolver.app_data_dir()?;
@@ -41,15 +43,28 @@ pub fn run() {
 
             app.manage(paths);
             app.manage(EngineState::start());
+            update::setup(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             engine::engine_status,
-            engine::set_test_tone
+            engine::set_test_tone,
+            update::update_status,
+            update::update_check,
+            update::update_set_channel,
+            update::update_restart
         ])
-        .run(tauri::generate_context!());
-    if let Err(error) = result {
-        eprintln!("[openwave] fatal: {error}");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match result {
+        // A downloaded update installs as the app exits.
+        Ok(app) => app.run(|handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                update::install_on_exit(handle);
+            }
+        }),
+        Err(error) => {
+            eprintln!("[openwave] fatal: {error}");
+            std::process::exit(1);
+        }
     }
 }

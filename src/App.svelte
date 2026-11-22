@@ -4,11 +4,13 @@
   import Arrangement from "./lib/components/Arrangement.svelte";
   import Transport from "./lib/components/Transport.svelte";
   import StatusBar from "./lib/components/StatusBar.svelte";
+  import SettingsDialog from "./routes/settings/SettingsDialog.svelte";
   import { engineStatus, offlineStatus, setTestTone, type EngineStatus } from "./lib/ipc";
 
   const POLL_MS = 500;
 
   let status = $state<EngineStatus>(offlineStatus);
+  let settingsOpen = $state(false);
 
   async function refresh() {
     try {
@@ -34,11 +36,15 @@
 </script>
 
 <div class="shell">
-  <MenuBar />
+  <MenuBar onSettings={() => (settingsOpen = true)} />
   <Transport {status} onToggle={toggleTone} />
   <Arrangement />
   <StatusBar {status} />
 </div>
+
+{#if settingsOpen}
+  <SettingsDialog onClose={() => (settingsOpen = false)} />
+{/if}
 
 <style>
   .shell {
