@@ -183,9 +183,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
   - Apply-then-undo restores the model for random command sequences: `cargo test -p ow-model undo`.
   - Save/load round trip and golden v1 file load: `cargo test -p ow-model serde`.
   - Interrupted write leaves the previous `project.json` intact: `cargo test -p ow-model atomic_save`.
-- Status: pending
-- Outcome:
-- Handoff notes: the model never depends on the engine.
+- Status: done
+- Outcome: `experimental` `0aebe01` (impl `b9e708b`). `ow-model`: project model (tracks, buses, master, sends, inserts, clips audio/MIDI/pattern, patterns, media pool, devices with state, automation lanes, markers; unique never-reused ids ≤ `MAX_ID` = 2^53−1), ~35 `EditCommand`s with exact inverses, `Editor` undo/redo with nested transactions, `project.json` `FORMAT_VERSION = 1` with migration chain, golden v1 fixture and pre-migration copies, `.owave` atomic save (unique temp names, retries, parent fsync) and bounded autosave that never prunes the file just written, `.owz` import/export with zip-slip/symlink/reserved-name protection and size/entry caps; hostile files bounded (64 MiB) and validated without panics, incl. bus and sidechain cycles. `ow-engine::compile` → `RenderPlan` + `Timeline` + keyed `NodeMap` (mute/solo/polarity/routing/pre- and post-fader sends verified by rendered audio). Tests: undo (proptest), serde, atomic_save, bundle, hardening, compile. CI green (45037460210). Implementation-gate critic: no acceptance-changing defects; 7 defects and extras fixed.
+- Handoff notes: format policy — every serialized model change (additive fields included) bumps `FORMAT_VERSION` with a `migrate::CHAIN` step and a new `tests/fixtures/vN/project.json`; older builds refuse newer files (`FormatError::TooNew`). Carry node state across recompiles by `NodeKey` via `NodeMap::diff`, never by raw `NodeId`. `alloc_id` returns `Result<_, IdExhausted>`. Note edits replace whole clips/patterns (fine-grained note commands in stage 15). Placeholders in compile: pan, clip playback, device DSP, sidechain edges. `.owz` archives with a top-level folder (Explorer/Finder zips) are rejected — UI stage may want to handle that. The model never depends on the engine.
 
 ## Stage 9: Audio and MIDI device layer, mock backend and preferences
 
