@@ -51,15 +51,19 @@ impl Node for OscillatorNode {
         for sample in ctx.outputs.channel_mut(0) {
             *sample = ((phase * TAU).sin() * amp) as f32;
             phase += step;
-            if phase >= 1.0 {
-                phase -= 1.0;
-            }
+            // Robust against large steps (high frequency, low sample rate).
+            phase -= phase.floor();
         }
         self.phase = phase;
     }
     fn set_param(&mut self, param: u32, value: f32) {
+        // Non-finite values (and negative frequencies) are ignored, so a bad message cannot
+        // poison the node's state.
+        if !value.is_finite() {
+            return;
+        }
         match param {
-            OSC_PARAM_FREQ => self.freq = f64::from(value),
+            OSC_PARAM_FREQ if value >= 0.0 => self.freq = f64::from(value),
             OSC_PARAM_AMP => self.amp = value,
             _ => {}
         }
@@ -116,7 +120,7 @@ impl Node for GainNode {
         self.current = self.target;
     }
     fn set_param(&mut self, param: u32, value: f32) {
-        if param == GAIN_PARAM {
+        if param == GAIN_PARAM && value.is_finite() {
             self.target = value;
         }
     }

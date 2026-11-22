@@ -44,10 +44,23 @@ impl OfflineRenderer {
     /// Renders `frames` frames in device-sized blocks of `block` frames and returns them
     /// interleaved (`frames * channels` samples).
     pub fn render(&mut self, frames: usize, block: usize) -> Vec<f32> {
+        self.render_with_input(frames, block, None)
+    }
+
+    /// Like [`render`](Self::render) with interleaved device input audio of `frames * channels`
+    /// samples, handed to the core block by block (currently ignored by the core).
+    pub fn render_with_input(
+        &mut self,
+        frames: usize,
+        block: usize,
+        input: Option<&[f32]>,
+    ) -> Vec<f32> {
         let block = block.max(1);
         let mut out = vec![0.0; frames * self.channels];
-        for chunk in out.chunks_mut(block * self.channels) {
-            self.core.process(chunk, self.channels);
+        for (index, chunk) in out.chunks_mut(block * self.channels).enumerate() {
+            let start = index * block * self.channels;
+            let chunk_input = input.map(|input| &input[start..start + chunk.len()]);
+            self.core.process(chunk, self.channels, chunk_input);
         }
         out
     }

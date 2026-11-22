@@ -7,8 +7,11 @@
 use std::collections::HashMap;
 use std::f64::consts::TAU;
 
+use ow_engine::graph::nodes::OSC_PARAM_FREQ;
 use ow_engine::graph::nodes::{GAIN_PARAM, GainNode, MasterNode, OscillatorNode, SumNode};
-use ow_engine::{Graph, GraphError, Message, NodeId, OfflineRenderer, TransportCommand};
+use ow_engine::{
+    Graph, GraphError, Message, Node, NodeId, OfflineRenderer, ProcessContext, TransportCommand,
+};
 
 /// -90 dBFS as a linear amplitude.
 const TOLERANCE: f64 = 3.162_277_660_168_379_4e-5;
@@ -204,4 +207,111 @@ fn transport_messages_move_the_position() {
     assert!(!renderer.transport().playing);
     assert_eq!(renderer.transport().position, 1500);
     assert_eq!(renderer.link().message_overflow(), 0);
+}
+
+fn set(node: NodeId, param: u32, value: f32) -> Message {
+    Message::SetParam { node, param, value }
+}
+
+#[test]
+fn non_finite_gain_is_ignored_and_output_recovers() {
+    let fixture = Fixture::load();
+    let (graph, gain) = osc_gain_master(&fixture);
+    let plan = graph.compile(48_000, 4096).unwrap();
+    let mut renderer = OfflineRenderer::new(plan, 2);
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(renderer.send(set(gain, GAIN_PARAM, bad)));
+    }
+    let during = renderer.render(2400, 256);
+    assert!(during.iter().all(|s| s.is_finite()));
+    assert!(
+        during.iter().any(|s| s.abs() > 0.1),
+        "gain was not poisoned"
+    );
+    assert!(renderer.send(set(gain, GAIN_PARAM, 0.25)));
+    let after = renderer.render(4800, 256);
+    assert!(after.iter().all(|s| s.is_finite()));
+    let peak = after[after.len() - 960..]
+        .iter()
+        .fold(0.0_f32, |m, s| m.max(s.abs()));
+    assert!((peak - 0.8 * 0.25).abs() < 0.01, "peak {peak}");
+}
+
+#[test]
+fn oscillator_rejects_bad_frequency_and_amplitude() {
+    let mut graph = Graph::new();
+    let osc = graph.add_node(Box::new(OscillatorNode::new(1000.0, 0.5)));
+    let master = graph.add_node(Box::new(MasterNode::new()));
+    graph.connect(osc, 0, master, 0).unwrap();
+    graph.set_master(master).unwrap();
+    let plan = graph.compile(48_000, 256).unwrap();
+    let mut renderer = OfflineRenderer::new(plan, 2);
+    assert!(renderer.send(set(osc, OSC_PARAM_FREQ, f32::NAN)));
+    assert!(renderer.send(set(osc, OSC_PARAM_FREQ, -250.0)));
+    assert!(renderer.send(set(osc, 1, f32::INFINITY)));
+    let out = renderer.render(4800, 100);
+    assert!(out.iter().all(|s| s.is_finite()));
+    let crossings = out
+        .chunks(2)
+        .map(|f| f[0])
+        .collect::<Vec<_>>()
+        .windows(2)
+        .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+        .count();
+    assert!(
+        (99..=101).contains(&crossings),
+        "still 1 kHz: {crossings} crossings in 0.1 s"
+    );
+    let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+    assert!((peak - 0.5).abs() < 0.01);
+}
+
+/// Emits NaN and infinity, to prove the device-buffer interleave contains them.
+struct FaultyNode;
+
+impl Node for FaultyNode {
+    fn name(&self) -> &'static str {
+        "faulty"
+    }
+    fn input_channels(&self) -> usize {
+        0
+    }
+    fn output_channels(&self) -> usize {
+        1
+    }
+    fn process(&mut self, ctx: &mut ProcessContext<'_>) {
+        for (i, sample) in ctx.outputs.channel_mut(0).iter_mut().enumerate() {
+            *sample = match i % 3 {
+                0 => f32::NAN,
+                1 => f32::INFINITY,
+                _ => 0.5,
+            };
+        }
+    }
+}
+
+#[test]
+fn non_finite_samples_never_reach_the_device_buffer() {
+    let mut graph = Graph::new();
+    let faulty = graph.add_node(Box::new(FaultyNode));
+    let master = graph.add_node(Box::new(MasterNode::new()));
+    graph.connect(faulty, 0, master, 0).unwrap();
+    graph.connect(faulty, 0, master, 1).unwrap();
+    graph.set_master(master).unwrap();
+    let plan = graph.compile(48_000, 256).unwrap();
+    let out = OfflineRenderer::new(plan, 2).render(600, 200);
+    assert!(out.iter().all(|s| s.is_finite()));
+    assert!(out.contains(&0.5), "finite samples still pass through");
+}
+
+#[test]
+fn device_input_is_accepted_and_does_not_change_output() {
+    let fixture = Fixture::load();
+    let reference = render(&fixture, 128);
+    let (graph, _) = osc_gain_master(&fixture);
+    let plan = graph.compile(48_000, 4096).unwrap();
+    let frames = fixture.get("frames") as usize;
+    let input = vec![0.7_f32; frames * 2];
+    let out = OfflineRenderer::new(plan, 2).render_with_input(frames, 128, Some(&input));
+    assert_eq!(out, reference);
 }

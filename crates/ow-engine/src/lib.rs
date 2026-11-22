@@ -15,7 +15,7 @@ use std::f32::consts::TAU;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ow_io::{OutputInfo, OutputStream};
 
@@ -35,6 +35,8 @@ pub const TEST_TONE_HZ: f32 = 440.0;
 const TEST_TONE_GAIN: f32 = 0.2;
 /// Fade time in seconds when the tone starts or stops, to avoid clicks.
 const FADE_SECONDS: f32 = 0.01;
+/// Tries (1 ms apart) before a control message is reported as not sent.
+const SEND_ATTEMPTS: u32 = 5;
 /// Weight of the newest block in the smoothed CPU load.
 const CPU_SMOOTHING: f32 = 0.1;
 
@@ -142,7 +144,7 @@ impl Engine {
             let mut cpu = 0.0_f32;
             move |buf: &mut [f32], channels: usize| {
                 let started = Instant::now();
-                core.process(buf, channels);
+                core.process(buf, channels, None);
                 let frames = (buf.len() / channels.max(1)) as f32;
                 let budget = frames / sample_rate;
                 if budget > 0.0 {
@@ -170,16 +172,33 @@ impl Engine {
         self.stream.info()
     }
 
-    /// Starts or stops the 440 Hz test tone.
-    pub fn set_test_tone(&self, on: bool) {
-        self.shared.tone.store(on, Ordering::Relaxed);
-        if let Ok(mut control) = self.control.lock() {
-            control.send(Message::SetParam {
-                node: self.tone_node,
-                param: graph::nodes::TONE_PARAM_ON,
-                value: if on { 1.0 } else { 0.0 },
-            });
+    /// Starts or stops the 440 Hz test tone. Returns whether the request reached the audio
+    /// thread; [`test_tone`](Self::test_tone) only changes when it did, so the two cannot
+    /// drift. A full control ring is retried briefly before giving up.
+    pub fn set_test_tone(&self, on: bool) -> bool {
+        let Ok(mut control) = self.control.lock() else {
+            return false;
+        };
+        let mut message = Message::SetParam {
+            node: self.tone_node,
+            param: graph::nodes::TONE_PARAM_ON,
+            value: if on { 1.0 } else { 0.0 },
+        };
+        for attempt in 0..SEND_ATTEMPTS {
+            match control.try_send(message) {
+                Ok(()) => {
+                    self.shared.tone.store(on, Ordering::Relaxed);
+                    return true;
+                }
+                Err(returned) => {
+                    message = returned;
+                    if attempt + 1 < SEND_ATTEMPTS {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }
         }
+        false
     }
 
     pub fn test_tone(&self) -> bool {

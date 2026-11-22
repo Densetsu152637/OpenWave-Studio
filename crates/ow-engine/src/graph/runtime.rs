@@ -64,6 +64,10 @@ pub enum Message {
         node: NodeId,
         /// The message.
         message: MidiMessage,
+        /// Frames after the start of the cycle at which the event belongs. Reserved for
+        /// sample-accurate delivery: today every message is applied at the start of the cycle
+        /// that drains it and the offset is carried but not yet used.
+        offset: u32,
     },
 }
 
@@ -110,6 +114,7 @@ impl std::error::Error for SwapError {}
 /// Assembles an [`AudioCore`] and its [`ControlLink`], registering extra producer rings.
 pub struct CoreBuilder {
     plan_queue: usize,
+    retire_queue: Option<usize>,
     control_ring: usize,
     rings: Vec<ProducerRing<Message>>,
 }
@@ -119,6 +124,7 @@ impl CoreBuilder {
     pub fn new() -> Self {
         Self {
             plan_queue: 8,
+            retire_queue: None,
             control_ring: 1024,
             rings: Vec::new(),
         }
@@ -127,6 +133,14 @@ impl CoreBuilder {
     /// Capacity of the plan ring (and the retire ring behind it).
     pub fn plan_queue(mut self, capacity: usize) -> Self {
         self.plan_queue = capacity.max(1);
+        self
+    }
+
+    /// Capacity of the retire ring that returns swapped-out plans (default: plan queue + 2).
+    /// Mainly for tests of the back-pressure path; a full retire ring delays swaps, it never
+    /// makes the audio thread free a plan.
+    pub fn retire_queue(mut self, capacity: usize) -> Self {
+        self.retire_queue = Some(capacity.max(1));
         self
     }
 
@@ -149,7 +163,8 @@ impl CoreBuilder {
     pub fn build(self) -> (ControlLink, AudioCore) {
         let (plan_tx, plan_rx) = producer_ring::<Box<RenderPlan>>(self.plan_queue);
         // One more slot than plans in flight, so the audio thread can always retire.
-        let (retire_tx, retire_rx) = producer_ring::<Box<RenderPlan>>(self.plan_queue + 2);
+        let (retire_tx, retire_rx) =
+            producer_ring::<Box<RenderPlan>>(self.retire_queue.unwrap_or(self.plan_queue + 2));
         let (control_tx, control_rx) = producer_ring::<Message>(self.control_ring);
         let telemetry = Arc::new(Telemetry::default());
         let mut rings = Vec::with_capacity(self.rings.len() + 1);
@@ -213,6 +228,12 @@ impl ControlLink {
         self.messages.push(message)
     }
 
+    /// Like [`send`](Self::send) but hands the message back when the ring is full, without
+    /// counting an overflow, so the caller can retry or report failure.
+    pub fn try_send(&mut self, message: Message) -> Result<(), Message> {
+        self.messages.try_push(message)
+    }
+
     /// Messages dropped because the control ring was full.
     pub fn message_overflow(&self) -> u64 {
         self.messages.overflow_count()
@@ -257,8 +278,14 @@ impl AudioCore {
 
     /// Runs one cycle: swap in a pending plan, apply queued messages, render into the
     /// interleaved device buffer `out` with `channels` channels. A device buffer longer than the
-    /// plan's block is rendered in chunks. With no plan the output is silence.
-    pub fn process(&mut self, out: &mut [f32], channels: usize) {
+    /// plan's block is rendered in chunks. With no plan the output is silence. Non-finite
+    /// samples are written as 0.0 so a faulty node cannot send NaN or infinity to the device.
+    ///
+    /// `input` is the device's interleaved input audio for this cycle (same frame count as
+    /// `out`), or `None` when there is none. It is accepted for the stage 9 mock backend and
+    /// stage 14 recording and is currently ignored.
+    pub fn process(&mut self, out: &mut [f32], channels: usize, input: Option<&[f32]>) {
+        let _ = input;
         assert_no_alloc(|| self.cycle(out, channels));
     }
 
@@ -287,7 +314,8 @@ impl AudioCore {
                 };
                 if let Some(source) = source {
                     for (frame, sample) in source.iter().enumerate() {
-                        out[(done + frame) * channels + channel] = *sample;
+                        out[(done + frame) * channels + channel] =
+                            if sample.is_finite() { *sample } else { 0.0 };
                     }
                 }
             }
@@ -337,7 +365,7 @@ impl AudioCore {
                     Message::SetParam { node, param, value } => current
                         .as_deref_mut()
                         .is_some_and(|plan| plan.set_param(node, param, value)),
-                    Message::Midi { node, message } => current
+                    Message::Midi { node, message, .. } => current
                         .as_deref_mut()
                         .is_some_and(|plan| plan.midi(node, message)),
                     Message::Transport(command) => {
