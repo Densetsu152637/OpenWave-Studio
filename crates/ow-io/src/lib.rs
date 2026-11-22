@@ -38,6 +38,18 @@ pub use supervisor::{AudioSelection, AudioState, AudioStatus, Opener, RecoveryPo
 #[cfg(windows)]
 pub use wasapi_exclusive::{WASAPI_EXCLUSIVE_ID, WasapiExclusiveBackend};
 
+/// Backends that exist only on some platforms (WASAPI exclusive mode on Windows).
+fn exclusive_backends() -> Vec<Arc<dyn AudioBackend>> {
+    #[cfg(windows)]
+    {
+        vec![Arc::new(WasapiExclusiveBackend)]
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
 /// The audio backends available on this platform, in preference order: the default cpal host
 /// first, then the other hosts, then exclusive mode where it exists.
 #[derive(Clone)]
@@ -48,12 +60,11 @@ pub struct BackendRegistry {
 impl BackendRegistry {
     /// Every real backend for this platform and build.
     pub fn system() -> Self {
-        let mut backends: Vec<Arc<dyn AudioBackend>> = CpalBackend::available()
+        let backends = CpalBackend::available()
             .into_iter()
             .map(|backend| Arc::new(backend) as Arc<dyn AudioBackend>)
+            .chain(exclusive_backends())
             .collect();
-        #[cfg(windows)]
-        backends.push(Arc::new(WasapiExclusiveBackend));
         Self { backends }
     }
 

@@ -270,9 +270,9 @@ fn mock_midi_from_two_producer_threads_arrives_without_loss() {
         "every message found its node"
     );
     // The engine's node saw every event, per producer, in order.
-    for index in 0..PRODUCERS {
+    for (index, received) in rig.tally.received.iter().enumerate() {
         assert_eq!(
-            rig.tally.received[index].load(Ordering::Relaxed),
+            received.load(Ordering::Relaxed),
             u64::from(EVENTS_PER_PRODUCER),
             "producer {index} events reached the node"
         );
