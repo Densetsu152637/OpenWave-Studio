@@ -5,8 +5,8 @@
 # The feed lives in the fixed release `updater-<channel>` (created if absent) as the asset
 # latest.json, replaced with --clobber. The upload is skipped when the feed's version is greater
 # than this one, so a late run of an older build can never roll the channel back; FORCE_FEED=true
-# (exactly) disables that check for an intentional version reset. Afterwards every URL in the new
-# feed must answer HTTP 200. Needs gh (GH_TOKEN, GH_REPO), jq and curl.
+# (exactly) disables that check for an intentional version reset. Every URL in the new feed must
+# answer HTTP 200 (checked before the upload, so a broken feed is never published). Needs gh (GH_TOKEN, GH_REPO), jq and curl.
 set -euo pipefail
 
 channel="$1" version="$2" tag="$3"
@@ -38,4 +38,19 @@ fi
 
 bash "$here/updater-manifest.sh" "$version" "$tag" "$work/latest.json"
 bash "$here/check-feed.sh" "$work/latest.json"
+gh release upload "$feed_tag" "$work/latest.json" --clobber
 echo "Feed before: ${current:-none}; after: $version"
+
+# The feed as users fetch it: its URL must serve the new version, and every URL in it must answer
+# HTTP 200 (a freshly replaced asset can lag, so retry before failing).
+public="https://github.com/${GITHUB_REPOSITORY:?}/releases/download/$feed_tag/latest.json"
+for attempt in 1 2 3 4 5 6; do
+  served="$(curl -fsSL "$public" | jq -r '.version // empty' || true)"
+  [ "$served" = "$version" ] && break
+  sleep $((attempt * 5))
+done
+if [ "$served" != "$version" ]; then
+  echo "::error::$public serves version '${served:-none}', expected $version."
+  exit 1
+fi
+bash "$here/check-feed.sh" "$public"
