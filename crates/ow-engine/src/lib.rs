@@ -1,17 +1,33 @@
 //! Real-time audio engine for OpenWave Studio.
 //!
-//! Stage 1 is the smoke path: an [`Engine`] handle that opens the default output and plays a
-//! 440 Hz test tone on request. Later stages grow the graph behind the same handle; the audio
-//! callback must stay allocation-free and lock-free, so control flows in through atomics (and,
-//! from stage 5, wait-free rings).
+//! The [`Engine`] handle opens the default output and plays a 440 Hz test tone on request. It
+//! runs on the stage 5 graph core: a [`Graph`] of [`Node`]s is compiled into a [`RenderPlan`],
+//! sent to the audio thread over a wait-free ring, and run by an [`AudioCore`] each device
+//! callback. The callback stays allocation-free and lock-free; control flows in through
+//! [`ProducerRing`]s carrying [`Message`]s.
+
+pub mod graph;
+pub mod offline;
+pub mod plan;
+pub mod rings;
 
 use std::f32::consts::TAU;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Instant;
 
 use ow_io::{OutputInfo, OutputStream};
+
+pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
+pub use graph::{
+    AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, Message,
+    MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry, Transport,
+    TransportCommand,
+};
+pub use offline::OfflineRenderer;
+pub use plan::RenderPlan;
+pub use rings::{ProducerRing, RingSender, producer_ring};
 
 /// Test tone frequency in hertz.
 pub const TEST_TONE_HZ: f32 = 440.0;
@@ -84,9 +100,27 @@ struct Shared {
 }
 
 /// Handle to the running engine. `Send + Sync`; dropping it stops audio.
+///
+/// The device callback runs an [`AudioCore`] whose graph is the test tone feeding a stereo
+/// master. Later stages replace that plan through the same [`ControlLink`].
 pub struct Engine {
     shared: Arc<Shared>,
+    control: Mutex<ControlLink>,
+    tone_node: NodeId,
     stream: OutputStream,
+}
+
+type Started = Result<(ControlLink, NodeId), String>;
+
+/// Compiles the smoke-path graph (test tone to stereo master) for `sample_rate`.
+fn smoke_plan(sample_rate: u32) -> Result<(RenderPlan, NodeId), GraphError> {
+    let mut graph = Graph::new();
+    let tone = graph.add_node(Box::new(TestToneNode::new()));
+    let master = graph.add_node(Box::new(MasterNode::new()));
+    graph.connect(tone, 0, master, 0)?;
+    graph.connect(tone, 0, master, 1)?;
+    graph.set_master(master)?;
+    Ok((graph.compile(sample_rate, MAX_BLOCK)?, tone))
 }
 
 impl Engine {
@@ -94,13 +128,21 @@ impl Engine {
     pub fn start() -> Result<Self, EngineError> {
         let shared = Arc::new(Shared::default());
         let callback_shared = Arc::clone(&shared);
+        let (started_tx, started_rx) = mpsc::channel::<Started>();
         let stream = OutputStream::open_default(move |info: &OutputInfo| {
-            let mut tone = ToneGenerator::new(info.sample_rate, TEST_TONE_HZ);
+            let (mut link, mut core) = CoreBuilder::new().build();
+            let started = smoke_plan(info.sample_rate)
+                .map_err(|error| error.to_string())
+                .and_then(|(plan, tone)| {
+                    link.swap_plan(plan).map_err(|error| error.to_string())?;
+                    Ok((link, tone))
+                });
+            let _ = started_tx.send(started);
             let sample_rate = info.sample_rate.max(1) as f32;
             let mut cpu = 0.0_f32;
             move |buf: &mut [f32], channels: usize| {
                 let started = Instant::now();
-                tone.render(buf, channels, callback_shared.tone.load(Ordering::Relaxed));
+                core.process(buf, channels);
                 let frames = (buf.len() / channels.max(1)) as f32;
                 let budget = frames / sample_rate;
                 if budget > 0.0 {
@@ -111,7 +153,16 @@ impl Engine {
             }
         })
         .map_err(|error| EngineError(error.to_string()))?;
-        Ok(Self { shared, stream })
+        let (control, tone_node) = started_rx
+            .recv()
+            .map_err(|_| EngineError("the audio stream did not report its graph".into()))?
+            .map_err(EngineError)?;
+        Ok(Self {
+            shared,
+            control: Mutex::new(control),
+            tone_node,
+            stream,
+        })
     }
 
     /// The opened output device and format.
@@ -122,6 +173,13 @@ impl Engine {
     /// Starts or stops the 440 Hz test tone.
     pub fn set_test_tone(&self, on: bool) {
         self.shared.tone.store(on, Ordering::Relaxed);
+        if let Ok(mut control) = self.control.lock() {
+            control.send(Message::SetParam {
+                node: self.tone_node,
+                param: graph::nodes::TONE_PARAM_ON,
+                value: if on { 1.0 } else { 0.0 },
+            });
+        }
     }
 
     pub fn test_tone(&self) -> bool {
@@ -193,5 +251,21 @@ mod tests {
             .fold(0.0_f32, f32::max);
         assert!(max_step < 0.05, "max step = {max_step}");
         assert!(buf[buf.len() - 1].abs() < 1e-6);
+    }
+
+    #[test]
+    fn smoke_graph_plays_the_tone_on_both_channels_when_switched_on() {
+        let (plan, tone) = smoke_plan(48_000).unwrap();
+        let mut renderer = OfflineRenderer::new(plan, 2);
+        assert!(renderer.render(2_000, 256).iter().all(|s| *s == 0.0));
+        renderer.send(Message::SetParam {
+            node: tone,
+            param: graph::nodes::TONE_PARAM_ON,
+            value: 1.0,
+        });
+        let out = renderer.render(4_800, 256);
+        assert!(out.chunks(2).all(|f| f[0] == f[1]));
+        let peak = out.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
+        assert!((peak - TEST_TONE_GAIN).abs() < 0.01, "peak = {peak}");
     }
 }

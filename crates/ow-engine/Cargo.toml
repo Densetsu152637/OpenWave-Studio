@@ -7,7 +7,9 @@ repository.workspace = true
 description = "Real-time audio engine for OpenWave Studio"
 
 [dependencies]
+assert_no_alloc = { version = "1.1.2", features = ["disable_release"] }
 ow-io = { path = "../ow-io" }
+rtrb = "0.4.1"
 
 [lints]
 workspace = true
