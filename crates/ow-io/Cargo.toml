@@ -1,0 +1,18 @@
+[package]
+name = "ow-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Audio and MIDI device backends for OpenWave Studio"
+
+[features]
+# ASIO is source-build-only (GPLv3 obligations); official binaries never enable it.
+asio = ["cpal/asio"]
+
+[dependencies]
+cpal = "0.18"
+
+[lints]
+workspace = true
