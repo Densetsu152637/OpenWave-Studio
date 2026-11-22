@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 ow-engine = { path = "../crates/ow-engine" }
+ow-io = { path = "../crates/ow-io" }
 tauri-plugin-updater = "2"
 semver = "1"
 tokio = { version = "1", features = ["time", "sync"] }

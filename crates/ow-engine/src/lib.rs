@@ -11,6 +11,7 @@
 
 pub mod compile;
 pub mod graph;
+pub mod midi_hub;
 pub mod offline;
 pub mod pdc;
 pub mod plan;
@@ -22,10 +23,15 @@ pub mod workgroup;
 use std::f32::consts::TAU;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::{Duration, Instant};
 
-use ow_io::{OutputInfo, OutputStream};
+use ow_io::{
+    AudioCallback, AudioSelection, AudioStatus, BackendRegistry, IoError, MidiBackend,
+    MidirBackend, Opener, RecoveryPolicy, StreamInfo, Supervisor,
+};
+
+use crate::midi_hub::MidiRings;
 
 pub use compile::{
     Carry, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project, fader_gain,
@@ -35,6 +41,9 @@ pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
     Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry,
     default_worker_count,
+};
+pub use midi_hub::{
+    MIDI_RING_CAPACITY, MIDI_RINGS, MidiHub, MidiInputSelection, MidiPortState, MidiStatus,
 };
 pub use offline::OfflineRenderer;
 pub use pdc::DelayNode;
@@ -118,21 +127,25 @@ struct Shared {
     cpu: AtomicU32,
 }
 
-/// Handle to the running engine. `Send + Sync`; dropping it stops audio.
-///
-/// The device callback runs an [`AudioCore`] whose graph is the test tone feeding a stereo
-/// master, with up to [`default_worker_count`] real-time DSP workers (joined to the output
-/// device's audio workgroup on macOS); only workers that obtain real-time priority take part
-/// ([`dsp_workers`](Self::dsp_workers)). Later stages replace that plan through the same [`ControlLink`].
-pub struct Engine {
-    shared: Arc<Shared>,
-    control: Mutex<ControlLink>,
+/// What the engine needs to talk to the audio core of the currently open stream.
+struct Live {
+    control: ControlLink,
     telemetry: Arc<Telemetry>,
     tone_node: NodeId,
-    stream: OutputStream,
 }
 
-type Started = Result<(ControlLink, NodeId), String>;
+type Started = Result<(Live, MidiRings), String>;
+
+/// How to start the engine.
+#[derive(Debug, Clone, Default)]
+pub struct EngineConfig {
+    /// Backend and device choice; the default selects the system default output.
+    pub audio: AudioSelection,
+    /// Retry behaviour after device loss.
+    pub recovery: RecoveryPolicy,
+    /// MIDI inputs to connect once audio is running.
+    pub midi_inputs: Vec<MidiInputSelection>,
+}
 
 /// Compiles the smoke-path graph (test tone to stereo master) for `sample_rate`.
 fn smoke_plan(sample_rate: u32) -> Result<(RenderPlan, NodeId), GraphError> {
@@ -145,74 +158,146 @@ fn smoke_plan(sample_rate: u32) -> Result<(RenderPlan, NodeId), GraphError> {
     Ok((graph.compile(sample_rate, MAX_BLOCK)?, tone))
 }
 
+/// Handle to the running engine. `Send + Sync`; dropping it stops audio.
+///
+/// The device callback runs an [`AudioCore`] whose graph is the test tone feeding a stereo
+/// master, with up to [`default_worker_count`] real-time DSP workers (joined to the output
+/// device's audio workgroup on macOS); only workers that obtain real-time priority take part
+/// ([`dsp_workers`](Self::dsp_workers)). Later stages replace that plan through the same [`ControlLink`].
+///
+/// A [`Supervisor`] keeps the device stream alive: after device loss it reopens the chosen (or
+/// the default) device with bounded retries, building a fresh core each time, and
+/// [`reconfigure_audio`](Self::reconfigure_audio) switches device, rate or buffer size while
+/// running. [`audio_status`](Self::audio_status) reports the state and the last error. MIDI
+/// inputs connect through the [`MidiHub`], one ring per input.
+pub struct Engine {
+    shared: Arc<Shared>,
+    live: Arc<Mutex<Option<Live>>>,
+    registry: BackendRegistry,
+    midi: Arc<MidiHub>,
+    supervisor: Supervisor,
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl Engine {
-    /// Opens the default output device and starts the (silent) engine.
+    /// Opens the default output device and starts the (silent) engine, failing when no device
+    /// could be opened. The app uses [`start_with`](Self::start_with), which never fails and
+    /// recovers in the background.
     pub fn start() -> Result<Self, EngineError> {
-        let shared = Arc::new(Shared::default());
-        let callback_shared = Arc::clone(&shared);
-        let (started_tx, started_rx) = mpsc::channel::<Started>();
-        let stream = OutputStream::open_default(move |info: &OutputInfo| {
-            let mut builder = CoreBuilder::new()
-                .workers(default_worker_count())
-                .realtime_workers(info.sample_rate, 0);
-            if let Ok(workgroup) = AudioWorkgroup::default_output() {
-                builder = builder.audio_workgroup(workgroup);
-            }
-            let (mut link, mut core) = builder.build();
-            let started = smoke_plan(info.sample_rate)
-                .map_err(|error| error.to_string())
-                .and_then(|(plan, tone)| {
-                    link.swap_plan(plan).map_err(|error| error.to_string())?;
-                    Ok((link, tone))
-                });
-            let _ = started_tx.send(started);
-            let sample_rate = info.sample_rate.max(1) as f32;
-            let mut cpu = 0.0_f32;
-            move |buf: &mut [f32], channels: usize| {
-                let started = Instant::now();
-                core.process(buf, channels, None);
-                let frames = (buf.len() / channels.max(1)) as f32;
-                let budget = frames / sample_rate;
-                if budget > 0.0 {
-                    let load = started.elapsed().as_secs_f32() / budget;
-                    cpu += (load - cpu) * CPU_SMOOTHING;
-                    callback_shared.cpu.store(cpu.to_bits(), Ordering::Relaxed);
-                }
-            }
-        })
-        .map_err(|error| EngineError(error.to_string()))?;
-        let (control, tone_node) = started_rx
-            .recv()
-            .map_err(|_| EngineError("the audio stream did not report its graph".into()))?
-            .map_err(EngineError)?;
-        Ok(Self {
-            shared,
-            telemetry: Arc::clone(control.telemetry()),
-            control: Mutex::new(control),
-            tone_node,
-            stream,
-        })
+        let engine = Self::start_with(EngineConfig::default());
+        match engine.audio_status().error {
+            Some(error) if engine.audio_status().info.is_none() => Err(EngineError(error)),
+            _ => Ok(engine),
+        }
     }
 
-    /// The opened output device and format.
-    pub fn output(&self) -> &OutputInfo {
-        self.stream.info()
+    /// Starts the engine on the system's audio backends and MIDI ports. A failed first open
+    /// leaves the engine in [`ow_io::AudioState::Recovering`]; see [`audio_status`](Self::audio_status).
+    pub fn start_with(config: EngineConfig) -> Self {
+        Self::with_backends(
+            BackendRegistry::system(),
+            Arc::new(MidirBackend::new()),
+            config,
+        )
+    }
+
+    /// Starts the engine on explicit backends (the mock backends in tests).
+    pub fn with_backends(
+        registry: BackendRegistry,
+        midi_backend: Arc<dyn MidiBackend>,
+        config: EngineConfig,
+    ) -> Self {
+        let shared = Arc::new(Shared::default());
+        let live: Arc<Mutex<Option<Live>>> = Arc::new(Mutex::new(None));
+        let midi = Arc::new(MidiHub::new(midi_backend));
+        midi.set_inputs(config.midi_inputs);
+
+        let opener: Opener = {
+            let shared = Arc::clone(&shared);
+            let live = Arc::clone(&live);
+            let registry = registry.clone();
+            let midi = Arc::clone(&midi);
+            Box::new(move |selection: &AudioSelection| {
+                // The old stream is already closed; its core and rings are gone.
+                midi.detach();
+                *lock(&live) = None;
+                let (started_tx, started_rx) = mpsc::channel::<Started>();
+                let callback_shared = Arc::clone(&shared);
+                let opened = registry.open(
+                    selection,
+                    Box::new(move |info: &StreamInfo| {
+                        make_callback(info, callback_shared, started_tx)
+                    }),
+                );
+                let stream = opened?;
+                let (new_live, rings) = started_rx
+                    .try_recv()
+                    .map_err(|_| IoError::new("starting the engine", "no audio core was built"))?
+                    .map_err(|error| IoError::new("building the audio graph", error))?;
+                shared.tone.store(false, Ordering::Relaxed);
+                *lock(&live) = Some(new_live);
+                midi.attach(rings);
+                Ok(stream)
+            })
+        };
+        let supervisor = Supervisor::start(opener, config.audio, config.recovery);
+        Self {
+            shared,
+            live,
+            registry,
+            midi,
+            supervisor,
+        }
+    }
+
+    /// State of the audio device: running, recovering after a failure, or failed, with the
+    /// opened device and format and the last error.
+    pub fn audio_status(&self) -> AudioStatus {
+        self.supervisor.status()
+    }
+
+    /// Switches device, backend, sample rate or buffer size. Audio stops briefly while the old
+    /// stream closes and the new one opens (the test tone resets). On failure the previous
+    /// selection is restored when possible and the error is returned.
+    pub fn reconfigure_audio(&self, selection: AudioSelection) -> Result<AudioStatus, IoError> {
+        self.supervisor.reconfigure(selection)
+    }
+
+    /// Starts a fresh round of reopen attempts after the engine gave up.
+    pub fn retry_audio(&self) {
+        self.supervisor.retry();
+    }
+
+    /// The audio backends this engine can open.
+    pub fn backends(&self) -> &BackendRegistry {
+        &self.registry
+    }
+
+    /// The MIDI input router.
+    pub fn midi(&self) -> &Arc<MidiHub> {
+        &self.midi
     }
 
     /// Starts or stops the 440 Hz test tone. Returns whether the request reached the audio
     /// thread; [`test_tone`](Self::test_tone) only changes when it did, so the two cannot
     /// drift. A full control ring is retried briefly before giving up.
     pub fn set_test_tone(&self, on: bool) -> bool {
-        let Ok(mut control) = self.control.lock() else {
+        let mut guard = lock(&self.live);
+        let Some(live) = guard.as_mut() else {
             return false;
         };
         let mut message = Message::SetParam {
-            node: self.tone_node,
+            node: live.tone_node,
             param: graph::nodes::TONE_PARAM_ON,
             value: if on { 1.0 } else { 0.0 },
         };
         for attempt in 0..SEND_ATTEMPTS {
-            match control.try_send(message) {
+            match live.control.try_send(message) {
                 Ok(()) => {
                     self.shared.tone.store(on, Ordering::Relaxed);
                     return true;
@@ -235,15 +320,71 @@ impl Engine {
     /// DSP workers taking part in the callback's cycles: those that obtained real-time
     /// priority. Workers that could not be promoted exit, and the callback thread covers their
     /// share, so the engine's parallelism is sized by this count (it settles shortly after
-    /// [`start`](Self::start), as workers promote themselves).
+    /// the stream opens, as workers promote themselves).
     pub fn dsp_workers(&self) -> u32 {
-        self.telemetry.realtime_workers()
+        lock(&self.live)
+            .as_ref()
+            .map_or(0, |live| live.telemetry.realtime_workers())
     }
 
     /// Smoothed audio callback load, 0.0 (idle) to 1.0 (the whole buffer period).
     pub fn cpu_load(&self) -> f32 {
         f32::from_bits(self.shared.cpu.load(Ordering::Relaxed))
     }
+}
+
+/// Runs on the stream thread once the device format is known: builds the core, its MIDI rings
+/// and the smoke plan, hands the control side to the opener and returns the render callback.
+fn make_callback(
+    info: &StreamInfo,
+    shared: Arc<Shared>,
+    started_tx: mpsc::Sender<Started>,
+) -> AudioCallback {
+    let mut builder = CoreBuilder::new()
+        .workers(default_worker_count())
+        .realtime_workers(info.sample_rate, info.buffer_frames.unwrap_or(0));
+    if let Ok(workgroup) = AudioWorkgroup::default_output() {
+        builder = builder.audio_workgroup(workgroup);
+    }
+    let pool: Vec<RingSender<Message>> = (0..MIDI_RINGS)
+        .map(|_| builder.producer_ring(MIDI_RING_CAPACITY))
+        .collect();
+    let control_surface = builder.producer_ring(MIDI_RING_CAPACITY);
+    let (mut link, mut core) = builder.build();
+    let started = smoke_plan(info.sample_rate)
+        .map_err(|error| error.to_string())
+        .and_then(|(plan, tone)| {
+            link.swap_plan(plan).map_err(|error| error.to_string())?;
+            Ok((
+                Live {
+                    telemetry: Arc::clone(link.telemetry()),
+                    control: link,
+                    tone_node: tone,
+                },
+                MidiRings {
+                    pool,
+                    control_surface,
+                    // Until the MIDI stages route to instruments, MIDI goes to the tone node,
+                    // which ignores it; the ring path and counters are exercised end to end.
+                    target: tone,
+                },
+            ))
+        });
+    let _ = started_tx.send(started);
+    let sample_rate = info.sample_rate.max(1) as f32;
+    let channels = usize::from(info.output_channels).max(1);
+    let mut cpu = 0.0_f32;
+    Box::new(move |buf: &mut [f32], input: Option<&[f32]>| {
+        let started = Instant::now();
+        core.process(buf, channels, input);
+        let frames = (buf.len() / channels) as f32;
+        let budget = frames / sample_rate;
+        if budget > 0.0 {
+            let load = started.elapsed().as_secs_f32() / budget;
+            cpu += (load - cpu) * CPU_SMOOTHING;
+            shared.cpu.store(cpu.to_bits(), Ordering::Relaxed);
+        }
+    })
 }
 
 #[cfg(test)]

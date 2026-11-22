@@ -4,6 +4,7 @@ pub mod cli;
 pub mod engine;
 pub mod paths;
 pub mod portable_update;
+pub mod prefs;
 pub mod translocation;
 pub mod update;
 
@@ -47,14 +48,18 @@ pub fn run() {
             }
             window.build()?;
 
+            app.manage(EngineState::start(&paths));
             app.manage(paths);
-            app.manage(EngineState::start());
             update::setup(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             engine::engine_status,
             engine::set_test_tone,
+            engine::prefs_get,
+            engine::prefs_set,
+            engine::audio_devices,
+            engine::audio_retry,
             update::update_status,
             update::update_check,
             update::update_set_channel,

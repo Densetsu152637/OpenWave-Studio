@@ -86,6 +86,14 @@ jobs:
       # The app crate embeds the built frontend, so it must exist before fmt/clippy/test.
       - run: pnpm build
       - run: bash scripts/check-rust.sh
+      # Device stage 9: the source-build-only ASIO feature must keep compiling. Build only, never
+      # published. cpal's build script downloads the SDK; bindgen needs the runner's LLVM.
+      - name: Build ow-io with ASIO (build only)
+        if: runner.os == 'Windows'
+        timeout-minutes: 20
+        env:
+          LIBCLANG_PATH: 'C:/Program Files/LLVM/bin'
+        run: cargo build -p ow-io --features asio --locked
       # Engine stage 6: the RT-safety suite again with eight DSP workers (allocation guard on
       # every worker and the callback thread).
       - name: RT safety with 8 DSP workers

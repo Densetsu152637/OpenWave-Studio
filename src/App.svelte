@@ -5,7 +5,8 @@
   import Transport from "./lib/components/Transport.svelte";
   import StatusBar from "./lib/components/StatusBar.svelte";
   import SettingsDialog from "./routes/settings/SettingsDialog.svelte";
-  import { engineStatus, offlineStatus, setTestTone, type EngineStatus } from "./lib/ipc";
+  import { engineStatus, offlineStatus, prefsGet, setTestTone, type EngineStatus } from "./lib/ipc";
+  import { applyTheme } from "./lib/prefs";
 
   const POLL_MS = 500;
 
@@ -30,6 +31,10 @@
 
   onMount(() => {
     void refresh();
+    // The saved theme applies at launch, not only when Settings opens.
+    prefsGet()
+      .then((snapshot) => applyTheme(snapshot.prefs.appearance.theme))
+      .catch(() => {});
     const timer = setInterval(refresh, POLL_MS);
     return () => clearInterval(timer);
   });
@@ -43,7 +48,7 @@
 </div>
 
 {#if settingsOpen}
-  <SettingsDialog onClose={() => (settingsOpen = false)} />
+  <SettingsDialog {status} onStatus={(next) => (status = next)} onClose={() => (settingsOpen = false)} />
 {/if}
 
 <style>
