@@ -20,13 +20,15 @@ On macOS the system web view (WebKit) does not take a custom data folder, so its
 
 The update channel, check schedule and "Check now" behave as for installed builds (see [Update behavior](releasing.md#update-behavior-in-the-app)). What differs is how the files are replaced.
 
-- **Windows.** The app downloads `OpenWave-Studio_<version>_<arch>_portable.zip` from the feed, verifies its signature against the built-in public key and extracts it to `.update-staging/` inside the portable folder. "Update ready" means that extraction finished. On "Restart now" (or when you quit) a copy of the program starts from the temp folder, waits for the app to exit and swaps the files:
-  1. every top-level entry except `OpenWave Studio Data/`, `portable` and `.update-staging/` is renamed to `<name>.bak`;
-  2. the new entries are moved in (a package entry named `portable` or `OpenWave Studio Data` is ignored);
-  3. if anything fails, the new entries are removed and every `.bak` is renamed back, so the old version stays;
-  4. on success the `.bak` entries and the staging folder are deleted, and (for "Restart now") the new version starts.
+- **Windows.** The app downloads `OpenWave-Studio_<version>_<arch>_portable.zip` from the feed, verifies its signature (and the version bound into it) against the built-in public key and extracts it to `.update-staging/` inside the portable folder. "Update ready" means that extraction finished. On "Restart now" (or when you quit) a copy of the program starts from the temp folder, waits for the app to exit and swaps the files:
+  1. every top-level entry except `OpenWave Studio Data/`, `portable` and `.update-staging/` is renamed to `<name>.ow-old`, with the program last;
+  2. the new entries are moved in, the new program right after its old one was moved aside (a package entry named `portable` or `OpenWave Studio Data` is ignored);
+  3. if anything fails, the new entries are removed and every `.ow-old` is renamed back, so the old version stays;
+  4. on success the new version starts first (for "Restart now"), then the `.ow-old` entries and the staging folder are deleted.
 
-  Locked files (antivirus, search indexer) are retried with growing waits for up to 30 seconds in total. The helper writes `OpenWave Studio Data/logs/portable-update.log`; if an update did not take, read it. A `.bak` entry left by an interrupted update is removed by the next one.
+  Locked files (antivirus, search indexer) are retried with growing waits for up to 30 seconds in total; other errors fail at once. The helper writes `OpenWave Studio Data/logs/portable-update.log`. If an update fails, the old version keeps running and the next start of the app shows the reason in the update panel (the helper leaves `OpenWave Studio Data/logs/update-failed.txt`, which is read once and deleted).
+
+  Manual recovery: only if the process is killed in the instant between moving the old program aside and moving the new one in (or the machine loses power) can the folder lack `OpenWave Studio.exe`. Then rename `OpenWave Studio.exe.ow-old` back to `OpenWave Studio.exe` and rename every other `<name>.ow-old` back to `<name>` (replace the new files of the same name), or unzip the portable zip over the folder. User data and the marker are never touched. Leftover `.ow-old` entries are removed by the next update; your own `.bak` files are never touched.
 - **Linux AppImage.** The standard updater replaces the AppImage file in place. The `portable` marker beside it is untouched.
 - **macOS.** The standard updater replaces the `.app` bundle in place. The marker beside it is untouched.
 

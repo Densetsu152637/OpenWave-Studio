@@ -9,15 +9,17 @@
 //! files:
 //!
 //! 1. every top-level entry of the folder except `OpenWave Studio Data/`, the `portable` marker and
-//!    `.update-staging/` is renamed to `<name>.bak`;
+//!    `.update-staging/` is renamed to `<name>.ow-old`; the program itself goes last, and its
+//!    replacement is moved in right after, so the folder lacks the executable for one rename only;
 //! 2. every staged entry is moved in (staged entries named `portable` or `OpenWave Studio Data`
 //!    are skipped, so a malformed package cannot overwrite them);
-//! 3. on any error every moved-in entry is removed and every `.bak` is renamed back, which leaves
-//!    the old version intact; on success the `.bak` entries and the staging folder are deleted.
+//! 3. on any error every moved-in entry is removed and every `.ow-old` is renamed back, which leaves
+//!    the old version intact. On success the new version is started first, then the `.ow-old`
+//!    entries and the staging folder are deleted.
 //!
-//! Each rename is retried with exponential backoff, starting at 100 ms, until a shared 30 s
-//! budget runs out, to ride out antivirus and search-indexer locks. The new executable is then
-//! started with `std::process::Command`.
+//! Each rename is retried with exponential backoff, starting at 100 ms, while the error is a
+//! transient lock (antivirus, search indexer) and a shared 30 s budget lasts. A failed update
+//! leaves `update-failed.txt` in the data folder's `logs`, which the app shows at its next start.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -33,14 +35,17 @@ pub const APPLY_FLAG: &str = "--apply-update";
 pub const STAGING_DIR: &str = ".update-staging";
 /// The executable inside the portable zip, and so inside an updated folder.
 pub const PORTABLE_EXE: &str = "OpenWave Studio.exe";
-/// Suffix of a renamed old entry while the swap runs.
-const BACKUP_SUFFIX: &str = ".bak";
+/// Suffix of a renamed old entry while the swap runs. Distinctive, so a `<name>.bak` the user
+/// keeps is never mistaken for ours.
+const BACKUP_SUFFIX: &str = ".ow-old";
 /// Total time the helper spends on waiting for the app and on locked files.
 pub const SWAP_BUDGET: Duration = Duration::from_secs(30);
 /// First wait between attempts; it doubles after each failure.
 pub const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 /// Log file name, written under the data folder's `logs`.
 const LOG_FILE: &str = "portable-update.log";
+/// Left in the same folder by a failed update; read and deleted by the next app start.
+const FAILURE_FILE: &str = "update-failed.txt";
 
 /// The updater feed key for a portable zip of this architecture, if one is published.
 pub fn feed_target(arch: &str) -> Option<&'static str> {
@@ -51,12 +56,18 @@ pub fn feed_target(arch: &str) -> Option<&'static str> {
     }
 }
 
-/// Names the swap never touches in the old folder and never moves in from a package.
+/// Names the swap never touches in the old folder and never moves in from a package. Windows
+/// ignores case and trailing dots and spaces in names, so `Portable.` is the marker too.
 fn is_protected(name: &OsStr) -> bool {
     let name = name.to_string_lossy();
+    let name = name.trim_end_matches(['.', ' ']);
     [DATA_DIR_NAME, MARKER_FILE, STAGING_DIR]
         .iter()
         .any(|protected| name.eq_ignore_ascii_case(protected))
+}
+
+fn is_program(name: &OsStr) -> bool {
+    name.to_string_lossy().eq_ignore_ascii_case(PORTABLE_EXE)
 }
 
 /// One rename of the swap.
@@ -69,10 +80,42 @@ pub struct Step {
 /// What a swap will do, computed before anything is touched.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SwapPlan {
-    /// Old entries renamed to `.bak`.
+    /// Old entries renamed to `.ow-old`.
     pub backups: Vec<Step>,
     /// Staged entries moved into the folder.
     pub installs: Vec<Step>,
+}
+
+/// One operation of the swap, in execution order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Op<'a> {
+    Backup(&'a Step),
+    Install(&'a Step),
+}
+
+impl SwapPlan {
+    /// Everything but the program first, then the program's backup and its replacement, so a
+    /// crash can only strand the folder between those two adjacent renames.
+    pub fn ordered(&self) -> Vec<Op<'_>> {
+        let backs_up_exe = |step: &&Step| is_program(step.from.file_name().unwrap_or_default());
+        let installs_exe = |step: &&Step| is_program(step.to.file_name().unwrap_or_default());
+        let mut ops = Vec::new();
+        ops.extend(
+            self.backups
+                .iter()
+                .filter(|s| !backs_up_exe(s))
+                .map(Op::Backup),
+        );
+        ops.extend(
+            self.installs
+                .iter()
+                .filter(|s| !installs_exe(s))
+                .map(Op::Install),
+        );
+        ops.extend(self.backups.iter().filter(backs_up_exe).map(Op::Backup));
+        ops.extend(self.installs.iter().filter(installs_exe).map(Op::Install));
+        ops
+    }
 }
 
 fn top_level_names(dir: &Path) -> io::Result<Vec<OsString>> {
@@ -88,6 +131,7 @@ fn top_level_names(dir: &Path) -> io::Result<Vec<OsString>> {
 pub fn plan_swap(install: &Path, staging: &Path) -> io::Result<SwapPlan> {
     let backups = top_level_names(install)?
         .into_iter()
+        // A leftover `.ow-old` from an interrupted update is not part of the old version.
         .filter(|name| !is_protected(name) && !name.to_string_lossy().ends_with(BACKUP_SUFFIX))
         .map(|name| {
             let mut backup = name.clone();
@@ -157,8 +201,21 @@ impl Budget {
     };
 }
 
-/// Runs `operation` until it succeeds or `deadline` passes, waiting `first_backoff`, then twice
-/// as long after every failure (never beyond the deadline).
+/// Whether waiting could help: a file held open by another process (sharing or lock violation,
+/// access denied while a scanner has it) or a momentary interruption. Anything else, such as a
+/// missing path or a full disk, fails at once.
+fn is_transient(error: &io::Error) -> bool {
+    use io::ErrorKind::{Interrupted, PermissionDenied, ResourceBusy, TimedOut, WouldBlock};
+    // Windows: 5 access denied, 32 sharing violation, 33 lock violation.
+    matches!(error.raw_os_error(), Some(5 | 32 | 33))
+        || matches!(
+            error.kind(),
+            PermissionDenied | ResourceBusy | WouldBlock | Interrupted | TimedOut
+        )
+}
+
+/// Runs `operation` until it succeeds, fails with a non-transient error, or `deadline` passes,
+/// waiting `first_backoff`, then twice as long after every failure (never beyond the deadline).
 fn retry<T>(
     deadline: Instant,
     first_backoff: Duration,
@@ -170,7 +227,7 @@ fn retry<T>(
             Ok(value) => return Ok(value),
             Err(error) => {
                 let now = Instant::now();
-                if now >= deadline {
+                if !is_transient(&error) || now >= deadline {
                     return Err(error);
                 }
                 std::thread::sleep(delay.min(deadline - now));
@@ -202,8 +259,8 @@ impl std::fmt::Display for SwapError {
     }
 }
 
-/// Carries out `plan`. On any error everything done so far is undone (each undo step is retried
-/// within its own budget) and the error is returned; on success the backups are deleted.
+/// Carries out `plan`, leaving the `.ow-old` backups in place for [`cleanup_backups`]. On any
+/// error everything done so far is undone (each undo step is retried within its own budget).
 pub fn apply_swap(
     fs: &dyn Fs,
     plan: &SwapPlan,
@@ -213,39 +270,39 @@ pub fn apply_swap(
     let mut backed_up: Vec<&Step> = Vec::new();
     let mut installed: Vec<&Step> = Vec::new();
     let outcome = (|| {
-        for step in &plan.backups {
-            // A `.bak` left by an interrupted update would block the rename.
-            fs.remove(&step.to)?;
-            retry(deadline, budget.first_backoff, || {
-                fs.rename(&step.from, &step.to)
-            })?;
-            backed_up.push(step);
-        }
-        for step in &plan.installs {
-            retry(deadline, budget.first_backoff, || {
-                fs.rename(&step.from, &step.to)
-            })?;
-            installed.push(step);
+        for op in plan.ordered() {
+            match op {
+                Op::Backup(step) => {
+                    // A stale backup of an interrupted update would block the rename.
+                    retry(deadline, budget.first_backoff, || fs.remove(&step.to))?;
+                    retry(deadline, budget.first_backoff, || {
+                        fs.rename(&step.from, &step.to)
+                    })?;
+                    backed_up.push(step);
+                }
+                Op::Install(step) => {
+                    retry(deadline, budget.first_backoff, || {
+                        fs.rename(&step.from, &step.to)
+                    })?;
+                    installed.push(step);
+                }
+            }
         }
         Ok(())
     })();
-    match outcome {
-        Ok(()) => {
-            // Best effort: a backup that stays behind is removed by the next update.
-            for step in &plan.backups {
-                let deadline = Instant::now() + budget.total;
-                let _ = retry(deadline, budget.first_backoff, || fs.remove(&step.to));
-            }
-            Ok(())
-        }
-        Err(cause) => {
-            let restore_problems = restore(fs, &installed, &backed_up, budget);
-            Err(SwapError {
-                cause,
-                restore_problems,
-            })
-        }
-    }
+    outcome.map_err(|cause| SwapError {
+        cause,
+        restore_problems: restore(fs, &installed, &backed_up, budget),
+    })
+}
+
+/// Deletes the backups of a finished swap, best effort, until `deadline`. Returns how many could
+/// not be removed (the next update removes them).
+pub fn cleanup_backups(fs: &dyn Fs, plan: &SwapPlan, budget: Budget, deadline: Instant) -> usize {
+    plan.backups
+        .iter()
+        .filter(|step| retry(deadline, budget.first_backoff, || fs.remove(&step.to)).is_err())
+        .count()
 }
 
 /// Removes the moved-in entries and renames every backup back, newest first.
@@ -313,10 +370,10 @@ fn extract(zip_bytes: &[u8], into: &Path) -> io::Result<()> {
 }
 
 fn check_staged(staging: &Path) -> io::Result<()> {
-    let has_exe = top_level_names(staging)?
+    if top_level_names(staging)?
         .iter()
-        .any(|name| name.to_string_lossy().eq_ignore_ascii_case(PORTABLE_EXE));
-    if has_exe {
+        .any(|name| is_program(name))
+    {
         Ok(())
     } else {
         Err(invalid(format!("the update package has no {PORTABLE_EXE}")))
@@ -390,10 +447,15 @@ pub fn handle_args<I: IntoIterator<Item = OsString>>(args: I) -> Option<i32> {
     })
 }
 
+/// The `logs` folder inside the portable data folder.
+fn logs_dir(dir: &Path) -> PathBuf {
+    dir.join(DATA_DIR_NAME).join("logs")
+}
+
 /// Appends a line to the helper's log, when the data folder exists.
 fn log_line(dir: &Path, message: &str) {
     use std::io::Write;
-    let logs = dir.join(DATA_DIR_NAME).join("logs");
+    let logs = logs_dir(dir);
     if !logs.is_dir() {
         return;
     }
@@ -406,11 +468,31 @@ fn log_line(dir: &Path, message: &str) {
     }
 }
 
+/// Records a failed update for the next app start.
+pub fn record_failure(dir: &Path, message: &str) {
+    let logs = logs_dir(dir);
+    if fs::create_dir_all(&logs).is_ok() {
+        let _ = fs::write(logs.join(FAILURE_FILE), message);
+    }
+}
+
+/// The message a failed update left in `logs` (the data folder's log folder), once: the file is
+/// deleted by reading it. The text names the log file for details.
+pub fn take_failure(logs: &Path) -> Option<String> {
+    let file = logs.join(FAILURE_FILE);
+    let message = fs::read_to_string(&file).ok()?;
+    let _ = fs::remove_file(&file);
+    Some(format!(
+        "The last update failed and the old version was kept: {} (details: {})",
+        message.trim(),
+        logs.join(LOG_FILE).display()
+    ))
+}
+
 /// Waits for the app to exit, swaps the files and optionally starts the app again. Always leaves
 /// either the new version or the old one in the folder.
 fn run_helper(args: &HelperArgs) -> i32 {
-    let started = Instant::now();
-    let deadline = started + SWAP_BUDGET;
+    let deadline = Instant::now() + SWAP_BUDGET;
     log_line(&args.dir, "update helper started");
     if !wait_for_exit(args.pid, SWAP_BUDGET) {
         log_line(
@@ -419,26 +501,30 @@ fn run_helper(args: &HelperArgs) -> i32 {
         );
     }
     let staging = args.dir.join(STAGING_DIR);
-    let result = plan_swap(&args.dir, &staging)
-        .map_err(|cause| SwapError {
-            cause,
+    let plan = plan_swap(&args.dir, &staging);
+    let result = match &plan {
+        Ok(plan) => apply_swap(&RealFs, plan, Budget::DEFAULT, deadline),
+        Err(cause) => Err(SwapError {
+            cause: io::Error::new(cause.kind(), cause.to_string()),
             restore_problems: Vec::new(),
-        })
-        .and_then(|plan| apply_swap(&RealFs, &plan, Budget::DEFAULT, deadline));
+        }),
+    };
     let code = match &result {
         Ok(()) => {
             log_line(&args.dir, "update applied");
             0
         }
         Err(error) => {
+            let message = error.to_string();
             log_line(
                 &args.dir,
-                &format!("update failed, old version kept: {error}"),
+                &format!("update failed, old version kept: {message}"),
             );
+            record_failure(&args.dir, &message);
             1
         }
     };
-    let _ = RealFs.remove(&staging);
+    // Start the app first, so the user does not wait for the cleanup.
     if args.relaunch {
         let exe = args.dir.join(PORTABLE_EXE);
         match std::process::Command::new(&exe)
@@ -452,8 +538,37 @@ fn run_helper(args: &HelperArgs) -> i32 {
             ),
         }
     }
+    if let (Ok(()), Ok(plan)) = (&result, &plan) {
+        let left = cleanup_backups(&RealFs, plan, Budget::DEFAULT, deadline);
+        if left > 0 {
+            log_line(
+                &args.dir,
+                &format!("{left} backup entries could not be removed"),
+            );
+        }
+    }
+    let _ = RealFs.remove(&staging);
+    remove_own_copy();
     code
 }
+
+/// Deletes this helper's copy in the temp folder once the process is gone (a running exe cannot
+/// delete itself on Windows): a detached `cmd` waits a few seconds, then removes it.
+#[cfg(windows)]
+fn remove_own_copy() {
+    use std::os::windows::process::CommandExt;
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let _ = std::process::Command::new("cmd.exe")
+        .args(["/C", "ping -n 4 127.0.0.1 >NUL & del /F /Q"])
+        .arg(&exe)
+        .creation_flags(0x0000_0008 | 0x0800_0000)
+        .spawn();
+}
+
+#[cfg(not(windows))]
+fn remove_own_copy() {}
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
@@ -482,20 +597,18 @@ fn wait_for_exit(_pid: u32, _timeout: Duration) -> bool {
 }
 
 /// Starts the swap helper from a copy of this executable in the temp directory (the copy keeps
-/// the install folder's exe unlocked) and returns; the caller then exits.
+/// the install folder's exe unlocked) and returns; the caller then exits. The copy is named for
+/// this process, and a failed copy is an error: a file left by someone else is never run.
 pub fn launch_helper(dir: &Path, relaunch: bool) -> io::Result<()> {
+    let pid = std::process::id();
     let helper_dir = std::env::temp_dir().join("openwave-studio-update");
     fs::create_dir_all(&helper_dir)?;
-    let helper = helper_dir.join("openwave-update-helper.exe");
-    // A previous helper may still be running; replacing it then fails, and the leftover copy is
-    // just as good.
-    if let Err(error) = fs::copy(std::env::current_exe()?, &helper)
-        && !helper.is_file()
-    {
-        return Err(error);
-    }
+    sweep_old_helpers(&helper_dir);
+    let helper = helper_dir.join(format!("openwave-update-helper-{pid}.exe"));
+    RealFs.remove(&helper)?;
+    fs::copy(std::env::current_exe()?, &helper)?;
     let args = HelperArgs {
-        pid: std::process::id(),
+        pid,
         dir: dir.to_path_buf(),
         relaunch,
     };
@@ -508,6 +621,25 @@ pub fn launch_helper(dir: &Path, relaunch: bool) -> io::Result<()> {
         command.creation_flags(0x0000_0008 | 0x0800_0000);
     }
     command.spawn().map(|_| ())
+}
+
+/// Removes helper copies of earlier updates; one still running cannot be deleted and stays.
+fn sweep_old_helpers(helper_dir: &Path) {
+    if let Ok(entries) = fs::read_dir(helper_dir) {
+        for entry in entries.flatten() {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Runs `launch` for the pending `item`; when it fails the item goes back into `slot`, so a later
+/// "restart now" or quit can try again.
+pub fn launch_or_restore<T>(
+    slot: &mut Option<T>,
+    item: T,
+    launch: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    launch().inspect_err(|_| *slot = Some(item))
 }
 
 #[cfg(test)]
@@ -599,7 +731,10 @@ mod tests {
         for step in &plan.backups {
             assert_eq!(
                 step.to.file_name().unwrap().to_string_lossy(),
-                format!("{}.bak", step.from.file_name().unwrap().to_string_lossy())
+                format!(
+                    "{}.ow-old",
+                    step.from.file_name().unwrap().to_string_lossy()
+                )
             );
         }
         let installed: Vec<_> = plan
@@ -633,6 +768,7 @@ mod tests {
         let root = dir.path();
         let plan = plan_for(root);
         apply_swap(&RealFs, &plan, FAST, deadline()).unwrap();
+        assert_eq!(cleanup_backups(&RealFs, &plan, FAST, deadline()), 0);
         assert_eq!(
             fs::read(root.join("OpenWave Studio.exe")).unwrap(),
             b"new exe"
@@ -649,18 +785,18 @@ mod tests {
         let leftovers: Vec<_> = top_level_names(root)
             .unwrap()
             .into_iter()
-            .filter(|n| n.to_string_lossy().ends_with(".bak"))
+            .filter(|n| n.to_string_lossy().ends_with(".ow-old"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 
     /// Fails every attempt of a forward rename whose destination has the given name; restoring a
-    /// `.bak` always works.
+    /// `.ow-old` always works.
     struct FailInto(&'static str);
 
     impl Fs for FailInto {
         fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
-            let restoring = from.extension().is_some_and(|ext| ext == "bak");
+            let restoring = from.extension().is_some_and(|ext| ext == "ow-old");
             if !restoring && to.file_name().is_some_and(|name| name == self.0) {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
@@ -694,7 +830,8 @@ mod tests {
         let root = dir.path();
         let before = snapshot(root);
         let plan = plan_for(root);
-        let error = apply_swap(&FailInto("old-only.dll.bak"), &plan, FAST, deadline()).unwrap_err();
+        let error =
+            apply_swap(&FailInto("old-only.dll.ow-old"), &plan, FAST, deadline()).unwrap_err();
         assert!(error.restore_problems.is_empty(), "{error}");
         assert_eq!(snapshot(root), before);
     }
@@ -785,7 +922,7 @@ mod tests {
         let result: io::Result<()> = retry(
             Instant::now() + Duration::from_millis(40),
             Duration::from_millis(5),
-            || Err(io::Error::other("always")),
+            || Err(io::Error::new(io::ErrorKind::PermissionDenied, "always")),
         );
         assert!(result.is_err());
         assert!(started.elapsed() < Duration::from_secs(2));
@@ -869,5 +1006,142 @@ mod tests {
         assert_eq!(feed_target("x86_64"), Some("windows-x86_64-portable"));
         assert_eq!(feed_target("aarch64"), Some("windows-aarch64-portable"));
         assert_eq!(feed_target("riscv64"), None);
+    }
+
+    #[test]
+    fn portable_update_only_transient_errors_are_retried() {
+        let calls = Cell::new(0);
+        let result: io::Result<()> = retry(
+            Instant::now() + Duration::from_secs(5),
+            Duration::from_millis(1),
+            || {
+                calls.set(calls.get() + 1);
+                Err(io::Error::new(io::ErrorKind::NotFound, "gone"))
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(calls.get(), 1);
+        assert!(is_transient(&io::Error::from_raw_os_error(32)));
+        assert!(is_transient(&io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "x"
+        )));
+        assert!(!is_transient(&io::Error::new(
+            io::ErrorKind::InvalidData,
+            "x"
+        )));
+    }
+
+    #[test]
+    fn portable_update_protection_ignores_trailing_dots_and_spaces() {
+        assert!(is_protected(OsStr::new("portable.")));
+        assert!(is_protected(OsStr::new("Portable . ")));
+        assert!(is_protected(OsStr::new("OpenWave Studio Data ")));
+        assert!(!is_protected(OsStr::new("portable.txt")));
+    }
+
+    #[test]
+    fn portable_update_a_users_bak_file_is_treated_like_any_other_entry() {
+        let dir = folder();
+        let root = dir.path();
+        write(&root.join("notes.bak"), b"user's own backup");
+        write(
+            &root.join("old.ow-old"),
+            b"leftover of an interrupted update",
+        );
+        let plan = plan_for(root);
+        assert!(plan.backups.iter().any(|s| s.from.ends_with("notes.bak")));
+        assert!(!plan.backups.iter().any(|s| s.from.ends_with("old.ow-old")));
+    }
+
+    #[test]
+    fn portable_update_the_program_is_swapped_last_and_adjacent() {
+        let dir = folder();
+        let plan = plan_for(dir.path());
+        let ops = plan.ordered();
+        let last_two = &ops[ops.len() - 2..];
+        assert!(matches!(last_two[0], Op::Backup(s) if s.from.ends_with("OpenWave Studio.exe")));
+        assert!(matches!(last_two[1], Op::Install(s) if s.to.ends_with("OpenWave Studio.exe")));
+        assert_eq!(ops.len(), plan.backups.len() + plan.installs.len());
+    }
+
+    /// Everything works until the program has been moved aside; then every operation fails, as
+    /// if the process had been killed at that point.
+    struct DiesAfterProgramBackup {
+        dead: Cell<bool>,
+    }
+
+    impl Fs for DiesAfterProgramBackup {
+        fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+            if self.dead.get() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "process killed"));
+            }
+            RealFs.rename(from, to)?;
+            if to.ends_with("OpenWave Studio.exe.ow-old") {
+                self.dead.set(true);
+            }
+            Ok(())
+        }
+
+        fn remove(&self, path: &Path) -> io::Result<()> {
+            if self.dead.get() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "process killed"));
+            }
+            RealFs.remove(path)
+        }
+    }
+
+    #[test]
+    fn portable_update_aborting_right_after_the_program_backup_leaves_a_documented_state() {
+        let dir = folder();
+        let root = dir.path();
+        let plan = plan_for(root);
+        let fs = DiesAfterProgramBackup {
+            dead: Cell::new(false),
+        };
+        assert!(apply_swap(&fs, &plan, FAST, deadline()).is_err());
+        // The program is the only thing missing, its old copy is intact beside the folder's
+        // contents, the new one is still staged, and user data and marker are untouched.
+        assert!(!root.join("OpenWave Studio.exe").exists());
+        assert_eq!(
+            fs::read(root.join("OpenWave Studio.exe.ow-old")).unwrap(),
+            b"old exe"
+        );
+        assert_eq!(
+            fs::read(root.join(STAGING_DIR).join("OpenWave Studio.exe")).unwrap(),
+            b"new exe"
+        );
+        assert_eq!(fs::read(root.join("LICENSE")).unwrap(), b"new license");
+        assert!(root.join(MARKER_FILE).is_file());
+        assert_eq!(
+            fs::read(root.join(DATA_DIR_NAME).join("config/settings.json")).unwrap(),
+            b"{\"volume\":7}"
+        );
+    }
+
+    #[test]
+    fn portable_update_a_failed_update_is_reported_once_at_the_next_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join(DATA_DIR_NAME).join("logs");
+        assert_eq!(take_failure(&logs), None);
+        record_failure(dir.path(), "injected failure (restore incomplete: none)");
+        let message = take_failure(&logs).expect("a failure was recorded");
+        assert!(message.contains("injected failure"), "{message}");
+        assert!(message.contains(LOG_FILE), "{message}");
+        assert!(message.contains("old version was kept"), "{message}");
+        assert_eq!(take_failure(&logs), None);
+    }
+
+    #[test]
+    fn portable_update_a_failed_launch_puts_the_update_back() {
+        let mut slot: Option<&str> = None;
+        let error = launch_or_restore(&mut slot, "update", || {
+            Err(io::Error::new(io::ErrorKind::NotFound, "no helper"))
+        });
+        assert!(error.is_err());
+        assert_eq!(slot, Some("update"));
+        let mut slot: Option<&str> = None;
+        assert!(launch_or_restore(&mut slot, "update", || Ok(())).is_ok());
+        assert_eq!(slot, None);
     }
 }

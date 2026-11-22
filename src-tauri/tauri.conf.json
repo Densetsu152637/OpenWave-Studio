@@ -38,6 +38,7 @@
   },
   "plugins": {
     "updater": {
+      "requireSignedVersion": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5QTgzMTYxREQyRUQwM0MKUldRODBDN2RZVEdvNldYUjMzamw3dEtjcW00UTlyM1gxeklPeTc5VHVEaHQ0dlpBYXIwSFdrL3UK",
       "windows": {
         "installMode": "passive"

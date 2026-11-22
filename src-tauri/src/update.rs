@@ -198,6 +198,30 @@ struct Inner {
     relaxed: bool,
 }
 
+/// What a finished check does to the stored downloaded update.
+enum ReadyChange {
+    Keep,
+    Clear,
+    Set(Box<(Update, Vec<u8>)>),
+}
+
+impl Inner {
+    /// Records the outcome of a check that ran for `channel`. A check that finishes after the
+    /// user switched channel is stale and changes nothing; returns whether it was applied.
+    fn settle(&mut self, channel: Channel, state: UpdateState, ready: ReadyChange) -> bool {
+        if self.channel != channel {
+            return false;
+        }
+        match ready {
+            ReadyChange::Keep => {}
+            ReadyChange::Clear => self.ready = None,
+            ReadyChange::Set(update) => self.ready = Some(*update),
+        }
+        self.state = state;
+        true
+    }
+}
+
 impl Updater {
     fn status<R: Runtime>(&self, app: &AppHandle<R>) -> UpdateStatus {
         let inner = self.inner.lock().expect("updater state");
@@ -251,10 +275,16 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) {
         std::env::var_os("APPIMAGE").as_deref(),
         translocation::is_translocated_exe(),
     );
+    // A portable update that failed in the helper leaves a note: show it until the next check.
+    let last_failure = app
+        .try_state::<Paths>()
+        .filter(|paths| paths.portable)
+        .and_then(|paths| portable_update::take_failure(&paths.logs_dir));
+    let state = last_failure.map_or(UpdateState::Idle, |message| UpdateState::Failed { message });
     app.manage(Updater {
         inner: Mutex::new(Inner {
             channel,
-            state: UpdateState::Idle,
+            state,
             ready: None,
             relaxed: false,
         }),
@@ -310,7 +340,12 @@ pub fn install_on_exit<R: Runtime>(app: &AppHandle<R>) {
         eprintln!("[openwave] update: installing {} on exit", update.version);
         if let Some(dir) = &updater.portable_dir {
             // The helper waits for this process to exit, then swaps the files; no relaunch.
-            if let Err(error) = portable_update::launch_helper(dir, false) {
+            let mut slot = updater.inner.lock().expect("updater state");
+            if let Err(error) =
+                portable_update::launch_or_restore(&mut slot.ready, (update, bytes), || {
+                    portable_update::launch_helper(dir, false)
+                })
+            {
                 eprintln!("[openwave] update: starting the portable helper failed: {error}");
             }
             return;
@@ -343,15 +378,15 @@ async fn check<R: Runtime>(app: &AppHandle<R>) {
         Comparator::Newer
     };
     let portable_dir = updater.portable_dir.clone();
-    let state = match find(app, channel, comparator, portable_dir.is_some()).await {
-        Ok(None) => {
-            updater.inner.lock().expect("updater state").ready = None;
-            UpdateState::UpToDate
-        }
-        Ok(Some(update)) if downloaded.as_deref() == Some(&update.version) => UpdateState::Ready {
-            version: update.version,
-            notes: update.body,
-        },
+    let (state, ready) = match find(app, channel, comparator, portable_dir.is_some()).await {
+        Ok(None) => (UpdateState::UpToDate, ReadyChange::Clear),
+        Ok(Some(update)) if downloaded.as_deref() == Some(&update.version) => (
+            UpdateState::Ready {
+                version: update.version,
+                notes: update.body,
+            },
+            ReadyChange::Keep,
+        ),
         Ok(Some(update)) => {
             updater.set_state(
                 app,
@@ -367,23 +402,27 @@ async fn check<R: Runtime>(app: &AppHandle<R>) {
                         None => (bytes, Ok(())),
                     };
                     match staged {
-                        Ok(()) => {
-                            let state = UpdateState::Ready {
+                        Ok(()) => (
+                            UpdateState::Ready {
                                 version: update.version.clone(),
                                 notes: update.body.clone(),
-                            };
-                            updater.inner.lock().expect("updater state").ready =
-                                Some((update, bytes));
-                            state
-                        }
-                        Err(error) => UpdateState::Failed {
-                            message: format!("Preparing {} failed: {error}", update.version),
-                        },
+                            },
+                            ReadyChange::Set(Box::new((update, bytes))),
+                        ),
+                        Err(error) => (
+                            UpdateState::Failed {
+                                message: format!("Preparing {} failed: {error}", update.version),
+                            },
+                            ReadyChange::Keep,
+                        ),
                     }
                 }
-                Err(error) => UpdateState::Failed {
-                    message: format!("Downloading {} failed: {error}", update.version),
-                },
+                Err(error) => (
+                    UpdateState::Failed {
+                        message: format!("Downloading {} failed: {error}", update.version),
+                    },
+                    ReadyChange::Keep,
+                ),
             }
         }
         Err(message) => {
@@ -391,11 +430,20 @@ async fn check<R: Runtime>(app: &AppHandle<R>) {
             if relaxed {
                 updater.inner.lock().expect("updater state").relaxed = true;
             }
-            UpdateState::Failed { message }
+            (UpdateState::Failed { message }, ReadyChange::Keep)
         }
     };
     eprintln!("[openwave] update: {state:?}");
-    updater.set_state(app, state);
+    let applied = updater
+        .inner
+        .lock()
+        .expect("updater state")
+        .settle(channel, state, ready);
+    if applied {
+        let _ = app.emit(STATUS_EVENT, updater.status(app));
+    } else {
+        eprintln!("[openwave] update: discarded a result for the previous channel");
+    }
 }
 
 /// An update on `channel` that `comparator` accepts, if the feed offers one.
@@ -486,7 +534,13 @@ pub fn update_restart<R: Runtime>(
     };
     if let Some(dir) = &updater.portable_dir {
         // The helper swaps the files once this process has exited, then starts the new version.
-        portable_update::launch_helper(dir, true).map_err(|error| error.to_string())?;
+        // When it cannot be started the update stays ready, so the user can try again.
+        let mut slot = updater.inner.lock().expect("updater state");
+        portable_update::launch_or_restore(&mut slot.ready, (update, bytes), || {
+            portable_update::launch_helper(dir, true)
+        })
+        .map_err(|error| format!("Starting the update failed: {error}"))?;
+        drop(slot);
         app.exit(0);
         return Ok(());
     }
@@ -587,6 +641,34 @@ mod tests {
         // Portable state no longer disables checks: Windows portable folders update through
         // `portable_update`, AppImage and `.app` portables through the standard updater.
         assert_eq!(disabled_reason(false, None, false), None);
+    }
+
+    fn inner(channel: Channel) -> Inner {
+        Inner {
+            channel,
+            state: UpdateState::Idle,
+            ready: None,
+            relaxed: false,
+        }
+    }
+
+    #[test]
+    fn update_a_result_for_the_previous_channel_is_discarded() {
+        let mut state = inner(Channel::Main);
+        let applied = state.settle(
+            Channel::Experimental,
+            UpdateState::UpToDate,
+            ReadyChange::Clear,
+        );
+        assert!(!applied);
+        assert!(matches!(state.state, UpdateState::Idle));
+    }
+
+    #[test]
+    fn update_a_result_for_the_current_channel_is_applied() {
+        let mut state = inner(Channel::Main);
+        assert!(state.settle(Channel::Main, UpdateState::UpToDate, ReadyChange::Clear));
+        assert!(matches!(state.state, UpdateState::UpToDate));
     }
 
     #[test]

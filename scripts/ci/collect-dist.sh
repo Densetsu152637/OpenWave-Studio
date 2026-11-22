@@ -70,7 +70,8 @@ if [ "$updater" = true ] && [ -n "$portable" ]; then
     echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, so the portable zip cannot be signed."
     exit 1
   fi
-  bash scripts/ci/tauri.sh signer sign "release-dist/$portable"
+  # --app-version binds the signed version into the signature, which the app requires.
+  bash scripts/ci/tauri.sh signer sign --app-version "$version" "release-dist/$portable"
 fi
 
 # Every updater artifact and every portable zip needs its signature.

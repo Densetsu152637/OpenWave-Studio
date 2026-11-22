@@ -43,6 +43,13 @@ for platform in "${platforms[@]}"; do
     missing+=("$key")
     continue
   fi
+  # The app requires the version bound into each signature (trusted comment `version:`) to equal
+  # the feed's version, so a stale or unversioned signature must never reach the feed.
+  signed="$(base64 -d < "$sig" 2> /dev/null | sed -n 's/^trusted comment:.*[[:space:]]version:\([^[:space:]]*\).*$/\1/p' | tr -d '\r')"
+  if [ "$signed" != "$version" ]; then
+    echo "::error::$sig is signed for version '${signed:-none}', not $version."
+    exit 1
+  fi
   file="$(basename "${sig%.sig}")"
   entries="$(jq --arg key "$key" --arg url "$base/$file" --rawfile signature "$sig" \
     '.[$key] = {url: $url, signature: ($signature | rtrimstr("\n"))}' <<< "$entries")"
