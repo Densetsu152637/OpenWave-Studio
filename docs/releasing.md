@@ -32,7 +32,7 @@ Every release carries, per target, the installers plus a portable package, and o
 - macOS: `OpenWave-Studio_<version>_universal.dmg` and `OpenWave-Studio_<version>_universal_portable.zip` (the `.app` bundle, a `portable` marker beside it and the license).
 - Linux: the `.AppImage` is the portable artifact (place a `portable` marker beside it), plus `.deb` and `.rpm`.
 
-`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), checks that each portable zip holds the program, `LICENSE` and the `portable` marker at its top level, and requires the `.rpm` files for versions without a hyphen, and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. `scripts/ci/prepare-build.sh` turns `bundle.createUpdaterArtifacts` on through the `--config` overlay, so every NSIS installer, `.app.tar.gz` and AppImage is built with a `.sig` beside it, and `collect-dist.sh` fails if one is missing. The signatures use the repository secrets below.
+`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), checks that each portable zip holds the program, `LICENSE` and the `portable` marker at its top level, and requires the `.rpm` files for versions without a hyphen, and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. `scripts/ci/prepare-build.sh` turns `bundle.createUpdaterArtifacts` on through the `--config` overlay, so every NSIS installer, `.app.tar.gz` and AppImage is built with a `.sig` beside it, and `collect-dist.sh` fails if one is missing. The signatures use the repository secrets below. The portable zips are signed by `collect-dist.sh` itself (see [Portable builds](#portable-builds)).
 
 ## Required secrets
 
@@ -59,7 +59,7 @@ Each channel has a feed: the asset `latest.json` of a fixed release, `updater-ma
 Publish order, in `scripts/ci/publish-release.sh` and `publish-experimental.sh`: (1) create the versioned release with all assets, (2) `scripts/ci/publish-feed.sh` writes the feed, (3) prune older releases. So the feed never points at a missing asset. The feed step:
 
 1. Downloads the current `latest.json` and skips the upload, with a notice, when its version is greater than the one being published (a late older run cannot roll the channel back).
-2. Runs `scripts/ci/updater-manifest.sh`, which builds `latest.json` from the `.sig` files in `release-dist/` and fails unless all ten installer keys are present: `windows-x86_64`, `windows-x86_64-nsis`, `windows-aarch64`, `windows-aarch64-nsis`, `darwin-x86_64`, `darwin-aarch64`, `linux-x86_64`, `linux-x86_64-appimage`, `linux-aarch64`, `linux-aarch64-appimage`. The two macOS keys point at the same universal `.app.tar.gz`.
+2. Runs `scripts/ci/updater-manifest.sh`, which builds `latest.json` from the `.sig` files in `release-dist/` and fails unless all twelve platform keys are present, the ten installer keys and the two portable keys (below): `windows-x86_64`, `windows-x86_64-nsis`, `windows-aarch64`, `windows-aarch64-nsis`, `darwin-x86_64`, `darwin-aarch64`, `linux-x86_64`, `linux-x86_64-appimage`, `linux-aarch64`, `linux-aarch64-appimage`. The two macOS keys point at the same universal `.app.tar.gz`. The two `windows-x86_64-portable` and `windows-aarch64-portable` keys point at the signed portable zips; only the app's Windows portable path asks for them by name (installed builds never select them).
 3. Runs `scripts/ci/check-feed.sh`, which requests every URL in the new feed (redirects followed, with retries) and fails unless each answers HTTP 200.
 4. Uploads it with `gh release upload --clobber`.
 
@@ -81,7 +81,15 @@ Note that a fresh dispatch always gets a new, higher run number. To publish an o
 
 ## Update behavior in the app
 
-The channel defaults to the one the running version was released on (a version containing `-experimental` follows experimental, anything else main) and can be switched in Settings. Checks run 20 s after start and every 6 h; a newer build downloads in the background and installs when the app quits, or at once with "Restart now". After a channel switch exactly one check accepts any different version (so experimental can move back to the current stable); it is not saved. Linux installs without `$APPIMAGE` (deb, rpm) are package-managed: no checks, no feed requests, and the panel says "Update OpenWave Studio through your package manager". Windows portable folders do not self-update until the portable update stage; the panel says so.
+The channel defaults to the one the running version was released on (a version containing `-experimental` follows experimental, anything else main) and can be switched in Settings. Checks run 20 s after start and every 6 h; a newer build downloads in the background and installs when the app quits, or at once with "Restart now". After a channel switch exactly one check accepts any different version (so experimental can move back to the current stable); it is not saved. Linux installs without `$APPIMAGE` (deb, rpm) are package-managed: no checks, no feed requests, and the panel says "Update OpenWave Studio through your package manager". Portable builds update themselves as described in [Portable builds](#portable-builds).
+
+## Portable builds
+
+`collect-dist.sh` builds the portable packages and signs them in the build job: the Windows zip (plain executable, `portable` marker, license) and the macOS zip (`.app`, marker, license) each get a `<zip>.sig` from `tauri signer sign`, using `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, which `build.yml` passes to the "Collect release files" step only. The script then fails the job if any updater artifact (NSIS installer, `.app.tar.gz`, AppImage) or any portable zip lacks a non-empty `.sig`. A release therefore shows a `.sig` beside every portable zip: `gh release view <tag> --json assets --jq '.assets[].name' | grep portable`.
+
+The Windows portable zips feed the self-update path (`src-tauri/src/portable_update.rs`); the macOS zip and the Linux AppImage update through the standard updater, so their `.sig` files are only for verification. How the app swaps the files, the 30 s retry budget and the macOS quarantine and translocation workaround are in [portable.md](portable.md).
+
+Check a published feed for the portable keys: `curl -sL <feed url> | jq -r '.platforms | keys[]' | grep portable` lists `windows-aarch64-portable` and `windows-x86_64-portable`.
 
 ## Local checks
 

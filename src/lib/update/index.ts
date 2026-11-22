@@ -21,7 +21,7 @@ export type UpdateStatus = {
   | { state: "downloading"; version: string }
   | { state: "ready"; version: string; notes: string | null }
   | { state: "failed"; message: string }
-  | { state: "disabled"; reason: "package_managed" | "portable"; message: string }
+  | { state: "disabled"; reason: "package_managed" | "translocated"; message: string }
 );
 
 export const offlineStatus: UpdateStatus = {

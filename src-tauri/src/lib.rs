@@ -3,6 +3,8 @@
 pub mod cli;
 pub mod engine;
 pub mod paths;
+pub mod portable_update;
+pub mod translocation;
 pub mod update;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -12,6 +14,10 @@ use crate::paths::{DefaultDirs, Paths};
 
 /// Starts the application. Never returns until the last window closes.
 pub fn run() {
+    // A quarantined, translocated macOS app gets a blocking prompt before anything else starts.
+    if !translocation::prompt_if_translocated() {
+        return;
+    }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {

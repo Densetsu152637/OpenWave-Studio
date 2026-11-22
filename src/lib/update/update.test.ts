@@ -28,7 +28,7 @@ describe("canCheck", () => {
   it("is off while busy or disabled", () => {
     expect(canCheck({ ...base, state: "checking" })).toBe(false);
     expect(canCheck({ ...base, state: "downloading", version: "1" })).toBe(false);
-    expect(canCheck({ ...base, state: "disabled", reason: "portable", message: "x" })).toBe(false);
+    expect(canCheck({ ...base, state: "disabled", reason: "translocated", message: "x" })).toBe(false);
   });
 
   it("is on when idle or finished", () => {

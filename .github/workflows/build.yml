@@ -133,6 +133,9 @@ jobs:
           VERSION: ${{ inputs.version }}
           ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
           UPDATER: ${{ steps.prepare.outputs.updater }}
+          # Signs the portable zips (tauri signer sign); reaches only this step.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bash scripts/ci/collect-dist.sh "$ID" "$TAURI_TARGET" "$VERSION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

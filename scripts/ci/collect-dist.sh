@@ -2,7 +2,9 @@
 # Gather one matrix target's release files into release-dist/: collect-dist.sh <platform-id> <tauri-target> <version>
 # Environment:
 #   ARTIFACT_PATHS  JSON array of bundle paths, tauri-action's `artifactPaths` output
-#   UPDATER         "true" when updater artifacts were requested; then every installer needs a .sig
+#   UPDATER         "true" when updater artifacts were requested; then every installer and every
+#                   portable zip needs a .sig (the zips are signed here)
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  the updater key, for the portable zips
 # Copies the installers (spaces in names become hyphens, which is what GitHub stores), then builds
 # the portable package: a plain-exe zip on Windows, the .app zip on macOS (each with a `portable`
 # marker beside the program), and on Linux the AppImage itself.
@@ -59,12 +61,23 @@ case "$id" in
   *) echo "::error::unknown platform id $id"; exit 1 ;;
 esac
 
-# Every installer that updates itself needs its signature; the portable zips are signed from
-# the portable-update stage on.
+# Portable zips are signed here, with the updater key, because the Tauri bundler never sees them:
+# `tauri signer sign` writes <zip>.sig, which the feed carries for the Windows zips (the app
+# verifies the download against the public key) and which ships beside the macOS zip. The key
+# reaches this script only through TAURI_SIGNING_PRIVATE_KEY(_PASSWORD), set on this step alone.
+if [ "$updater" = true ] && [ -n "$portable" ]; then
+  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+    echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, so the portable zip cannot be signed."
+    exit 1
+  fi
+  bash scripts/ci/tauri.sh signer sign "release-dist/$portable"
+fi
+
+# Every updater artifact and every portable zip needs its signature.
 if [ "$updater" = true ]; then
-  for file in release-dist/*-setup.exe release-dist/*.app.tar.gz release-dist/*.AppImage; do
+  for file in release-dist/*-setup.exe release-dist/*.app.tar.gz release-dist/*.AppImage release-dist/*_portable.zip; do
     [ -e "$file" ] || continue
-    if [ ! -e "$file.sig" ]; then
+    if [ ! -s "$file.sig" ]; then
       echo "::error::$file has no updater signature (.sig)."
       exit 1
     fi

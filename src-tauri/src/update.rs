@@ -9,6 +9,11 @@
 //!
 //! After a channel switch exactly one check accepts any different version (so moving from
 //! experimental back to main can "downgrade"); that relaxation is never persisted.
+//!
+//! A Windows portable folder cannot use the installer-based path: it checks the feed with the
+//! custom target `windows-<arch>-portable`, stages the verified zip and lets
+//! [`crate::portable_update`] swap the files when the app exits or restarts. Linux AppImages and
+//! macOS `.app` bundles use the standard replace-in-place updater.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -22,6 +27,8 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Notify;
 
 use crate::paths::Paths;
+use crate::portable_update;
+use crate::translocation;
 
 /// The repository whose releases carry the update feeds.
 const REPOSITORY: &str = "Densetsu152637/OpenWave-Studio";
@@ -37,9 +44,9 @@ const STATUS_EVENT: &str = "update://status";
 const EXPERIMENTAL_MARK: &str = "-experimental";
 /// Message shown (and logged) for a package-managed Linux install.
 pub const PACKAGE_MANAGED_MESSAGE: &str = "Update OpenWave Studio through your package manager";
-/// Message shown for a portable Windows install, which the installer-based updater cannot update.
-pub const PORTABLE_MESSAGE: &str =
-    "Portable builds do not update themselves yet. Download the new portable zip to update.";
+/// Message shown for a translocated macOS app (see [`crate::translocation`]).
+pub const TRANSLOCATED_MESSAGE: &str =
+    "Move OpenWave Studio out of its download location (or clear its quarantine) to enable updates";
 
 /// The release line an install follows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,32 +107,32 @@ impl Comparator {
 pub enum Disabled {
     /// Linux without `$APPIMAGE`: a deb or rpm install, updated by the package manager.
     PackageManaged,
-    /// A Windows portable folder: the installer-based updater would not update it.
-    Portable,
+    /// A quarantined macOS app running from a read-only translocated copy.
+    Translocated,
 }
 
 impl Disabled {
     pub fn message(self) -> &'static str {
         match self {
             Self::PackageManaged => PACKAGE_MANAGED_MESSAGE,
-            Self::Portable => PORTABLE_MESSAGE,
+            Self::Translocated => TRANSLOCATED_MESSAGE,
         }
     }
 }
 
 /// Decides whether updates are disabled for this install. Pure, so tests can cover every
-/// platform: `appimage` is the value of `$APPIMAGE`.
+/// platform: `appimage` is the value of `$APPIMAGE`. Windows portable folders update through
+/// [`crate::portable_update`], so they are not disabled.
 pub fn disabled_reason(
     linux: bool,
-    windows: bool,
     appimage: Option<&OsStr>,
-    portable: bool,
+    translocated: bool,
 ) -> Option<Disabled> {
     if linux && appimage.is_none_or(OsStr::is_empty) {
         return Some(Disabled::PackageManaged);
     }
-    if windows && portable {
-        return Some(Disabled::Portable);
+    if translocated {
+        return Some(Disabled::Translocated);
     }
     None
 }
@@ -177,12 +184,15 @@ pub struct Updater {
     checking: tokio::sync::Mutex<()>,
     disabled: Option<Disabled>,
     preferences: Option<PathBuf>,
+    /// The folder of a Windows portable install, which updates through `portable_update`.
+    portable_dir: Option<PathBuf>,
 }
 
 struct Inner {
     channel: Channel,
     state: UpdateState,
-    /// A downloaded update waiting to be installed.
+    /// A downloaded update waiting to be installed. A portable update is already extracted to the
+    /// staging folder, so its bytes are empty.
     ready: Option<(Update, Vec<u8>)>,
     /// Set by a channel switch; consumed by the next check that reaches the feed.
     relaxed: bool,
@@ -229,11 +239,17 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) {
         .and_then(|bytes| serde_json::from_slice::<Preferences>(&bytes).ok());
     let channel = saved.map_or_else(|| Channel::of_version(&version), |saved| saved.channel);
     let portable = app.try_state::<Paths>().is_some_and(|paths| paths.portable);
+    let portable_dir = if cfg!(windows) && portable {
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(PathBuf::from))
+    } else {
+        None
+    };
     let disabled = disabled_reason(
         cfg!(target_os = "linux"),
-        cfg!(windows),
         std::env::var_os("APPIMAGE").as_deref(),
-        portable,
+        translocation::is_translocated_exe(),
     );
     app.manage(Updater {
         inner: Mutex::new(Inner {
@@ -246,6 +262,7 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) {
         checking: tokio::sync::Mutex::new(()),
         disabled,
         preferences,
+        portable_dir,
     });
 
     if let Some(reason) = disabled {
@@ -291,6 +308,13 @@ pub fn install_on_exit<R: Runtime>(app: &AppHandle<R>) {
     let ready = updater.inner.lock().expect("updater state").ready.take();
     if let Some((update, bytes)) = ready {
         eprintln!("[openwave] update: installing {} on exit", update.version);
+        if let Some(dir) = &updater.portable_dir {
+            // The helper waits for this process to exit, then swaps the files; no relaunch.
+            if let Err(error) = portable_update::launch_helper(dir, false) {
+                eprintln!("[openwave] update: starting the portable helper failed: {error}");
+            }
+            return;
+        }
         if let Err(error) = update.restart_after_install(false).install(bytes) {
             eprintln!("[openwave] update: install on exit failed: {error}");
         }
@@ -318,7 +342,8 @@ async fn check<R: Runtime>(app: &AppHandle<R>) {
     } else {
         Comparator::Newer
     };
-    let state = match find(app, channel, comparator).await {
+    let portable_dir = updater.portable_dir.clone();
+    let state = match find(app, channel, comparator, portable_dir.is_some()).await {
         Ok(None) => {
             updater.inner.lock().expect("updater state").ready = None;
             UpdateState::UpToDate
@@ -336,12 +361,25 @@ async fn check<R: Runtime>(app: &AppHandle<R>) {
             );
             match update.download(|_, _| {}, || {}).await {
                 Ok(bytes) => {
-                    let state = UpdateState::Ready {
-                        version: update.version.clone(),
-                        notes: update.body.clone(),
+                    // A portable zip is extracted now, so "ready" means the swap can run.
+                    let (bytes, staged) = match &portable_dir {
+                        Some(dir) => (Vec::new(), portable_update::stage(dir, &bytes).map(drop)),
+                        None => (bytes, Ok(())),
                     };
-                    updater.inner.lock().expect("updater state").ready = Some((update, bytes));
-                    state
+                    match staged {
+                        Ok(()) => {
+                            let state = UpdateState::Ready {
+                                version: update.version.clone(),
+                                notes: update.body.clone(),
+                            };
+                            updater.inner.lock().expect("updater state").ready =
+                                Some((update, bytes));
+                            state
+                        }
+                        Err(error) => UpdateState::Failed {
+                            message: format!("Preparing {} failed: {error}", update.version),
+                        },
+                    }
                 }
                 Err(error) => UpdateState::Failed {
                     message: format!("Downloading {} failed: {error}", update.version),
@@ -365,13 +403,22 @@ async fn find<R: Runtime>(
     app: &AppHandle<R>,
     channel: Channel,
     comparator: Comparator,
+    portable: bool,
 ) -> Result<Option<Update>, String> {
     let url = channel.feed_url();
-    eprintln!("[openwave] update: checking {url} ({comparator:?})");
+    eprintln!("[openwave] update: checking {url} ({comparator:?}, portable {portable})");
     let endpoint = tauri::Url::parse(&url).map_err(|error| error.to_string())?;
-    app.updater_builder()
+    let mut builder = app
+        .updater_builder()
         .endpoints(vec![endpoint])
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    if portable {
+        // The feed's `windows-<arch>-portable` entry points at the signed portable zip.
+        let target = portable_update::feed_target(std::env::consts::ARCH)
+            .ok_or_else(|| "No portable update is published for this architecture.".to_owned())?;
+        builder = builder.target(target);
+    }
+    builder
         .timeout(REQUEST_TIMEOUT)
         .version_comparator(move |current, remote| comparator.accepts(&current, &remote.version))
         .build()
@@ -437,6 +484,12 @@ pub fn update_restart<R: Runtime>(
     let Some((update, bytes)) = ready else {
         return Err("No update has been downloaded.".into());
     };
+    if let Some(dir) = &updater.portable_dir {
+        // The helper swaps the files once this process has exited, then starts the new version.
+        portable_update::launch_helper(dir, true).map_err(|error| error.to_string())?;
+        app.exit(0);
+        return Ok(());
+    }
     // On Windows the installer takes over here, exits this process and starts the new version.
     update.install(bytes).map_err(|error| error.to_string())?;
     app.restart()
@@ -509,26 +562,31 @@ mod tests {
     fn update_is_disabled_for_package_managed_linux_installs() {
         let appimage = OsStr::new("/home/u/OpenWave.AppImage");
         assert_eq!(
-            disabled_reason(true, false, None, false),
+            disabled_reason(true, None, false),
             Some(Disabled::PackageManaged)
         );
         assert_eq!(
-            disabled_reason(true, false, Some(OsStr::new("")), false),
+            disabled_reason(true, Some(OsStr::new("")), false),
             Some(Disabled::PackageManaged)
         );
-        assert_eq!(disabled_reason(true, false, Some(appimage), false), None);
+        assert_eq!(disabled_reason(true, Some(appimage), false), None);
         // Package management only concerns Linux; other platforms have no `$APPIMAGE`.
-        assert_eq!(disabled_reason(false, false, None, false), None);
-        assert_eq!(disabled_reason(false, false, None, true), None);
+        assert_eq!(disabled_reason(false, None, false), None);
     }
 
     #[test]
-    fn update_is_disabled_for_windows_portable_folders() {
+    fn update_is_disabled_for_translocated_macos_apps() {
         assert_eq!(
-            disabled_reason(false, true, None, true),
-            Some(Disabled::Portable)
+            disabled_reason(false, None, true),
+            Some(Disabled::Translocated)
         );
-        assert_eq!(disabled_reason(false, true, None, false), None);
+    }
+
+    #[test]
+    fn update_portable_windows_folders_are_not_disabled() {
+        // Portable state no longer disables checks: Windows portable folders update through
+        // `portable_update`, AppImage and `.app` portables through the standard updater.
+        assert_eq!(disabled_reason(false, None, false), None);
     }
 
     #[test]
