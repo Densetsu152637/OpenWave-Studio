@@ -11,6 +11,8 @@ description = "Audio and MIDI device backends for OpenWave Studio"
 asio = ["cpal/asio"]
 # JACK hosts through cpal (Linux and macOS); off by default so CI needs no JACK headers.
 jack = ["cpal/jack"]
+# PipeWire host through cpal (Linux); off by default so CI needs no libpipewire headers.
+pipewire = ["cpal/pipewire"]
 
 [dependencies]
 cpal = "0.18"

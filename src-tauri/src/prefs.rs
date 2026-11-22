@@ -247,8 +247,8 @@ fn move_aside(path: &Path, suffix: &str) -> Option<PathBuf> {
 /// one gives defaults and a warning, and the old file is kept under a different name.
 pub fn load(config_dir: &Path) -> Loaded {
     let path = config_dir.join(FILE_NAME);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Loaded {
                 prefs: Preferences::default(),
@@ -262,8 +262,9 @@ pub fn load(config_dir: &Path) -> Loaded {
             };
         }
     };
-    let parsed = serde_json::from_str::<Value>(&text)
-        .map_err(|error| error.to_string())
+    let parsed = String::from_utf8(bytes)
+        .map_err(|error| format!("not valid UTF-8: {error}"))
+        .and_then(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()))
         .and_then(migrate)
         .and_then(|value| {
             serde_json::from_value::<Preferences>(value).map_err(|error| error.to_string())
@@ -426,6 +427,21 @@ mod tests {
         assert_eq!(
             fs::read_to_string(tmp.path().join("preferences.json.corrupt")).unwrap(),
             "{ not json"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_is_kept_aside_and_defaults_used() {
+        let tmp = dir();
+        let path = tmp.path().join(FILE_NAME);
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+        let loaded = load(tmp.path());
+        assert_eq!(loaded.prefs, Preferences::default());
+        assert!(loaded.warning.unwrap().contains("defaults are in use"));
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read(tmp.path().join("preferences.json.corrupt")).unwrap(),
+            [0xff, 0xfe]
         );
     }
 

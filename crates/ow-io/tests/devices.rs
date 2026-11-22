@@ -317,6 +317,35 @@ fn mock_reconfigure_switches_the_stream_and_restores_on_failure() {
 }
 
 #[test]
+fn mock_reconfigure_racing_a_recovery_leaves_the_status_running() {
+    let backend = MockBackend::new(MockConfig::default());
+    let handle = backend.handle();
+    let policy = RecoveryPolicy {
+        poll_interval: Duration::from_millis(1),
+        ..fast_policy()
+    };
+    let supervisor = Supervisor::start(opener(&backend, silent), selection(), policy);
+    let wanted = AudioSelection {
+        backend: "mock".into(),
+        request: StreamRequest {
+            buffer_frames: Some(128),
+            ..StreamRequest::default()
+        },
+    };
+    for round in 0..150_u64 {
+        handle.disconnect();
+        // Land in the supervisor's window between clearing the stream and publishing.
+        thread::sleep(Duration::from_micros(round * 10));
+        supervisor.reconfigure(wanted.clone()).unwrap();
+        // Let any in-flight recovery finish before judging the final status.
+        thread::sleep(Duration::from_millis(20));
+        let status = supervisor.status();
+        assert_eq!(status.state, AudioState::Running, "round {round}");
+        assert!(status.info.is_some(), "round {round}: running without info");
+    }
+}
+
+#[test]
 fn mock_dropping_the_supervisor_closes_the_stream() {
     let backend = MockBackend::new(MockConfig {
         drive: MockDrive::Thread { paced: false },

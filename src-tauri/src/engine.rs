@@ -198,24 +198,39 @@ impl EngineState {
         self.engine.set_test_tone(on);
     }
 
-    /// Validates and stores `next`, applying audio and MIDI changes to the running engine. An
-    /// audio selection that cannot be opened is not stored (the engine keeps the previous
-    /// one) and is reported in `audio_error`; everything else is stored.
+    /// Validates and stores `next`, applying audio and MIDI changes to the running engine. The
+    /// new preferences are saved before the engine changes, so a failed save leaves everything
+    /// as it was. An audio selection that cannot be opened is not kept (the engine keeps the
+    /// previous one, the stored audio choice is put back) and is reported in `audio_error`;
+    /// everything else is stored. The saved file, the in-memory preferences and the engine
+    /// always agree; if they cannot be made to, the error says which part took effect.
     pub fn apply(&self, mut next: Preferences) -> Result<PrefsApplied, String> {
         next.version = prefs::PREFS_VERSION;
         next.validate()?;
         let mut current = lock(&self.prefs);
+        prefs::save(&self.config_dir, &next)?;
         let mut audio_error = None;
         if next.audio != current.audio
             && let Err(error) = self.engine.reconfigure_audio(audio_selection(&next))
         {
-            audio_error = Some(error.to_string());
+            let reason = error.to_string();
             next.audio = current.audio.clone();
+            if let Err(save_error) = prefs::save(&self.config_dir, &next) {
+                // Put the previous file back so the stored audio choice matches the engine.
+                return Err(match prefs::save(&self.config_dir, &current) {
+                    Ok(()) => format!(
+                        "The audio device could not be opened ({reason}) and the preferences                          could not be saved ({save_error}); nothing was changed."
+                    ),
+                    Err(restore_error) => format!(
+                        "The audio device could not be opened ({reason}) and the preferences                          could not be saved ({save_error}; restoring the previous file also                          failed: {restore_error}). The engine keeps the previous audio device,                          but the stored preferences request the new one."
+                    ),
+                });
+            }
+            audio_error = Some(reason);
         }
         if next.midi != current.midi {
             self.engine.midi().set_inputs(midi_selection(&next));
         }
-        prefs::save(&self.config_dir, &next)?;
         *current = next.clone();
         *lock(&self.prefs_warning) = None;
         drop(current);
@@ -512,6 +527,42 @@ mod tests {
             prefs::load(tmp.path()).prefs.audio,
             prefs::AudioPrefs::default()
         );
+    }
+
+    #[test]
+    fn a_failed_save_leaves_the_engine_and_stored_preferences_untouched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mock_state(tmp.path());
+        // A directory where the temp file belongs makes every save fail.
+        std::fs::create_dir(tmp.path().join(format!("{}.tmp", prefs::FILE_NAME))).unwrap();
+        let before = state.engine.audio_status().selection;
+        let mut next = Preferences::default();
+        next.audio.backend = "mock".into();
+        next.audio.buffer_frames = Some(256);
+        let error = state.apply(next).unwrap_err();
+        assert!(error.contains("could not save"));
+        assert_eq!(state.engine.audio_status().selection, before);
+        assert_eq!(*lock(&state.prefs), Preferences::default());
+        assert!(!tmp.path().join(prefs::FILE_NAME).exists());
+    }
+
+    #[test]
+    fn a_rejected_device_restores_the_stored_audio_choice() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mock_state(tmp.path());
+        let before = state.engine.audio_status().selection;
+        let mut next = Preferences::default();
+        next.audio.backend = "mock".into();
+        next.audio.output_device = Some("unplugged".into());
+        let applied = state.apply(next).unwrap();
+        assert!(applied.audio_error.is_some());
+        // File, memory and engine agree on the previous audio choice.
+        assert_eq!(
+            prefs::load(tmp.path()).prefs.audio,
+            prefs::AudioPrefs::default()
+        );
+        assert_eq!(lock(&state.prefs).audio, prefs::AudioPrefs::default());
+        assert_eq!(state.engine.audio_status().selection, before);
     }
 
     #[test]

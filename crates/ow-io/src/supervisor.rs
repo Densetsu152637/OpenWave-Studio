@@ -256,7 +256,8 @@ fn open_and_start(
 }
 
 /// The selection with the device choice reset to the system default (keeps backend and format
-/// hints that the default device may still honour).
+/// hints that the default device may still honour). The input device is dropped entirely so an
+/// output-only open can succeed when the machine has no default input.
 fn fallback_selection(selection: &AudioSelection) -> AudioSelection {
     AudioSelection {
         backend: selection.backend.clone(),
@@ -265,11 +266,7 @@ fn fallback_selection(selection: &AudioSelection) -> AudioSelection {
             sample_rate: None,
             buffer_frames: selection.request.buffer_frames,
             output_channels: None,
-            input_device: selection
-                .request
-                .input_device
-                .clone()
-                .map(|_| crate::backend::DEFAULT_DEVICE.to_string()),
+            input_device: None,
         },
     }
 }
@@ -316,29 +313,71 @@ fn supervise(shared: &Shared) {
     }
 }
 
+/// Republishes `Running` from the live stream when a reconfigure or retry installed one while
+/// recovery was in progress and the status still says otherwise.
+fn republish_if_stale(shared: &Shared, inner: &Inner) {
+    let Some(stream) = inner.stream.as_ref() else {
+        return;
+    };
+    let stale = {
+        let status = lock(&shared.status);
+        status.state != AudioState::Running || status.info.is_none()
+    };
+    if stale {
+        publish_running(shared, stream.as_ref(), inner.selection.clone(), false);
+    }
+}
+
+/// Publishes `Recovering` under the `inner` lock, so it cannot overwrite the status of a stream
+/// that a concurrent reconfigure or retry installed. Returns the locked state when recovery
+/// should continue, `None` when it should stop.
+fn publish_recovering<'a>(
+    shared: &'a Shared,
+    generation: u64,
+    attempt: u32,
+    reason: &str,
+) -> Option<MutexGuard<'a, Inner>> {
+    let inner = lock(&shared.inner);
+    if inner.stream.is_some() {
+        republish_if_stale(shared, &inner);
+        return None;
+    }
+    if shared.generation.load(Ordering::Acquire) != generation
+        || shared.stop.load(Ordering::Acquire)
+    {
+        return None;
+    }
+    let mut status = lock(&shared.status);
+    status.state = AudioState::Recovering {
+        attempt,
+        max: shared.policy.max_attempts,
+    };
+    status.info = None;
+    status.error = Some(reason.to_string());
+    drop(status);
+    Some(inner)
+}
+
 fn recover(shared: &Shared, reason: String) {
     let generation = shared.generation.load(Ordering::Acquire);
     let policy = shared.policy;
-    {
-        let mut status = lock(&shared.status);
-        status.state = AudioState::Recovering {
-            attempt: 0,
-            max: policy.max_attempts,
-        };
-        status.info = None;
-        status.error = Some(reason.clone());
+    if publish_recovering(shared, generation, 0, &reason).is_none() {
+        return;
     }
     let mut last_error = reason;
     for attempt in 1..=policy.max_attempts {
-        lock(&shared.status).state = AudioState::Recovering {
-            attempt,
-            max: policy.max_attempts,
-        };
+        if publish_recovering(shared, generation, attempt, &last_error).is_none() {
+            return;
+        }
         if !interruptible_sleep(shared, policy.delay_for(attempt), generation) {
             return;
         }
         let mut inner = lock(&shared.inner);
-        if shared.generation.load(Ordering::Acquire) != generation || inner.stream.is_some() {
+        if inner.stream.is_some() {
+            republish_if_stale(shared, &inner);
+            return;
+        }
+        if shared.generation.load(Ordering::Acquire) != generation {
             return;
         }
         let fallback = attempt > policy.attempts_before_fallback;
@@ -361,6 +400,14 @@ fn recover(shared: &Shared, reason: String) {
             }
             Err(error) => last_error = error.to_string(),
         }
+    }
+    let inner = lock(&shared.inner);
+    if inner.stream.is_some() {
+        republish_if_stale(shared, &inner);
+        return;
+    }
+    if shared.generation.load(Ordering::Acquire) != generation {
+        return;
     }
     let mut status = lock(&shared.status);
     status.state = AudioState::Failed;
@@ -385,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn fallback_resets_the_device_but_keeps_the_buffer_hint() {
+    fn fallback_resets_devices_and_drops_the_input_but_keeps_the_buffer_hint() {
         let selection = AudioSelection {
             backend: "cpal:wasapi".into(),
             request: StreamRequest {
@@ -401,6 +448,6 @@ mod tests {
         assert_eq!(fallback.request.output_device, None);
         assert_eq!(fallback.request.sample_rate, None);
         assert_eq!(fallback.request.buffer_frames, Some(128));
-        assert_eq!(fallback.request.input_device.as_deref(), Some("default"));
+        assert_eq!(fallback.request.input_device, None);
     }
 }
