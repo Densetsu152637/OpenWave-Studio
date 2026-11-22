@@ -30,7 +30,7 @@ Every release carries, per target, the installers plus a portable package, and o
 - macOS: `OpenWave-Studio_<version>_universal.dmg` and `OpenWave-Studio_<version>_universal_portable.zip` (the `.app` bundle, a `portable` marker beside it and the license).
 - Linux: the `.AppImage` is the portable artifact (place a `portable` marker beside it), plus `.deb` and `.rpm`.
 
-`scripts/ci/collect-dist.sh` gathers these into `dist/` (asset names contain hyphens, not spaces), and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. Updater artifacts are off (`createUpdaterArtifacts` is `false`) until the updater stage adds a signing key, so no `latest.json` feed is written yet.
+`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. Updater artifacts are off (`createUpdaterArtifacts` is `false`) until the updater stage adds a signing key, so no `latest.json` feed is written yet.
 
 ## Required secrets
 
