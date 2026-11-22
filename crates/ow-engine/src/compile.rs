@@ -27,9 +27,10 @@
 //!
 //! Engine [`NodeId`]s come from insertion order, so they are not model ids. The compiler gives
 //! every node a [`NodeKey`] derived from model ids and returns the key to id table
-//! ([`NodeMap`]). Nodes are created in model-id order (master first), so appending new entities
-//! leaves every existing node's [`NodeId`] unchanged, and after any other edit
-//! [`NodeMap::diff`] says which keys survive with which old and new ids. Compiled nodes hold no
+//! ([`NodeMap`]). Nodes are created master first, then strips in model-id order, then sends, so
+//! node ids are only usually stable: appending a strip after sends exist shifts the ids of the
+//! sends. Consumers must never compare raw ids across compiles; [`NodeMap::diff`] says which
+//! keys survive with which old and new ids. Compiled nodes hold no
 //! state worth keeping yet; when a later stage adds stateful nodes (device DSP, voices, delay
 //! lines) it moves the old node's state into the node with the same key before the new plan is
 //! swapped in, using this table. Parameters that change without a rebuild (mute, solo, fader)
@@ -38,7 +39,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use ow_model::{BusId, DeviceId, MixerRef, Output, Project, Strip, TrackId, ValidationError};
+use ow_model::{
+    AuxSend, BusId, DeviceId, MixerRef, Output, Project, Strip, TrackId, ValidationError,
+};
 
 use crate::graph::nodes::{GainNode, TestToneNode};
 use crate::{Graph, GraphError, NodeId, RenderPlan, Timeline};
@@ -184,23 +187,40 @@ pub fn fader_gain(project: &Project, strip: MixerRef) -> f32 {
     let Some(s) = project.strip(strip) else {
         return 0.0;
     };
+    if !strip_audible(project, strip) {
+        return 0.0;
+    }
+    let linear = db_to_linear(s.settings.gain_db);
+    if s.settings.invert_phase {
+        -linear
+    } else {
+        linear
+    }
+}
+
+/// False when the strip is muted or silenced by another track's solo.
+pub fn strip_audible(project: &Project, strip: MixerRef) -> bool {
+    let Some(s) = project.strip(strip) else {
+        return false;
+    };
     let settings = &s.settings;
-    let audible = !settings.mute
+    !settings.mute
         && match strip {
             MixerRef::Track(_) => {
                 let any_solo = project.tracks.iter().any(|t| t.strip.settings.solo);
                 !any_solo || settings.solo || settings.solo_safe
             }
             MixerRef::Bus(_) | MixerRef::Master => true,
-        };
-    if !audible {
-        return 0.0;
-    }
-    let linear = 10.0_f64.powf(settings.gain_db / 20.0) as f32;
-    if settings.invert_phase {
-        -linear
+        }
+}
+
+/// Linear gain of one of a strip's sends as compiled: the send level, zero when the strip is
+/// not audible (pre-fader sends respect mute and solo too).
+pub fn send_gain(project: &Project, strip: MixerRef, send: &AuxSend) -> f32 {
+    if strip_audible(project, strip) {
+        db_to_linear(send.level_db)
     } else {
-        linear
+        0.0
     }
 }
 
@@ -306,7 +326,7 @@ pub fn compile_project(
             let node = add(
                 &mut graph,
                 key,
-                Box::new(GainNode::new(2, db_to_linear(send.level_db))),
+                Box::new(GainNode::new(2, send_gain(project, *target, send))),
             );
             let post = Tap {
                 node: nodes_of.fader,
@@ -418,7 +438,7 @@ mod tests {
     const FRAMES: usize = 24_000;
 
     fn media(ed: &mut Editor) -> ow_model::MediaId {
-        let id = ed.alloc_id();
+        let id = ed.alloc_id().unwrap();
         ed.apply(EditCommand::AddMedia {
             item: MediaItem {
                 id,
@@ -436,7 +456,7 @@ mod tests {
 
     /// An audio track with one clip (so it compiles a source) and the given strip settings.
     fn audio_track(ed: &mut Editor, media: ow_model::MediaId, settings: StripSettings) -> TrackId {
-        let id: TrackId = ed.alloc_id();
+        let id: TrackId = ed.alloc_id().unwrap();
         let index = ed.project().tracks.len();
         ed.apply(EditCommand::InsertTrack {
             index,
@@ -453,7 +473,7 @@ mod tests {
             })),
         })
         .unwrap();
-        let clip = ed.alloc_id();
+        let clip = ed.alloc_id().unwrap();
         ed.apply(EditCommand::AddClip {
             clip: Box::new(Clip {
                 id: clip,
@@ -476,7 +496,7 @@ mod tests {
     }
 
     fn bus(ed: &mut Editor, settings: StripSettings) -> BusId {
-        let id: BusId = ed.alloc_id();
+        let id: BusId = ed.alloc_id().unwrap();
         let index = ed.project().buses.len();
         ed.apply(EditCommand::InsertBus {
             index,
@@ -631,11 +651,43 @@ mod tests {
     }
 
     #[test]
+    fn compile_pre_fader_sends_respect_mute_and_solo() {
+        let mut ed = Editor::new(Project::new("p"));
+        let m = media(&mut ed);
+        let aux = bus(&mut ed, db(0.0));
+        let a = audio_track(&mut ed, m, db(0.0));
+        let b = audio_track(&mut ed, m, db(0.0));
+        // Both tracks send pre-fader to the bus; their own outputs are turned down.
+        let mut project = ed.project().clone();
+        for track in &mut project.tracks {
+            track.strip.settings.gain_db = -100.0;
+            track.strip.sends = vec![AuxSend {
+                target: aux,
+                level_db: 0.0,
+                pre_fader: true,
+            }];
+        }
+        let audible = level(&project, &[NodeKey::Clips(a)]);
+        assert!((audible - SOURCE_RMS).abs() < 2e-3, "{audible}");
+
+        let mut muted = project.clone();
+        muted.tracks[0].strip.settings.mute = true;
+        assert_eq!(level(&muted, &[NodeKey::Clips(a)]), 0.0);
+        assert!(level(&muted, &[NodeKey::Clips(b)]) > 0.1);
+
+        // Soloing `a` silences `b`, pre-fader send included.
+        let mut soloed = project.clone();
+        soloed.tracks[0].strip.settings.solo = true;
+        assert!(level(&soloed, &[NodeKey::Clips(a)]) > 0.1);
+        assert_eq!(level(&soloed, &[NodeKey::Clips(b)]), 0.0);
+    }
+
+    #[test]
     fn compile_instrument_and_inserts_are_placeholders() {
         let mut ed = Editor::new(Project::new("p"));
-        let id: TrackId = ed.alloc_id();
-        let synth: ow_model::DeviceId = ed.alloc_id();
-        let fx: ow_model::DeviceId = ed.alloc_id();
+        let id: TrackId = ed.alloc_id().unwrap();
+        let synth: ow_model::DeviceId = ed.alloc_id().unwrap();
+        let fx: ow_model::DeviceId = ed.alloc_id().unwrap();
         let device = |id, kind: &str| Device {
             id,
             kind: kind.into(),
@@ -711,9 +763,25 @@ mod tests {
     fn compile_node_identity_is_stable_across_recompiles() {
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
+        let aux = bus(&mut ed, db(0.0));
         let first = audio_track(&mut ed, m, db(0.0));
         let second = audio_track(&mut ed, m, db(0.0));
+        ed.apply(EditCommand::SetSends {
+            target: MixerRef::Track(second),
+            sends: vec![AuxSend {
+                target: aux,
+                level_db: -3.0,
+                pre_fader: false,
+            }],
+        })
+        .unwrap();
+        let send_key = NodeKey::Send {
+            from: MixerRef::Track(second),
+            to: aux,
+            nth: 0,
+        };
         let before = compile_project(ed.project(), RATE, 256).unwrap().nodes;
+        assert!(before.get(send_key).is_some());
 
         // Appending a track keeps every existing node id and only adds nodes.
         let third = audio_track(&mut ed, m, db(0.0));
@@ -721,7 +789,21 @@ mod tests {
         let diff = before.diff(&after_append);
         assert!(diff.removed.is_empty());
         assert_eq!(diff.carried.len(), before.len());
-        assert!(diff.carried.iter().all(|c| c.old == c.new));
+        // Strip nodes keep their ids; the send, created after all strips, shifts.
+        for carry in &diff.carried {
+            if carry.key == send_key {
+                assert_ne!(carry.old, carry.new, "the send's id moved");
+            } else {
+                assert_eq!(carry.old, carry.new, "{:?}", carry.key);
+            }
+        }
+        assert_eq!(
+            after_append.get(send_key),
+            diff.carried
+                .iter()
+                .find(|c| c.key == send_key)
+                .map(|c| c.new)
+        );
         let added: Vec<NodeKey> = diff.added.iter().map(|(k, _)| *k).collect();
         assert!(added.contains(&NodeKey::Clips(third)));
         assert!(added.contains(&NodeKey::Fader(MixerRef::Track(third))));
@@ -736,6 +818,7 @@ mod tests {
         assert!(removed.contains(&NodeKey::Fader(MixerRef::Track(first))));
         assert!(diff.added.is_empty());
         let carried = |key| diff.carried.iter().find(|c| c.key == key).copied();
+        assert!(carried(send_key).is_some(), "the send carries over by key");
         let moved = carried(NodeKey::Clips(second)).expect("second track carries over");
         assert_ne!(moved.old, moved.new, "ids shifted, keys did not");
         assert_eq!(after_remove.get(NodeKey::Clips(second)), Some(moved.new));

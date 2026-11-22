@@ -114,7 +114,7 @@ Name.owave/
   backups/            rotating autosaves (project-YYYYMMDD-HHMMSS.json)
 ```
 
-JSON via `serde_json` (diffable, easy to migrate); writes are atomic (write temp file, fsync, rename). `format_version` is an integer; `ow-model::migrate` chains `vN -> vN+1` functions and has a golden-file test per version. An archive form `Name.owz` (zip via the `zip` crate, MIT) is used for sharing and templates; opening one extracts it to a bundle.
+JSON via `serde_json` (diffable, easy to migrate); writes are atomic (write temp file, fsync, rename). `format_version` is an integer; `ow-model::migrate` chains `vN -> vN+1` functions and has a golden-file test per version. Any change to the serialized model, including a purely additive field, bumps `format_version` with a migration step and a golden fixture; an older build refuses a file with a higher version instead of dropping fields it does not know. Before the first save over a file of an older version, the app copies it to `backups/pre-migration-v<N>-<stamp>.json`, which autosave rotation never deletes. Loading is bounded: `project.json` is at most 64 MiB, ids are at most 2^53 - 1, media paths are relative under `audio/` (no Windows reserved names, no case-insensitive duplicates), and `.owz` extraction caps entries at 4 GiB each and 32 GiB in total. An archive form `Name.owz` (zip via the `zip` crate, MIT) is used for sharing and templates; opening one extracts it to a bundle.
 
 Rejected: a single SQLite file (opaque diffs, awkward for large media); a single zip as the working format (rewrites on every save, fragile with multi-gigabyte recordings).
 

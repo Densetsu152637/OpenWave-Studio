@@ -60,7 +60,7 @@ fn strip_settings(seed: u16) -> StripSettings {
 }
 
 fn device(ed: &mut Editor, seed: u16) -> Device {
-    let id: DeviceId = ed.alloc_id();
+    let id: DeviceId = ed.alloc_id().unwrap();
     let mut params = BTreeMap::new();
     params.insert(u32::from(seed % 8), f64::from(seed) / 100.0);
     Device {
@@ -94,7 +94,7 @@ fn note(seed: u16) -> Note {
 }
 
 fn media_item(ed: &mut Editor, seed: u16) -> MediaItem {
-    let id: MediaId = ed.alloc_id();
+    let id: MediaId = ed.alloc_id().unwrap();
     MediaItem {
         id,
         name: format!("Take {seed}"),
@@ -137,7 +137,7 @@ fn clip_for(ed: &mut Editor, track: &Track, op: Op) -> Option<Clip> {
             }
         }
     };
-    let id: ClipId = ed.alloc_id();
+    let id: ClipId = ed.alloc_id().unwrap();
     Some(Clip {
         id,
         track: track.id,
@@ -165,7 +165,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
     let strips = mixers(&p);
     Some(match op.kind {
         0 => {
-            let id: TrackId = ed.alloc_id();
+            let id: TrackId = ed.alloc_id().unwrap();
             let kind = if op.b % 2 == 0 {
                 TrackKind::Audio
             } else {
@@ -199,7 +199,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
             to: usize::from(op.b) % p.tracks.len().max(1),
         },
         3 => {
-            let id: BusId = ed.alloc_id();
+            let id: BusId = ed.alloc_id().unwrap();
             let mut strip = Strip {
                 settings: strip_settings(op.c),
                 ..Strip::default()
@@ -261,7 +261,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
             let len = p.strip(strip)?.inserts.len();
             let device = device(ed, op.b);
             let lanes = if op.c % 2 == 0 {
-                let id: LaneId = ed.alloc_id();
+                let id: LaneId = ed.alloc_id().unwrap();
                 vec![AutomationLane {
                     id,
                     target: AutomationTarget::Device {
@@ -358,7 +358,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
             }
         }
         19 => {
-            let id: PatternId = ed.alloc_id();
+            let id: PatternId = ed.alloc_id().unwrap();
             EditCommand::AddPattern {
                 pattern: Pattern {
                     id,
@@ -386,7 +386,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                 .collect();
             EditCommand::MakeUnique {
                 clip: pick(&instance, op.a)?,
-                pattern: ed.alloc_id(),
+                pattern: ed.alloc_id().unwrap(),
             }
         }
         23 => EditCommand::AddMedia {
@@ -396,7 +396,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
             id: pick(&media, op.a)?,
         },
         25 => {
-            let id: LaneId = ed.alloc_id();
+            let id: LaneId = ed.alloc_id().unwrap();
             let target = if op.b % 2 == 0 {
                 AutomationTarget::Device {
                     device: pick(&devices, op.a)?,
@@ -439,7 +439,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
         }
         28 => EditCommand::AddMarker {
             marker: Marker {
-                id: ed.alloc_id(),
+                id: ed.alloc_id().unwrap(),
                 name: format!("Marker {}", op.a),
                 beat: beats(op.b),
                 color: u32::from(op.c),
@@ -490,9 +490,9 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
         },
         35 => {
             // A whole track with a device, a lane and a clip, inserted in one command.
-            let id: TrackId = ed.alloc_id();
+            let id: TrackId = ed.alloc_id().unwrap();
             let dev = device(ed, op.b);
-            let lane_id: LaneId = ed.alloc_id();
+            let lane_id: LaneId = ed.alloc_id().unwrap();
             let mut track = Track {
                 id,
                 name: "Bundle".into(),
@@ -510,7 +510,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                     }]
                 })
                 .unwrap_or_default();
-            let clip_id: ClipId = ed.alloc_id();
+            let clip_id: ClipId = ed.alloc_id().unwrap();
             EditCommand::InsertTrack {
                 index: usize::from(op.a) % (p.tracks.len() + 1),
                 bundle: Box::new(Owned {
@@ -544,7 +544,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
             commands: vec![
                 EditCommand::AddMarker {
                     marker: Marker {
-                        id: ed.alloc_id(),
+                        id: ed.alloc_id().unwrap(),
                         name: "batch".into(),
                         beat: beats(op.a),
                         color: 1,
@@ -562,7 +562,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
         // Deliberately invalid: out-of-range values and dangling ids.
         37 => EditCommand::AddClip {
             clip: Box::new(Clip {
-                id: ed.alloc_id(),
+                id: ed.alloc_id().unwrap(),
                 track: pick(&tracks, op.a).unwrap_or(TrackId(u64::MAX)),
                 name: "bad".into(),
                 start: f64::NAN,
@@ -626,8 +626,8 @@ pub fn reference_project() -> Project {
             },
         },
     );
-    let bus: BusId = ed.alloc_id();
-    let fx: DeviceId = ed.alloc_id();
+    let bus: BusId = ed.alloc_id().unwrap();
+    let fx: DeviceId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::InsertBus {
@@ -657,7 +657,7 @@ pub fn reference_project() -> Project {
             }),
         },
     );
-    let media: MediaId = ed.alloc_id();
+    let media: MediaId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddMedia {
@@ -672,7 +672,7 @@ pub fn reference_project() -> Project {
             },
         },
     );
-    let audio: TrackId = ed.alloc_id();
+    let audio: TrackId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::InsertTrack {
@@ -699,7 +699,7 @@ pub fn reference_project() -> Project {
             })),
         },
     );
-    let clip: ClipId = ed.alloc_id();
+    let clip: ClipId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddClip {
@@ -720,9 +720,9 @@ pub fn reference_project() -> Project {
             }),
         },
     );
-    let midi: TrackId = ed.alloc_id();
-    let synth: DeviceId = ed.alloc_id();
-    let lane: LaneId = ed.alloc_id();
+    let midi: TrackId = ed.alloc_id().unwrap();
+    let synth: DeviceId = ed.alloc_id().unwrap();
+    let lane: LaneId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::InsertTrack {
@@ -779,7 +779,7 @@ pub fn reference_project() -> Project {
             }),
         },
     );
-    let pattern: PatternId = ed.alloc_id();
+    let pattern: PatternId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddPattern {
@@ -805,7 +805,7 @@ pub fn reference_project() -> Project {
             },
         },
     );
-    let instance: ClipId = ed.alloc_id();
+    let instance: ClipId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddClip {
@@ -820,7 +820,7 @@ pub fn reference_project() -> Project {
             }),
         },
     );
-    let midi_clip: ClipId = ed.alloc_id();
+    let midi_clip: ClipId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddClip {
@@ -847,7 +847,7 @@ pub fn reference_project() -> Project {
             }),
         },
     );
-    let strip_lane: LaneId = ed.alloc_id();
+    let strip_lane: LaneId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddLane {
@@ -866,7 +866,7 @@ pub fn reference_project() -> Project {
             },
         },
     );
-    let marker: MarkerId = ed.alloc_id();
+    let marker: MarkerId = ed.alloc_id().unwrap();
     apply(
         &mut ed,
         EditCommand::AddMarker {

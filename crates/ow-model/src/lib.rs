@@ -12,8 +12,13 @@
 //! * [`format`](mod@format), [`migrate`], [`bundle`] and [`owz`]: the versioned `project.json`, forward
 //!   migration, the `.owave` bundle with atomic save and rotating autosave, and `.owz` archives.
 //!
-//! Later stages extend the model with additive `#[serde(default)]` fields (no version bump) or
-//! bump [`FORMAT_VERSION`] with a migration step and a golden file when a change is not additive.
+//! # Format policy
+//!
+//! Any stage that adds or changes serialized model fields, additive ones included, bumps
+//! [`FORMAT_VERSION`], adds a migration step to [`migrate::CHAIN`] and commits a golden fixture
+//! `tests/fixtures/vN/project.json`. Older builds refuse newer files ([`FormatError::TooNew`]);
+//! newer builds migrate older ones, keeping a copy of the pre-migration file in `backups/` before
+//! the first save over it.
 
 pub mod bundle;
 pub mod command;

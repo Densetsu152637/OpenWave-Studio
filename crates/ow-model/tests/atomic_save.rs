@@ -64,12 +64,16 @@ fn atomic_save_survives_a_crash_that_leaves_a_partial_temp_file() {
     bundle::save(dir.path(), &named("previous")).unwrap();
     // What a process killed mid-write leaves behind: half a document next to the real file.
     let full = format::to_json(&named("new")).unwrap();
-    fs::write(dir.path().join("project.json.tmp"), &full[..full.len() / 2]).unwrap();
+    let stale = dir.path().join("project.json.4242.0.tmp");
+    fs::write(&stale, &full[..full.len() / 2]).unwrap();
     assert_eq!(bundle::load(dir.path()).unwrap().name, "previous");
-    // The next save overwrites the stale temp file and completes.
+    // The next save completes and removes the stale temp file.
     bundle::save(dir.path(), &named("after")).unwrap();
     assert_eq!(bundle::load(dir.path()).unwrap().name, "after");
-    assert!(!dir.path().join("project.json.tmp").exists());
+    assert!(
+        !stale.exists(),
+        "leftovers of a crashed write are cleaned up"
+    );
 }
 
 #[test]

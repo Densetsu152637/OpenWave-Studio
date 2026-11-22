@@ -6,10 +6,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use crate::ids::BusId;
+use crate::ids::DeviceId;
 use crate::model::{
     AutomationLane, AutomationTarget, AuxSend, Bus, Clip, ClipContent, Device, Marker, MediaItem,
-    Note, Output, Pattern, Project, ProjectSettings, Strip, Track, TrackKind,
+    MixerRef, Note, Output, Pattern, Project, ProjectSettings, Strip, Track, TrackKind,
 };
 
 /// Longest name, in characters.
@@ -22,6 +22,9 @@ pub const MIN_GAIN_DB: f64 = -144.0;
 pub const MAX_GAIN_DB: f64 = 48.0;
 /// Longest device kind, format tag or media path, in bytes.
 const MAX_TAG_BYTES: usize = 512;
+/// Largest id an entity may have: 2^53 - 1, so ids survive a round trip through JavaScript
+/// numbers in the UI.
+pub const MAX_ID: u64 = (1 << 53) - 1;
 /// Highest sample rate accepted.
 const MAX_SAMPLE_RATE: u32 = 768_000;
 /// Lowest sample rate accepted.
@@ -103,11 +106,36 @@ pub fn is_safe_media_path(path: &str) -> bool {
         !segment.is_empty()
             && segment != "."
             && segment != ".."
+            && !is_reserved_windows_name(segment)
             && !segment.ends_with(['.', ' '])
             && !segment
                 .chars()
                 .any(|c| c.is_control() || "\\:*?\"<>|".contains(c))
     })
+}
+
+/// Windows device names (`CON`, `PRN`, `AUX`, `NUL`, `COM0`-`COM9`, `LPT0`-`LPT9`, also with the
+/// superscript digits 1 to 3) cannot be file names whatever the extension: the stem before the
+/// first dot, trimmed of trailing spaces and compared case-insensitively, decides.
+fn is_reserved_windows_name(segment: &str) -> bool {
+    let stem = segment
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ');
+    let upper = stem.to_uppercase();
+    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    let mut chars = upper.chars();
+    let head: String = chars.by_ref().take(3).collect();
+    if head != "COM" && head != "LPT" {
+        return false;
+    }
+    match (chars.next(), chars.next()) {
+        (Some(d), None) => d.is_ascii_digit() || matches!(d, '\u{b9}' | '\u{b2}' | '\u{b3}'),
+        _ => false,
+    }
 }
 
 fn check_note(path: &str, note: &Note) -> Result {
@@ -241,8 +269,23 @@ impl Project {
             if !seen.insert(id) {
                 return bad("ids", format!("id {id} is used by more than one entity"));
             }
+            if id > MAX_ID {
+                return bad("ids", format!("id {id} is above {MAX_ID}"));
+            }
             if id >= self.next_id {
                 return bad("ids", format!("id {id} is not below next_id"));
+            }
+        }
+        if self.next_id > MAX_ID + 1 {
+            return bad("next_id", format!("must be at most {}", MAX_ID + 1));
+        }
+        let mut paths = HashSet::new();
+        for item in self.media_pool.values() {
+            if !paths.insert(item.path.to_lowercase()) {
+                return bad(
+                    "media_pool",
+                    format!("path {:?} is used twice (case-insensitively)", item.path),
+                );
             }
         }
         Ok(())
@@ -446,25 +489,55 @@ impl Project {
         Ok(())
     }
 
-    /// True when following bus outputs and sends never returns to a bus. Iterative, so a long
-    /// chain of buses in a hostile file cannot overflow the stack.
+    /// True when signal flow never returns to a strip: following outputs, sends and sidechain
+    /// sources (a source feeds the strip holding the device) finds no cycle. Iterative, so a long
+    /// chain in a hostile file cannot overflow the stack.
     pub(crate) fn routing_is_acyclic(&self) -> bool {
-        let mut edges: HashMap<BusId, Vec<BusId>> = HashMap::new();
-        for bus in &self.buses {
-            let targets = edges.entry(bus.id).or_default();
-            if let Output::Bus(target) = bus.strip.settings.output {
-                targets.push(target);
+        let mut edges: HashMap<MixerRef, Vec<MixerRef>> = HashMap::new();
+        let mut nodes: Vec<MixerRef> = vec![MixerRef::Master];
+        let mut add_strip = |at: MixerRef, strip: &Strip, instrument: Option<DeviceId>| {
+            nodes.push(at);
+            let targets = edges.entry(at).or_default();
+            if let Output::Bus(target) = strip.settings.output {
+                targets.push(MixerRef::Bus(target));
             }
-            targets.extend(bus.strip.sends.iter().map(|s| s.target));
+            targets.extend(strip.sends.iter().map(|s| MixerRef::Bus(s.target)));
+            let devices = strip.inserts.iter().copied().chain(instrument);
+            let mut sources = Vec::new();
+            for device in devices {
+                if let Some(source) = self.devices.get(&device).and_then(|d| d.sidechain) {
+                    sources.push(source);
+                }
+            }
+            sources
+        };
+        let mut sidechains: Vec<(MixerRef, MixerRef)> = Vec::new();
+        for track in &self.tracks {
+            let at = MixerRef::Track(track.id);
+            for source in add_strip(at, &track.strip, track.instrument) {
+                sidechains.push((source, at));
+            }
+        }
+        for bus in &self.buses {
+            let at = MixerRef::Bus(bus.id);
+            for source in add_strip(at, &bus.strip, None) {
+                sidechains.push((source, at));
+            }
+        }
+        for source in add_strip(MixerRef::Master, &self.master, None) {
+            sidechains.push((source, MixerRef::Master));
+        }
+        for (source, owner) in sidechains {
+            edges.entry(source).or_default().push(owner);
         }
         // 0 = unvisited, 1 = on the current path, 2 = done.
-        let mut state: HashMap<BusId, u8> = HashMap::new();
-        for bus in &self.buses {
-            if state.get(&bus.id).copied().unwrap_or(0) != 0 {
+        let mut state: HashMap<MixerRef, u8> = HashMap::new();
+        for start in nodes {
+            if state.get(&start).copied().unwrap_or(0) != 0 {
                 continue;
             }
-            let mut stack = vec![(bus.id, 0_usize)];
-            state.insert(bus.id, 1);
+            let mut stack = vec![(start, 0_usize)];
+            state.insert(start, 1);
             while let Some((node, next)) = stack.last().copied() {
                 let targets = edges.get(&node).map(Vec::as_slice).unwrap_or(&[]);
                 if let Some(&target) = targets.get(next) {
@@ -516,6 +589,13 @@ mod tests {
             "audio/C:evil",
             "other/x.wav",
             "audio/x.wav.",
+            "audio/CON",
+            "audio/con.wav",
+            "audio/Nul.tar.gz",
+            "audio/com1.wav",
+            "audio/LPT9 .wav",
+            "audio/COM\u{b9}.wav",
+            "audio/sub/aux.txt",
         ] {
             assert!(!is_safe_media_path(bad), "{bad:?}");
         }

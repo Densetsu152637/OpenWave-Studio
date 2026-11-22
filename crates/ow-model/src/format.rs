@@ -13,14 +13,17 @@ use crate::migrate;
 use crate::model::Project;
 use crate::validate::ValidationError;
 
-/// The format version this build writes. Bump it when a change cannot be read by the previous
-/// code (a removed or reinterpreted field), add the `vN -> vN+1` function to
-/// [`migrate::CHAIN`] and commit a golden file for the new version. Purely additive fields
-/// (with `#[serde(default)]`) need no bump.
+/// The format version this build writes.
+///
+/// Policy: any change to the model's serialized shape, including a purely additive field, bumps
+/// this number, adds the `vN -> vN+1` function to [`migrate::CHAIN`] and commits a golden file
+/// `tests/fixtures/vN+1/project.json`. A build refuses a file with a higher version
+/// ([`FormatError::TooNew`]) rather than reading it and silently dropping fields it does not
+/// know on the next save.
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Largest `project.json` accepted, in bytes.
-pub const MAX_PROJECT_BYTES: usize = 256 * 1024 * 1024;
+pub const MAX_PROJECT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Why a project file was rejected.
 #[derive(Debug)]
@@ -88,10 +91,28 @@ pub fn to_json(project: &Project) -> Result<Vec<u8>, FormatError> {
     Ok(bytes)
 }
 
+#[derive(serde::Deserialize)]
+struct Peek {
+    format_version: Option<u64>,
+}
+
+/// The `format_version` of `project.json` content, if it has a well-formed one.
+pub fn peek_version(bytes: &[u8]) -> Option<u64> {
+    serde_json::from_slice::<Peek>(bytes).ok()?.format_version
+}
+
 /// Parses, migrates and validates `project.json` content.
+///
+/// A file at the current version is deserialized directly; older ones go through a generic
+/// JSON tree so the migration steps can rewrite them.
 pub fn from_json(bytes: &[u8]) -> Result<Project, FormatError> {
     if bytes.len() > MAX_PROJECT_BYTES {
         return Err(FormatError::TooLarge);
+    }
+    if peek_version(bytes) == Some(u64::from(FORMAT_VERSION)) {
+        let project: Project = serde_json::from_slice(bytes).map_err(FormatError::Json)?;
+        project.validate()?;
+        return Ok(project);
     }
     let mut value: Value = serde_json::from_slice(bytes).map_err(FormatError::Json)?;
     let version = value

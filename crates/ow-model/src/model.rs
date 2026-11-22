@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{BusId, ClipId, DeviceId, LaneId, MarkerId, MediaId, PatternId, TrackId};
 use crate::keyed;
 use crate::time::{TempoMap, TimeSignatureMap};
+use crate::validate::MAX_ID;
 
 /// Something stored in a keyed collection (serialized as a list, kept in an ordered map).
 pub trait Keyed {
@@ -406,6 +407,18 @@ keyed_impl! {
     Marker => MarkerId,
 }
 
+/// Every id up to the limit has been handed out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdExhausted;
+
+impl std::fmt::Display for IdExhausted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the project has run out of ids")
+    }
+}
+
+impl std::error::Error for IdExhausted {}
+
 /// The whole project.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
@@ -478,10 +491,16 @@ impl Project {
 
     /// Hands out a fresh id (never reused, unique across entity kinds). Not undoable: undo
     /// never rewinds the counter, so an id stays unique for the life of the project.
-    pub fn alloc_id<I: From<u64>>(&mut self) -> I {
+    ///
+    /// Fails with [`IdExhausted`] once ids reach [`MAX_ID`](crate::validate::MAX_ID); the counter
+    /// never wraps or re-issues an id.
+    pub fn alloc_id<I: From<u64>>(&mut self) -> Result<I, IdExhausted> {
         let id = self.next_id;
-        self.next_id = self.next_id.saturating_add(1);
-        I::from(id)
+        if id > MAX_ID {
+            return Err(IdExhausted);
+        }
+        self.next_id = id + 1;
+        Ok(I::from(id))
     }
 
     /// The track with `id`.

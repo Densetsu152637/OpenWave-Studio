@@ -29,10 +29,11 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::format::{self, FormatError, MAX_PROJECT_BYTES};
+use crate::format::{self, FORMAT_VERSION, FormatError, MAX_PROJECT_BYTES};
 use crate::model::Project;
 
 /// Name of the model file inside a bundle.
@@ -116,14 +117,41 @@ pub fn write_atomic_with(
     let file_name = path
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-    let mut temp_name = file_name.to_os_string();
-    temp_name.push(".tmp");
-    let temp = path.with_file_name(temp_name);
+    let temp = temp_path(path, file_name);
     let result = write_then_rename(path, &temp, data, hook);
     if result.is_err() {
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+/// A temporary name unique to this process and call (`name.<pid>.<n>.tmp`), so concurrent
+/// writers and leftovers of a crashed run never collide.
+pub(crate) fn temp_path(path: &Path, file_name: &std::ffi::OsStr) -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut name = file_name.to_os_string();
+    name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    path.with_file_name(name)
+}
+
+/// Removes leftover `<file>.tmp` and `<file>.<pid>.<n>.tmp` files of crashed writes.
+fn remove_stale_temps(dir: &Path, file: &str) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if let Some(name) = entry.file_name().to_str()
+            && name.starts_with(file)
+            && name.ends_with(".tmp")
+            && name[file.len()..].starts_with('.')
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn write_then_rename(
@@ -144,7 +172,7 @@ fn write_then_rename(
 }
 
 /// Renames over an existing file, retrying briefly on sharing violations (Windows scanners).
-fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
     let mut attempt = 0;
     loop {
         match fs::rename(from, to) {
@@ -159,7 +187,7 @@ fn rename_replacing(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-fn sync_parent(path: &Path) {
+pub(crate) fn sync_parent(path: &Path) {
     if let Some(parent) = path.parent()
         && let Ok(dir) = File::open(if parent.as_os_str().is_empty() {
             Path::new(".")
@@ -172,7 +200,7 @@ fn sync_parent(path: &Path) {
 }
 
 #[cfg(not(unix))]
-fn sync_parent(_path: &Path) {}
+pub(crate) fn sync_parent(_path: &Path) {}
 
 /// Creates the bundle directory and its subdirectories if missing.
 pub fn create_dirs(dir: &Path) -> io::Result<()> {
@@ -187,8 +215,52 @@ pub fn create_dirs(dir: &Path) -> io::Result<()> {
 pub fn save(dir: &Path, project: &Project) -> Result<(), BundleError> {
     let bytes = format::to_json(project)?;
     create_dirs(dir)?;
+    preserve_old_version(dir, FORMAT_VERSION)?;
+    remove_stale_temps(dir, PROJECT_FILE);
     write_atomic(&dir.join(PROJECT_FILE), &bytes)?;
     Ok(())
+}
+
+/// If the bundle's `project.json` is from a version older than `current`, copies it to
+/// `backups/pre-migration-v<N>-<UTC stamp>.json` (not an autosave name, so rotation never
+/// deletes it) and returns the copy's path. [`save`] calls this before the first write over an
+/// older file; an error aborts the save so the old file is never replaced unpreserved.
+pub fn preserve_old_version(dir: &Path, current: u32) -> io::Result<Option<PathBuf>> {
+    let file = File::open(dir.join(PROJECT_FILE));
+    let mut bytes = Vec::new();
+    match file {
+        Ok(file) => {
+            file.take(MAX_PROJECT_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    let Some(version) = format::peek_version(&bytes).filter(|v| *v < u64::from(current)) else {
+        return Ok(None);
+    };
+    let backups = dir.join("backups");
+    fs::create_dir_all(&backups)?;
+    let mut seconds = now_seconds();
+    let path = loop {
+        let candidate = backups.join(format!(
+            "pre-migration-v{version}-{}.json",
+            utc_stamp(seconds)
+        ));
+        if !candidate.exists() {
+            break candidate;
+        }
+        seconds += 1;
+    };
+    write_atomic(&path, &bytes)?;
+    Ok(Some(path))
+}
+
+fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Loads the project from the bundle `dir`.
@@ -230,7 +302,9 @@ pub fn autosave(
         seconds += 1;
     };
     write_atomic(&path, &bytes)?;
-    prune_backups(dir, keep)?;
+    // Rotation is best effort: the autosave itself succeeded, and the file just written is
+    // never a candidate for deletion.
+    let _ = prune_keeping(dir, keep, Some(&path));
     Ok(path)
 }
 
@@ -260,10 +334,29 @@ pub fn list_backups(dir: &Path) -> io::Result<Vec<PathBuf>> {
 
 /// Deletes all but the newest `keep` (at least 1) autosaves.
 pub fn prune_backups(dir: &Path, keep: usize) -> io::Result<()> {
-    for old in list_backups(dir)?.into_iter().skip(keep.max(1)) {
-        fs::remove_file(old)?;
+    prune_keeping(dir, keep, None)
+}
+
+/// Like [`prune_backups`], but `protect` (the backup just written) always stays and counts
+/// toward `keep`, so even a file stamped older than `keep` existing backups survives and the
+/// total stays at `keep`. Keeps going after a failed delete and reports the first error.
+fn prune_keeping(dir: &Path, keep: usize, protect: Option<&Path>) -> io::Result<()> {
+    let keep = keep.max(1);
+    let mut room = keep - usize::from(protect.is_some());
+    let mut first_error = None;
+    for old in list_backups(dir)? {
+        if Some(old.as_path()) == protect {
+            continue;
+        }
+        if room > 0 {
+            room -= 1;
+            continue;
+        }
+        if let Err(error) = fs::remove_file(&old) {
+            first_error.get_or_insert(error);
+        }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 /// `project-YYYYMMDD-HHMMSS.json`.

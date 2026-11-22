@@ -13,32 +13,57 @@ use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use crate::bundle::{BundleError, PROJECT_FILE, create_dirs, load};
+use crate::bundle::{
+    BundleError, PROJECT_FILE, create_dirs, load, rename_replacing, sync_parent, temp_path,
+};
 use crate::format::MAX_PROJECT_BYTES;
 use crate::model::Project;
 use crate::validate::is_safe_media_path;
 
 /// Most entries an archive may hold.
 pub const MAX_ENTRIES: usize = 200_000;
-/// Most bytes an archive may unpack to (sum of declared sizes).
-pub const MAX_UNPACKED_BYTES: u64 = 1 << 40;
+/// Most bytes one archive entry may unpack to: 4 GiB.
+pub const MAX_ENTRY_BYTES: u64 = 4 << 30;
+/// Most bytes an archive may unpack to in total (sum of declared sizes): 32 GiB.
+pub const MAX_UNPACKED_BYTES: u64 = 32 << 30;
+
+/// Extraction limits; [`import`] uses the defaults above.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Most entries.
+    pub max_entries: usize,
+    /// Most bytes per entry.
+    pub max_entry_bytes: u64,
+    /// Most bytes in total.
+    pub max_total_bytes: u64,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_entries: MAX_ENTRIES,
+            max_entry_bytes: MAX_ENTRY_BYTES,
+            max_total_bytes: MAX_UNPACKED_BYTES,
+        }
+    }
+}
 
 /// Writes the bundle `dir` as an archive at `archive`, replacing any file there atomically
 /// (the archive is written next to it and renamed). The project is loaded and validated first.
 pub fn export(dir: &Path, archive: &Path) -> Result<(), BundleError> {
     let _ = load(dir)?;
-    let mut temp_name = archive
+    let file_name = archive
         .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "archive has no file name"))?
-        .to_os_string();
-    temp_name.push(".tmp");
-    let temp = archive.with_file_name(temp_name);
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "archive has no file name"))?;
+    let temp = temp_path(archive, file_name);
     let result = write_archive(dir, &temp);
     match result {
-        Ok(()) => fs::rename(&temp, archive).map_err(|e| {
-            let _ = fs::remove_file(&temp);
-            BundleError::from(e)
-        }),
+        Ok(()) => rename_replacing(&temp, archive)
+            .map(|()| sync_parent(archive))
+            .map_err(|e| {
+                let _ = fs::remove_file(&temp);
+                BundleError::from(e)
+            }),
         Err(error) => {
             let _ = fs::remove_file(&temp);
             Err(error)
@@ -102,12 +127,21 @@ fn add_file<W: Write + io::Seek>(
 /// empty), validates the project and returns it. On any failure `dest` is left as it was found
 /// (removed when this call created it).
 pub fn import(archive: &Path, dest: &Path) -> Result<Project, BundleError> {
+    import_with_limits(archive, dest, Limits::default())
+}
+
+/// [`import`] with explicit [`Limits`].
+pub fn import_with_limits(
+    archive: &Path,
+    dest: &Path,
+    limits: Limits,
+) -> Result<Project, BundleError> {
     let existed = dest.exists();
     if existed && (!dest.is_dir() || fs::read_dir(dest)?.next().is_some()) {
         return Err(BundleError::DestinationExists(dest.to_path_buf()));
     }
     fs::create_dir_all(dest)?;
-    match extract(archive, dest) {
+    match extract(archive, dest, limits) {
         Ok(project) => Ok(project),
         Err(error) => {
             if existed {
@@ -137,9 +171,9 @@ fn unsafe_entry(name: &str, why: &str) -> BundleError {
     BundleError::Unsafe(format!("{name:?}: {why}"))
 }
 
-fn extract(archive: &Path, dest: &Path) -> Result<Project, BundleError> {
+fn extract(archive: &Path, dest: &Path, limits: Limits) -> Result<Project, BundleError> {
     let mut zip = ZipArchive::new(BufReader::new(File::open(archive)?))?;
-    if zip.len() > MAX_ENTRIES {
+    if zip.len() > limits.max_entries {
         return Err(BundleError::Unsafe("too many entries".into()));
     }
     create_dirs(dest)?;
@@ -154,8 +188,11 @@ fn extract(archive: &Path, dest: &Path) -> Result<Project, BundleError> {
         if name.starts_with("cache/") || name.starts_with("backups/") {
             continue;
         }
+        if entry.size() > limits.max_entry_bytes {
+            return Err(unsafe_entry(&name, "entry unpacks to too much data"));
+        }
         total = total.saturating_add(entry.size());
-        if total > MAX_UNPACKED_BYTES {
+        if total > limits.max_total_bytes {
             return Err(BundleError::Unsafe("unpacks to too much data".into()));
         }
         if entry.is_dir() {

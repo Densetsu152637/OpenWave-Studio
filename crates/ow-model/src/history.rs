@@ -2,7 +2,7 @@
 
 use crate::command::{EditCommand, EditError};
 use crate::ids::{BusId, ClipId, DeviceId, TrackId};
-use crate::model::Project;
+use crate::model::{IdExhausted, Project};
 
 /// Undo steps kept; older ones are dropped.
 pub const DEFAULT_HISTORY_LIMIT: usize = 1000;
@@ -69,27 +69,27 @@ impl Editor {
     }
 
     /// A fresh track id.
-    pub fn alloc_track_id(&mut self) -> TrackId {
+    pub fn alloc_track_id(&mut self) -> Result<TrackId, IdExhausted> {
         self.project.alloc_id()
     }
 
     /// A fresh bus id.
-    pub fn alloc_bus_id(&mut self) -> BusId {
+    pub fn alloc_bus_id(&mut self) -> Result<BusId, IdExhausted> {
         self.project.alloc_id()
     }
 
     /// A fresh clip id.
-    pub fn alloc_clip_id(&mut self) -> ClipId {
+    pub fn alloc_clip_id(&mut self) -> Result<ClipId, IdExhausted> {
         self.project.alloc_id()
     }
 
     /// A fresh device id.
-    pub fn alloc_device_id(&mut self) -> DeviceId {
+    pub fn alloc_device_id(&mut self) -> Result<DeviceId, IdExhausted> {
         self.project.alloc_id()
     }
 
     /// A fresh id of any kind.
-    pub fn alloc_id<I: From<u64>>(&mut self) -> I {
+    pub fn alloc_id<I: From<u64>>(&mut self) -> Result<I, IdExhausted> {
         self.project.alloc_id()
     }
 

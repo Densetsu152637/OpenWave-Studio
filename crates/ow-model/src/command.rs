@@ -620,6 +620,12 @@ impl Project {
                 }
                 let d = self.devices.get_mut(&device).expect("checked above");
                 let old = std::mem::replace(&mut d.sidechain, source);
+                if !self.routing_is_acyclic() {
+                    if let Some(d) = self.devices.get_mut(&device) {
+                        d.sidechain = old;
+                    }
+                    return Err(EditError::RoutingCycle);
+                }
                 Ok(C::SetDeviceSidechain {
                     device,
                     source: old,
@@ -815,7 +821,12 @@ impl Project {
     }
 
     fn check_new_id(&self, id: u64) -> Result<(), EditError> {
-        if self.id_in_use(id) {
+        if id > crate::validate::MAX_ID {
+            Err(EditError::Invalid(ValidationError {
+                path: "id".into(),
+                message: format!("id {id} is above {}", crate::validate::MAX_ID),
+            }))
+        } else if self.id_in_use(id) {
             Err(EditError::IdTaken(id))
         } else {
             Ok(())
@@ -1000,6 +1011,9 @@ impl Project {
         }
         for lane in self.automation.values() {
             self.check_lane(lane)?;
+        }
+        if !self.routing_is_acyclic() {
+            return Err(EditError::RoutingCycle);
         }
         Ok(())
     }
@@ -1211,6 +1225,10 @@ impl Project {
                 let _ = self.remove_device_unchecked(id);
                 return Err(error.into());
             }
+        }
+        if !self.routing_is_acyclic() {
+            let _ = self.remove_device_unchecked(id);
+            return Err(EditError::RoutingCycle);
         }
         self.bump_next_id(max_id);
         Ok(())

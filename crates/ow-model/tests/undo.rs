@@ -169,7 +169,7 @@ proptest! {
 #[test]
 fn undo_of_a_failed_command_leaves_history_alone() {
     let mut ed = Editor::new(Project::new("p"));
-    let id = ed.alloc_track_id();
+    let id = ed.alloc_track_id().unwrap();
     ed.apply(EditCommand::InsertTrack {
         index: 0,
         bundle: Box::new(Owned::new(Track {
@@ -208,7 +208,7 @@ fn undo_transaction_is_one_step_and_nests() {
     ed.begin("Drag");
     ed.begin("inner");
     for i in 0..5 {
-        let id = ed.alloc_id();
+        let id = ed.alloc_id().unwrap();
         ed.apply(EditCommand::AddMarker {
             marker: Marker {
                 id,
@@ -294,8 +294,8 @@ fn undo_refuses_to_remove_what_is_still_referenced() {
 #[test]
 fn undo_routing_cycles_are_refused() {
     let mut ed = Editor::new(Project::new("p"));
-    let a: BusId = ed.alloc_id();
-    let b: BusId = ed.alloc_id();
+    let a: BusId = ed.alloc_id().unwrap();
+    let b: BusId = ed.alloc_id().unwrap();
     for (id, name) in [(a, "A"), (b, "B")] {
         ed.apply(EditCommand::InsertBus {
             index: ed.project().buses.len(),
