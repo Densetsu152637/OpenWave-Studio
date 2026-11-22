@@ -110,7 +110,15 @@ struct Shared {
     needs_recovery: AtomicBool,
     stop: AtomicBool,
     policy: RecoveryPolicy,
+    /// Test-only: runs once in the supervisor thread after it dropped a failed stream and before
+    /// recovery starts, so a test can interleave a reconfigure deterministically.
+    #[cfg(test)]
+    after_clear: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
+
+/// Shown while running on the fallback device after the requested input was dropped.
+pub const INPUT_DROPPED_NOTICE: &str =
+    "Fell back to the default output; audio input is off until you choose an input device.";
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -157,6 +165,8 @@ impl Supervisor {
             needs_recovery: AtomicBool::new(needs_recovery),
             stop: AtomicBool::new(false),
             policy,
+            #[cfg(test)]
+            after_clear: Mutex::new(None),
         });
         let thread_shared = Arc::clone(&shared);
         let thread = thread::Builder::new()
@@ -308,6 +318,10 @@ fn supervise(shared: &Shared) {
             None => None,
         };
         if let Some(reason) = recover_reason {
+            #[cfg(test)]
+            if let Some(hook) = lock(&shared.after_clear).take() {
+                hook();
+            }
             recover(shared, reason);
         }
     }
@@ -394,6 +408,9 @@ fn recover(shared: &Shared, reason: String) {
                 status.error = None;
                 status.recoveries += 1;
                 status.on_fallback_device = fallback;
+                if fallback && inner.selection.request.input_device.is_some() {
+                    status.error = Some(INPUT_DROPPED_NOTICE.to_string());
+                }
                 drop(status);
                 inner.stream = Some(stream);
                 return;
@@ -449,5 +466,55 @@ mod tests {
         assert_eq!(fallback.request.sample_rate, None);
         assert_eq!(fallback.request.buffer_frames, Some(128));
         assert_eq!(fallback.request.input_device, None);
+    }
+
+    #[test]
+    fn reconfigure_between_clearing_the_stream_and_recovery_keeps_the_status_running() {
+        use crate::mock::{MockBackend, MockConfig};
+        use crate::{AudioBackend, BackendRegistry};
+        use std::sync::mpsc;
+
+        let backend = MockBackend::new(MockConfig::default());
+        let handle = backend.handle();
+        let registry = BackendRegistry::with(vec![Arc::new(backend) as Arc<dyn AudioBackend>]);
+        let opener: Opener = Box::new(move |selection| {
+            registry.open(selection, Box::new(|_| Box::new(|out, _| out.fill(0.0))))
+        });
+        let selection = AudioSelection {
+            backend: "mock".into(),
+            request: StreamRequest::default(),
+        };
+        let policy = RecoveryPolicy {
+            max_attempts: 3,
+            initial_delay: Duration::from_millis(5),
+            max_delay: Duration::from_millis(10),
+            attempts_before_fallback: 2,
+            poll_interval: Duration::from_millis(2),
+        };
+        let supervisor = Supervisor::start(opener, selection.clone(), policy);
+        let (paused_tx, paused_rx) = mpsc::channel::<()>();
+        let (resume_tx, resume_rx) = mpsc::channel::<()>();
+        *lock(&supervisor.shared.after_clear) = Some(Box::new(move || {
+            paused_tx.send(()).unwrap();
+            let _ = resume_rx.recv_timeout(Duration::from_secs(10));
+        }));
+
+        handle.disconnect();
+        paused_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        // The supervisor has dropped the failed stream and is parked before `recover`.
+        let wanted = AudioSelection {
+            request: StreamRequest {
+                buffer_frames: Some(128),
+                ..StreamRequest::default()
+            },
+            ..selection
+        };
+        supervisor.reconfigure(wanted).unwrap();
+        resume_tx.send(()).unwrap();
+        // Give the resumed recovery ample time to (wrongly) overwrite the status.
+        thread::sleep(Duration::from_millis(100));
+        let status = supervisor.status();
+        assert_eq!(status.state, AudioState::Running);
+        assert!(status.info.is_some());
     }
 }

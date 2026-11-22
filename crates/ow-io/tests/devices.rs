@@ -346,6 +346,27 @@ fn mock_reconfigure_racing_a_recovery_leaves_the_status_running() {
 }
 
 #[test]
+fn mock_fallback_drops_the_input_and_says_so() {
+    let backend = MockBackend::new(MockConfig::default());
+    let chosen = AudioSelection {
+        backend: "mock".into(),
+        request: StreamRequest {
+            output_device: Some("unplugged".into()),
+            input_device: Some("default".into()),
+            ..StreamRequest::default()
+        },
+    };
+    let supervisor = Supervisor::start(opener(&backend, silent), chosen, fast_policy());
+    wait_until("the fallback to run", || {
+        supervisor.status().state == AudioState::Running
+    });
+    let status = supervisor.status();
+    assert!(status.on_fallback_device);
+    assert!(status.info.is_some());
+    assert_eq!(status.error.as_deref(), Some(ow_io::INPUT_DROPPED_NOTICE));
+}
+
+#[test]
 fn mock_dropping_the_supervisor_closes_the_stream() {
     let backend = MockBackend::new(MockConfig {
         drive: MockDrive::Thread { paced: false },

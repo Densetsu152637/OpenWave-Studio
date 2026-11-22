@@ -34,7 +34,10 @@ pub use midi::{
     MidiBackend, MidiEvent, MidiHandler, MidiInputConnection, MidiOutputConnection, MidiPortInfo,
     MidirBackend, now_micros,
 };
-pub use supervisor::{AudioSelection, AudioState, AudioStatus, Opener, RecoveryPolicy, Supervisor};
+pub use supervisor::{
+    AudioSelection, AudioState, AudioStatus, INPUT_DROPPED_NOTICE, Opener, RecoveryPolicy,
+    Supervisor,
+};
 #[cfg(windows)]
 pub use wasapi_exclusive::{WASAPI_EXCLUSIVE_ID, WasapiExclusiveBackend};
 

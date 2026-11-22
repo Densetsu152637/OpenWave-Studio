@@ -219,10 +219,10 @@ impl EngineState {
                 // Put the previous file back so the stored audio choice matches the engine.
                 return Err(match prefs::save(&self.config_dir, &current) {
                     Ok(()) => format!(
-                        "The audio device could not be opened ({reason}) and the preferences                          could not be saved ({save_error}); nothing was changed."
+                        "The audio device could not be opened ({reason}) and the preferences could not be saved ({save_error}); nothing was changed."
                     ),
                     Err(restore_error) => format!(
-                        "The audio device could not be opened ({reason}) and the preferences                          could not be saved ({save_error}; restoring the previous file also                          failed: {restore_error}). The engine keeps the previous audio device,                          but the stored preferences request the new one."
+                        "The audio device could not be opened ({reason}) and the preferences could not be saved ({save_error}; restoring the previous file also failed: {restore_error}). The engine keeps the previous audio device, but the stored preferences request the new one."
                     ),
                 });
             }

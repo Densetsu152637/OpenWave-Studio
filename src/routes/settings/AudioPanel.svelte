@@ -54,6 +54,7 @@
       {#if status.exclusive}, exclusive mode{/if}
       {#if status.onFallbackDevice}
         <span class="warn">The chosen device is unavailable; using the system default.</span>
+        {#if status.error}<span class="warn">{status.error}</span>{/if}
       {/if}
     {:else if status.audioState === "recovering"}
       {status.error}
