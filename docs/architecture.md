@@ -1,7 +1,7 @@
 # OpenWave Studio architecture decision record
 
 Status: accepted for implementation (initial design)
-Date: 2026-11-22 (revision 1, same day: release ancestry and feed safety, updater platform keys, macOS translocation and entitlements, plugin editor windows, per-producer rings, mock audio backend; revision 2: plugin main thread per OS, portable swap procedure, microphone permission)
+Date: 2026-11-22 (revision 1, same day: release ancestry and feed safety, updater platform keys, macOS translocation and entitlements, plugin editor windows, per-producer rings, mock audio backend; revision 2: plugin main thread per OS, portable swap procedure, microphone permission; revision 3: force-feed override scope, swap retries, launch smoke test, future items)
 Implementation plan: [docs/plans/openwave-studio.md](plans/openwave-studio.md). This record owns design decisions; the plan owns ordering, acceptance checks and status. On conflict about a design choice, this record wins; on conflict about sequencing or scope of a stage, the plan wins.
 
 ## 1. Problem and requirements
@@ -171,7 +171,7 @@ Modelled on the Imperium-AI workflows (`ci.yml`, `build.yml`, `release.yml`, `ex
 | `release.yml` | tags `v*` excluding `v*-experimental*` | `prepare` (checkout with `fetch-depth: 0`) derives version and pre-release flag (hyphen means pre-release) and fails unless `git merge-base --is-ancestor "$GITHUB_SHA" origin/main`, so the main channel only ships commits on `main`; `build` calls `build.yml`; `publish` creates the GitHub Release (`--latest` for stable), writes `SHA256SUMS`, then updates the `main` feed (non-pre-releases only), then prunes older main releases |
 | `experimental.yml` | push to `experimental`, manual dispatch | `prepare` fails unless the ref is `experimental` and `git merge-base --is-ancestor "$GITHUB_SHA" origin/experimental`; version `X.Y.<run_number>-experimental` from the app version; pre-release with `--latest=false` at the built SHA; then the `experimental` feed is updated; then older experimental releases are pruned |
 
-Publication order and feed safety: (1) the versioned release with all assets is created, (2) the feed's `latest.json` is uploaded, (3) older releases are pruned, so the feed never points at a missing asset. Feed-updating jobs share `concurrency: { group: updater-feed-<channel>, cancel-in-progress: false }`. Before uploading, the publish script downloads the current feed and skips the upload if the feed's version is greater than the one being published (a late-finishing older run cannot roll the channel back). After upload it requests every URL in the new `latest.json` and fails unless each returns HTTP 200. An intentional version reset (for example after a mistakenly high version) uses a manual `workflow_dispatch` input `force_feed: true` on the publishing workflow, which skips the "newer feed wins" check for that run only; the procedure is documented in `docs/releasing.md`.
+Publication order and feed safety: (1) the versioned release with all assets is created, (2) the feed's `latest.json` is uploaded, (3) older releases are pruned, so the feed never points at a missing asset. Feed-updating jobs share `concurrency: { group: updater-feed-<channel>, cancel-in-progress: false }`. Before uploading, the publish script downloads the current feed and skips the upload if the feed's version is greater than the one being published (a late-finishing older run cannot roll the channel back). After upload it requests every URL in the new `latest.json` and fails unless each returns HTTP 200. An intentional version reset (for example after a mistakenly high version) uses a manual `workflow_dispatch` input `force_feed: true` (on `experimental.yml`, and on `release.yml` only when dispatched on a tag ref), which skips the "newer feed wins" check for that run only and never the branch-ancestry check; the procedure is documented in `docs/releasing.md`.
 
 Differences from Imperium, with reasons:
 
@@ -198,7 +198,7 @@ Portable builds and self-update:
 
 | Platform | Portable artifact | How it updates |
 | --- | --- | --- |
-| Windows | `OpenWave-Studio_<v>_<arch>_portable.zip` (plain exe built with `--no-bundle`, `portable` marker file, licenses) | custom path: the feed also carries `windows-<arch>-portable` entries; the app calls `check()` with that custom target, `download()` (which verifies the minisign signature), extracts to `<dir>/.update-staging/`, then relaunches a copy of itself from the temp directory with `--apply-update`. The helper handles that flag in `main()` before any Tauri initialization, waits for the main process to exit, and swaps files: every top-level entry of the install folder except `OpenWave Studio Data/`, the `portable` marker and `.update-staging/` is renamed to `<name>.bak`, the new entries are moved in, and on any error every moved-in entry is removed and every `.bak` renamed back, leaving the old version intact. On success the `.bak` entries are deleted and the new exe is started with `std::process::Command` |
+| Windows | `OpenWave-Studio_<v>_<arch>_portable.zip` (plain exe built with `--no-bundle`, `portable` marker file, licenses) | custom path: the feed also carries `windows-<arch>-portable` entries; the app calls `check()` with that custom target, `download()` (which verifies the minisign signature), extracts to `<dir>/.update-staging/`, then relaunches a copy of itself from the temp directory with `--apply-update`. The helper handles that flag in `main()` before any Tauri initialization, waits for the main process to exit, and swaps files: every top-level entry of the install folder except `OpenWave Studio Data/`, the `portable` marker and `.update-staging/` is renamed to `<name>.bak`, the new entries are moved in, and on any error every moved-in entry is removed and every `.bak` renamed back, leaving the old version intact. Each rename is retried with backoff within a 30 s total budget (antivirus and indexer locks), and staged entries named `portable` or `OpenWave Studio Data` are never moved in. On success the `.bak` entries are deleted and the new exe is started with `std::process::Command` |
 | Linux | the AppImage itself (place a `portable` marker beside it) | the standard updater replaces the AppImage file in place |
 | macOS | `OpenWave-Studio_<v>_universal_portable.zip` containing the `.app` and a `portable` marker beside it | the standard updater replaces the `.app` bundle in place |
 
@@ -238,6 +238,13 @@ Risks:
 - Webview rendering performance on Linux (WebKitGTK) is the weakest target; canvas views must be profiled there first.
 - Plugin GUIs under Wayland rely on XWayland and cannot be parented to the main window.
 - Third-party license notices: clap-wrapper (MIT) and AudioUnitSDK (Apache-2.0) in AU plugin bundles, and lilv/serd/sord/sratom (ISC) bundled in the AppImage for LV2 hosting, need their notices shipped; this is a manual check recorded in `docs/plugins.md` and `docs/audio-devices.md` by the owning stages.
+
+Future items (not scheduled; each needs an owner decision or resources):
+
+- Windows Authenticode code signing of the installer, exe and portable zip contents, to reduce SmartScreen warnings (needs a certificate; Azure Trusted Signing or an OV/EV certificate).
+- Apple Developer ID signing and notarization (needs an Apple Developer account; `build.yml` already uses them when `APPLE_*` secrets exist), which would remove the Gatekeeper workaround and translocation prompt.
+- Native Wayland embedding of plugin editors, once CLAP and VST3 Wayland GUI support is common.
+- Out-of-process plugin bridge (sandboxed plugin processes with shared-memory audio) for crash isolation.
 
 Revisit when: plugin crashes become frequent (add out-of-process bridging); WASAPI exclusive proves insufficient for users with ASIO-only hardware (reconsider an ASIO edition); clap-wrapper AU builds fail on CI (drop AU export); a permissive MP3 encoder path appears (add MP3 export).
 
