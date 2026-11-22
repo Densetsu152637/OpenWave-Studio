@@ -1,6 +1,6 @@
 # Plan: OpenWave Studio
 
-Revision: 2026-11-22, revision 1 (critic findings A1–A9 and P1–P7 applied; owner answers to open questions 1, 2 and 4 applied; no stage started)
+Revision: 2026-11-22, revision 2 (critic rounds 1 and 2 applied; owner answers to open questions 1, 2 and 4 applied; no stage started)
 
 Goals: each is true when its verifying command or observation succeeds.
 
@@ -8,7 +8,7 @@ Goals: each is true when its verifying command or observation succeeds.
 - G2. Pushing a `v*` tag on a `main` commit publishes a stable release and the `main` feed; pushing to `experimental` publishes an experimental pre-release and the `experimental` feed. Verify: `gh release view updater-main --json assets` and `gh release view updater-experimental --json assets` each list `latest.json`, and the post-publish URL check (every URL in each `latest.json` returns HTTP 200) passes in the publish job.
 - G3. An installed or portable build on either channel updates itself to the next build of the same channel. Verify: the stage 3 and stage 4 update procedures (install build N, publish N+1, app shows "update ready" within 2 minutes of a manual check, after restart Settings › About shows N+1) pass, recorded in those stages' Outcomes.
 - G4. A song can be recorded, arranged, mixed, automated and exported using only built-in instruments and effects. Verify: `cargo test -p ow-engine --test demo_song` passes in CI (stage 23), and the stage 23 manual journey is recorded in its Outcome.
-- G5. Third-party CLAP, VST3, AU (macOS) and LV2 (Linux) plugins load, play, automate and save state. Verify: `cargo test -p ow-plugin-host` passes in CI on all three OSes.
+- G5. Third-party CLAP, VST3, AU (macOS) and LV2 (Linux) plugins load, play, automate and save state. Verify: `cargo test -p ow-plugin-host` passes in CI on all three OSes. AU tests compile only on macOS (`#[cfg(target_os = "macos")]`) and LV2 tests only on Linux (`#[cfg(target_os = "linux")]`), so the same command covers each OS's formats.
 - G6. OpenWave's built-in devices load in other DAWs as CLAP and VST3 (and AUv2 on macOS). Verify: the `clap-validator`, VST3 `validator` and `auval` CI jobs pass, and `gh release view <tag> --json assets` lists `OpenWave-Plugins-<version>-<platform>.zip` for every platform.
 - G7. Official binaries stay MIT-compatible. Verify: `cargo deny check licenses` passes in CI with GPL/LGPL/AGPL denied.
 
@@ -45,12 +45,13 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 | `.github/workflows/build.yml` | 2 (matrix, tauri-action), 3 (signing secrets), 4 (portable signing), 27 (plugin packaging), 28 (macOS AU step), 30 (lilv in AppImage) |
 | `.github/workflows/ci.yml` | 2 (all jobs), 27 (validator job), 28 (auval job) |
 | `scripts/ci/publish-*.sh` | 2 (creates), 3 (feed upload), 27 (plugin zip attach) |
-| `scripts/ci/install-linux-deps.sh` | 2 (creates), 30 (lilv) |
-| `src-tauri/tauri.conf.json` | 1 (creates), 2 (macOS signing identity), 3 (updater plugin), 24 (macOS entitlements reference), 30 (AppImage libs) |
+| `scripts/ci/install-linux-deps.sh` | 1 (creates: WebKitGTK 4.1, appindicator, librsvg, ALSA and JACK development packages), 2 (extends for bundling), 30 (lilv) |
+| `src-tauri/tauri.conf.json` | 1 (creates), 2 (macOS signing identity, `infoPlist`, entitlements path), 3 (updater plugin), 30 (AppImage libs) |
 | `src-tauri/Cargo.toml` | 1 (creates); any stage adding app dependencies |
 | `src/routes/settings/` | 3 (updates panel), 9 (audio/MIDI/paths/theme/shortcuts panels) |
 | `crates/ow-engine/tests/` | 5 (`render.rs`, `rt_safety.rs`), 6, 7, 14, 19, 21, 23 (each its own test file and fixtures) |
-| `docs/releasing.md` | 2 (creates), 3 (feeds and keys), 4 (portable) |
+| `docs/releasing.md` | 2 (creates), 3 (feeds and keys), 4 (portable), 14 (macOS microphone re-prompt note) |
+| `src-tauri/entitlements.plist` | 2 (creates, audio-input), 24 (library validation) |
 | `docs/plugins.md` | 25 (hosting), 27 (export), 28 (AU license notes), 30 (lilv license notes) |
 
 ## How release CI mirrors Imperium-AI
@@ -68,9 +69,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 ## Stage 1: Base app scaffold and engine smoke path
 
-- Objective: a Tauri v2 app (Svelte 5 + TypeScript + Vite, pnpm) with the workspace layout from the architecture record; a minimal UI shell (menu bar, empty arrangement area, transport bar with play/stop, status bar with audio device and CPU); a minimal `ow-engine` that opens the default output through `cpal` and plays a 440 Hz tone on "Play test tone"; the portable `paths` module (marker detection, data directory, WebView2 data directory); `scripts/check-rust.sh` and `scripts/check-web.sh`; and a minimal `build-check.yml` workflow (fmt, clippy, test, `tauri build --no-bundle` on Windows, macOS and Linux) so the OS matrix is verified within this stage.
+- Objective: a Tauri v2 app (Svelte 5 + TypeScript + Vite, pnpm) with the workspace layout from the architecture record; a minimal UI shell (menu bar, empty arrangement area, transport bar with play/stop, status bar with audio device and CPU); a minimal `ow-engine` that opens the default output through `cpal` and plays a 440 Hz tone on "Play test tone"; the portable `paths` module (marker detection, data directory, WebView2 data directory); `scripts/check-rust.sh` and `scripts/check-web.sh`; and a minimal `build-check.yml` workflow (fmt, clippy, test, `tauri build --no-bundle` on Windows, macOS and Linux; the Linux job runs `scripts/ci/install-linux-deps.sh`, created here, for the WebKitGTK and audio development packages) so the OS matrix is verified within this stage.
 - Depends on: none
-- Owned paths: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `vite.config.ts`, `svelte.config.js`, `tsconfig.json`, `index.html`, `src/`, `src-tauri/` (incl. `Cargo.toml`, `tauri.conf.json`), `crates/ow-engine/Cargo.toml`, `crates/ow-engine/src/lib.rs`, `crates/ow-io/Cargo.toml`, `crates/ow-io/src/lib.rs`, `scripts/check-rust.sh`, `scripts/check-web.sh`, `.github/workflows/build-check.yml`, `README.md` (build section), `.gitignore`
+- Owned paths: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `vite.config.ts`, `svelte.config.js`, `tsconfig.json`, `index.html`, `src/`, `src-tauri/` (incl. `Cargo.toml`, `tauri.conf.json`), `crates/ow-engine/Cargo.toml`, `crates/ow-engine/src/lib.rs`, `crates/ow-io/Cargo.toml`, `crates/ow-io/src/lib.rs`, `scripts/check-rust.sh`, `scripts/check-web.sh`, `scripts/ci/install-linux-deps.sh`, `.github/workflows/build-check.yml`, `README.md` (build section), `.gitignore`
 - Acceptance checks:
   - OS matrix builds: `build-check.yml` succeeds on Windows, macOS and Linux for the stage's pushed commit (`gh run list --workflow build-check.yml --limit 1 --json conclusion` = `success`).
   - Web checks: `bash scripts/check-web.sh` exits 0 (in `build-check.yml`).
@@ -82,9 +83,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 ## Stage 2: Release CI
 
-- Objective: CI and release workflows mirroring Imperium-AI as tabled above: `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`, and `scripts/ci/{detect,install-linux-deps,release-prepare,experimental-prepare,collect-dist,publish-release,publish-experimental,prune-releases}.sh` plus `check-links.py`; `deny.toml`; `.markdownlint-cli2.jsonc`; create the `experimental` branch. Prepare jobs check out with `fetch-depth: 0` and enforce branch ancestry (`git merge-base --is-ancestor "$GITHUB_SHA" origin/main` for stable tags, `origin/experimental` for experimental builds). Resolve and pin by SHA every action, including the commit of tauri-action's chosen `action-v1.x.y` release tag (its tags are named `action-vX.Y.Z`). Portable artifacts without updater signatures at this stage: Windows plain-exe zip with `portable` marker, macOS `.app` zip with marker, Linux AppImage. macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity: "-"`); the Developer ID/notarization path is wired but runs only when `APPLE_*` secrets are present. README and `docs/releasing.md` document the Gatekeeper workaround (right-click › Open, or `xattr -dr com.apple.quarantine`). Delete `build-check.yml`.
+- Objective: CI and release workflows mirroring Imperium-AI as tabled above: `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`, and `scripts/ci/{detect,install-linux-deps,release-prepare,experimental-prepare,collect-dist,publish-release,publish-experimental,prune-releases}.sh` plus `check-links.py`; `deny.toml`; `.markdownlint-cli2.jsonc`; create the `experimental` branch. Prepare jobs check out with `fetch-depth: 0` and enforce branch ancestry (`git merge-base --is-ancestor "$GITHUB_SHA" origin/main` for stable tags, `origin/experimental` for experimental builds). Resolve and pin by SHA every action, including the commit of tauri-action's chosen `action-v1.x.y` release tag (its tags are named `action-vX.Y.Z`). Portable artifacts without updater signatures at this stage: Windows plain-exe zip with `portable` marker, macOS `.app` zip with marker, Linux AppImage. macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity: "-"`); the Developer ID/notarization path is wired but runs only when `APPLE_*` secrets are present. README and `docs/releasing.md` document the Gatekeeper workaround (right-click › Open, or `xattr -dr com.apple.quarantine`). macOS bundle config gains `NSMicrophoneUsageDescription` and an entitlements file with `com.apple.security.device.audio-input` (checked in stage 14). `docs/releasing.md` also documents the manual `force_feed` override for an intentional version reset. Delete `build-check.yml`.
 - Depends on: stage 1
-- Owned paths: `.github/workflows/` (creates `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`; deletes `build-check.yml`), `scripts/ci/`, `deny.toml`, `.markdownlint-cli2.jsonc`, `docs/releasing.md`, `src-tauri/tauri.conf.json` (`bundle.macOS.signingIdentity`), `README.md` (install section)
+- Owned paths: `.github/workflows/` (creates `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`; deletes `build-check.yml`), `scripts/ci/`, `deny.toml`, `.markdownlint-cli2.jsonc`, `docs/releasing.md`, `src-tauri/tauri.conf.json` (`bundle.macOS.signingIdentity`, `bundle.macOS.infoPlist`, `bundle.macOS.entitlements`), `src-tauri/Info.plist` (`NSMicrophoneUsageDescription`), `src-tauri/entitlements.plist` (creates, with `com.apple.security.device.audio-input`), `README.md` (install section)
 - Acceptance checks:
   - CI green on a PR: `gh pr checks <pr>` shows `CI gate` passing, with rust jobs on Windows, macOS and Linux.
   - Source-branch rule: a PR from a feature branch into `main` fails `source branch` (observed once, then closed).
@@ -106,7 +107,7 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 - Acceptance checks:
   - Feed contents: `curl -sL https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-experimental/latest.json | jq -r '.platforms | keys[]'` lists all ten installer keys above.
   - Feed URLs live: the publish job's `check-feed.sh` step passes (every URL in `latest.json` returns HTTP 200) for one experimental and one stable publish.
-  - No rollback: re-running an older experimental publish job leaves the feed version unchanged (`jq .version` before and after).
+  - No rollback: re-running an older experimental publish job leaves the feed version unchanged (`jq .version` before and after); the documented `force_feed` dispatch input overrides this for one run.
   - Installed update procedure (Windows NSIS and one of macOS/Linux AppImage): install experimental build N, publish N+1, press "Check now"; "update ready" appears within 2 minutes; after "restart now", Settings › About shows N+1. Record in Outcome.
   - Channel switch: switching an experimental install to `main` installs the current stable once; the next check with no newer stable reports up to date. Record in Outcome.
   - Package-managed: the deb install shows the package-manager message and makes no request to the feed (observed in app log).
@@ -117,7 +118,7 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 ## Stage 4: Portable self-update and macOS translocation
 
-- Objective: `collect-dist.sh` signs portable zips with `tauri signer sign` and fails if any updater artifact or portable zip lacks a `.sig`; feed gains `windows-x86_64-portable` and `windows-aarch64-portable`; `src-tauri/src/portable_update.rs` implements the Windows portable path (custom target check, verified `download()`, staging, `--apply-update` helper relaunched from temp, file swap preserving `OpenWave Studio Data/`, restart); macOS translocation detection with a blocking prompt to move the app or clear quarantine (every browser-downloaded copy is quarantined because builds are not notarized, so this path is the normal first-run experience on macOS); `docs/portable.md` with the Gatekeeper and quarantine workaround.
+- Objective: `collect-dist.sh` signs portable zips with `tauri signer sign` and fails if any updater artifact or portable zip lacks a `.sig`; feed gains `windows-x86_64-portable` and `windows-aarch64-portable`; `src-tauri/src/portable_update.rs` implements the Windows portable path (custom target check, verified `download()`, staging, `--apply-update` helper relaunched from temp and handled in `main()` before Tauri initializes; the swap renames each old top-level entry to `.bak`, moves new entries in, and restores everything on any error; `OpenWave Studio Data/`, the `portable` marker and `.update-staging/` are never touched; relaunch via `std::process::Command`); macOS translocation detection with a blocking prompt to move the app or clear quarantine (every browser-downloaded copy is quarantined because builds are not notarized, so this path is the normal first-run experience on macOS); `docs/portable.md` with the Gatekeeper and quarantine workaround.
 - Depends on: stage 3
 - Owned paths: `src-tauri/src/portable_update.rs`, `src-tauri/src/translocation.rs`, `scripts/ci/collect-dist.sh` (signing section), `scripts/ci/updater-manifest.sh` (portable keys), `.github/workflows/build.yml` (portable signing env), `docs/portable.md`, `docs/releasing.md` (portable section)
 - Acceptance checks:
@@ -125,7 +126,8 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
   - Windows portable update procedure: unzip build N to a folder with the marker, create a setting, publish N+1, "Check now"; within 2 minutes "update ready"; after restart About shows N+1 and the setting persists. Record in Outcome.
   - Linux AppImage and macOS `.app` portable updates: same procedure, marker beside the AppImage / `.app`. Record in Outcome.
   - Translocation: download the macOS portable zip through a browser (quarantined), unzip, launch in place; the app shows the move prompt and does not enable portable mode; after moving the app with its marker to another folder (or `xattr -dr com.apple.quarantine`) and relaunching, portable mode is on and an update applies. Record in Outcome.
-  - Unit tests: `cargo test -p openwave-studio portable_update translocation` (staging, swap plan, translocated-path detection).
+  - Swap safety: `cargo test -p openwave-studio portable_update` covers the swap plan, exclusion of `OpenWave Studio Data/` and `portable`, and an injected failure after half the entries are moved, asserting the folder afterwards is byte-identical to the old version.
+  - Translocation detection: `cargo test -p openwave-studio translocation`.
 - Status: pending
 - Outcome:
 - Handoff notes: the apply helper must tolerate the main process holding files for up to 30 s, then give up and keep the old version.
@@ -250,10 +252,11 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 - Objective: per-track input routing, record arm, latency-compensated input monitoring and placement, punch in/out, loop recording into takes, basic comping, count-in, disk-writer path.
 - Depends on: stage 13
-- Owned paths: `crates/ow-engine/src/record/`, `crates/ow-engine/tests/record_loopback.rs`, `crates/ow-media/src/record.rs`, `src/lib/record/`
+- Owned paths: `crates/ow-engine/src/record/`, `crates/ow-engine/tests/record_loopback.rs`, `crates/ow-media/src/record.rs`, `src/lib/record/`, `docs/releasing.md` (macOS microphone re-prompt note)
 - Acceptance checks:
   - Loopback through the mock backend (known latency) places a recorded impulse within 1 sample of its expected position: `cargo test -p ow-engine --test record_loopback`.
   - Sustained recording: the mock backend runs 16 input tracks for 10 simulated minutes at 64 frames with the disk writer active and reports zero ring overruns: `cargo test -p ow-engine --test record_loopback sustained --release`.
+  - macOS microphone (manual): on a macOS machine that has never run OpenWave, the first record press with the ad-hoc signed build shows the system microphone prompt naming OpenWave Studio; after allowing, a 5 s recording from the built-in microphone peaks above -60 dBFS. `codesign -d --entitlements -` on the app shows `com.apple.security.device.audio-input` and `plutil -p` on its Info.plist shows `NSMicrophoneUsageDescription`. Record in Outcome, including whether a later update re-prompted.
 - Status: pending
 - Outcome:
 - Handoff notes: offer a manual latency offset in preferences.
@@ -371,13 +374,14 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 ## Stage 24: Plugin hosting I: CLAP processing core
 
-- Objective: `ow-plugin-host` `HostedPlugin` trait; CLAP hosting via `clack-host` (audio, note ports, parameters, state, latency, thread-check and thread-pool extensions); hosted parameters exposed to automation; plugin latency fed into PDC; main-thread marshalling; macOS entitlements file with `com.apple.security.cs.disable-library-validation`.
+- Objective: `ow-plugin-host` `HostedPlugin` trait; CLAP hosting via `clack-host` (audio, note ports, parameters, state, latency, thread-check and thread-pool extensions); hosted parameters exposed to automation; plugin latency fed into PDC; the `MainThreadExecutor` abstraction (Windows/macOS: Tauri main thread via `run_on_main_thread`; Linux: a dedicated plugin main thread that stage 25 turns into the editor run loop), which also answers the host's `is_main_thread`; adds `com.apple.security.cs.disable-library-validation` to the entitlements file created in stage 2.
 - Depends on: stages 16, 19, 21
-- Owned paths: `crates/ow-plugin-host/Cargo.toml`, `crates/ow-plugin-host/src/lib.rs`, `crates/ow-plugin-host/src/clap/`, `crates/ow-plugin-host/tests/clap.rs`, `crates/ow-plugin-host/tests/fixtures/`, `src-tauri/entitlements.plist`, `src-tauri/tauri.conf.json` (`bundle.macOS.entitlements`)
+- Owned paths: `crates/ow-plugin-host/Cargo.toml`, `crates/ow-plugin-host/src/lib.rs`, `crates/ow-plugin-host/src/main_thread.rs`, `crates/ow-plugin-host/src/clap/`, `crates/ow-plugin-host/tests/clap.rs`, `crates/ow-plugin-host/tests/main_thread.rs`, `crates/ow-plugin-host/tests/fixtures/`, `src-tauri/entitlements.plist` (library-validation key only)
 - Acceptance checks:
   - Load, process, parameter and state round trip on all three OSes: `cargo test -p ow-plugin-host clap` (CI).
   - Hosted PDC: a test CLAP reporting 256 samples of latency is aligned to the sample with a dry track: `cargo test -p ow-plugin-host clap_pdc`.
   - Hosted automation: an automation ramp on a hosted parameter arrives as sample-accurate parameter events: `cargo test -p ow-plugin-host clap_automation`.
+  - Main thread: work posted through `MainThreadExecutor` runs on the designated thread, and the host's `is_main_thread` is true there and false on audio and worker threads: `cargo test -p ow-plugin-host --test main_thread` (all three OSes).
   - Entitlement present: in the macOS build job, `codesign -d --entitlements - "OpenWave Studio.app"` on the ad-hoc signed bundle shows `com.apple.security.cs.disable-library-validation`.
 - Status: pending
 - Outcome:
@@ -385,12 +389,12 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 ## Stage 25: Plugin hosting II: scanner, browser and editor windows
 
-- Objective: out-of-process scanner (`--scan-plugin`, timeout, blacklist, `plugin-cache.json`); plugin browser; `ow-plugin-host::editor` creating plain platform windows (Win32, AppKit, X11 via `x11rb`) and passing raw handles; the Linux editor run loop servicing the X11 fd plus CLAP `posix-fd-support` and `timer-support`; `docs/plugins.md` (hosting section).
+- Objective: out-of-process scanner (`--scan-plugin`, timeout, blacklist, `plugin-cache.json`); plugin browser; `ow-plugin-host::editor` creating plain platform windows (Win32, AppKit, X11 via `x11rb`) and passing raw handles; the Linux editor run loop, built on stage 24's `MainThreadExecutor` (it becomes the Linux plugin main thread), servicing the X11 fd plus CLAP `posix-fd-support` and `timer-support`; a purpose-built test CLAP (`crates/ow-plugin-host/tests/plugins/runloop_clap/`) that registers a pipe fd and a 10 ms timer and records which thread its callbacks ran on; `docs/plugins.md` (hosting section).
 - Depends on: stage 24
-- Owned paths: `crates/ow-plugin-host/src/scan/`, `crates/ow-plugin-host/src/editor/`, `crates/ow-plugin-host/tests/scan.rs`, `src-tauri/src/plugin_windows.rs`, `src/lib/plugins/`, `docs/plugins.md` (hosting section)
+- Owned paths: `crates/ow-plugin-host/src/scan/`, `crates/ow-plugin-host/src/editor/`, `crates/ow-plugin-host/tests/scan.rs`, `crates/ow-plugin-host/tests/clap_runloop.rs`, `crates/ow-plugin-host/tests/plugins/runloop_clap/`, `src-tauri/src/plugin_windows.rs`, `src/lib/plugins/`, `docs/plugins.md` (hosting section)
 - Acceptance checks:
   - A crashing test plugin is blacklisted without crashing the app: `cargo test -p ow-plugin-host scan_crash`.
-  - Run loop: a test CLAP registering an fd and a 10 ms timer receives callbacks on Linux: `cargo test -p ow-plugin-host clap_runloop` (Linux CI with Xvfb).
+  - Run loop: the `runloop_clap` test plugin receives its fd callback after a write to the pipe and at least 9 timer callbacks in 100 ms, and the host's `is_main_thread` is true inside every gui, timer and fd callback: `cargo test -p ow-plugin-host --test clap_runloop` (Linux CI with Xvfb).
   - Editors (manual, per OS, Linux under both X11 and Wayland sessions): a third-party CLAP (for example Surge XT) opens its editor within 3 s, responds to input and closes cleanly. Record in Outcome.
 - Status: pending
 - Outcome:
@@ -400,10 +404,10 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 - Objective: VST3 hosting through the `vst3` crate: module loading and factory, single and split component/controller, parameter changes and event lists (automation), state, latency (PDC), bus arrangements, `IPlugFrame` editors in stage 25's windows, `IRunLoop` on Linux on stage 25's run loop, scan paths per OS.
 - Depends on: stage 25
-- Owned paths: `crates/ow-plugin-host/src/vst3/`, `crates/ow-plugin-host/tests/vst3.rs`
+- Owned paths: `crates/ow-plugin-host/src/vst3/`, `crates/ow-plugin-host/tests/vst3.rs`, `crates/ow-plugin-host/tests/vst3_runloop.rs`, `crates/ow-plugin-host/tests/plugins/runloop_vst3/` (purpose-built test VST3 registering an `IRunLoop` event handler and timer)
 - Acceptance checks:
   - Processing, state, automation and PDC on all three OSes: `cargo test -p ow-plugin-host vst3` (CI, against the SDK's example plugins built in CI).
-  - Linux `IRunLoop` handlers fire: `cargo test -p ow-plugin-host vst3_runloop` (Xvfb).
+  - Linux `IRunLoop`: the `runloop_vst3` test plugin's event handler fires after a pipe write and its 10 ms timer fires at least 9 times in 100 ms, on the plugin main thread: `cargo test -p ow-plugin-host --test vst3_runloop` (Xvfb).
   - A third-party VST3 opens its editor within 3 s, plays, and restores state after reload (manual, per OS). Record in Outcome.
 - Status: pending
 - Outcome:
