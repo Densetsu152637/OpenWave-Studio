@@ -8,10 +8,11 @@
 use std::cell::UnsafeCell;
 use std::ptr::NonNull;
 use std::slice;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::graph::{Inputs, MidiMessage, Node, NodeId, Outputs, ProcessContext, Transport};
+use crate::graph::{Inputs, MidiMessage, Node, NodeId, Outputs, ProcessContext};
 use crate::sched::dag::{Dag, Pop};
+use crate::transport::{BlockCore, BlockTiming, Timeline};
 
 /// Buffer id that always reads as silence; never written.
 pub(crate) const SILENCE: u32 = 0;
@@ -94,6 +95,23 @@ impl Buffers {
     }
 }
 
+/// The block timing the audio thread publishes before each cycle: plain data plus the timeline
+/// it was computed against.
+#[derive(Clone, Copy)]
+struct Published {
+    core: BlockCore,
+    timeline: *const Timeline,
+}
+
+/// Slot for the current cycle's [`Published`] timing.
+struct BlockSlot(UnsafeCell<Option<Published>>);
+
+// SAFETY: the audio thread writes the slot in `begin_cycle`, when no node is running, and DSP
+// threads only read it while running nodes of that cycle (ordered after the write by the DAG's
+// publication of the cycle); the raw timeline pointer is dereferenced only during the cycle, in
+// which the audio thread keeps the timeline alive and unchanged.
+unsafe impl Sync for BlockSlot {}
+
 /// Everything a running plan needs. Lives behind a raw pointer in [`RenderPlan`] so worker
 /// threads can hold `&PlanData` while the owning `Box<RenderPlan>` moves between rings.
 pub(crate) struct PlanData {
@@ -114,8 +132,7 @@ pub(crate) struct PlanData {
     pub(crate) dag: Dag,
     /// Block parameters of the current cycle, published by `Dag::begin`.
     frames: AtomicUsize,
-    playing: AtomicBool,
-    position: AtomicU64,
+    block: BlockSlot,
 }
 
 impl PlanData {
@@ -144,8 +161,7 @@ impl PlanData {
             output_latency,
             dag,
             frames: AtomicUsize::new(0),
-            playing: AtomicBool::new(false),
-            position: AtomicU64::new(0),
+            block: BlockSlot(UnsafeCell::new(None)),
         }
     }
 
@@ -161,14 +177,20 @@ impl PlanData {
     /// # Safety
     ///
     /// Audio thread only, and the previous cycle of this plan has finished ([`finish`]
-    /// returned), so no node is running.
+    /// returned), so no node is running. `timeline` must stay alive and unchanged until this
+    /// cycle finishes.
     ///
     /// [`finish`]: Self::finish
-    pub(crate) unsafe fn begin_cycle(&self, frames: usize, transport: Transport) {
+    pub(crate) unsafe fn begin_cycle(&self, frames: usize, block: BlockCore, timeline: &Timeline) {
         debug_assert!(frames >= 1 && frames <= self.max_block);
         self.frames.store(frames, Ordering::Relaxed);
-        self.playing.store(transport.playing, Ordering::Relaxed);
-        self.position.store(transport.position, Ordering::Relaxed);
+        // SAFETY: no node is running (caller's contract), so nothing reads the slot.
+        unsafe {
+            *self.block.0.get() = Some(Published {
+                core: block,
+                timeline: std::ptr::from_ref(timeline),
+            });
+        }
         // SAFETY: forwarded from this function's contract.
         unsafe { self.dag.begin() };
     }
@@ -203,17 +225,24 @@ impl PlanData {
     fn run_node(&self, index: usize) {
         // The cycle parameters were published before the node could be claimed.
         let frames = self.frames.load(Ordering::Relaxed);
-        let transport = Transport {
-            playing: self.playing.load(Ordering::Relaxed),
-            position: self.position.load(Ordering::Relaxed),
+        // SAFETY: written before the cycle's nodes became claimable and not touched until the
+        // cycle ends; `Published` is `Copy`.
+        let published = unsafe { *self.block.0.get() };
+        let Some(published) = published else {
+            debug_assert!(false, "a node ran before the cycle's timing was published");
+            return;
         };
+        // SAFETY: the audio thread keeps the timeline alive for the whole cycle (see
+        // `begin_cycle`).
+        let timeline = unsafe { &*published.timeline };
         // SAFETY: the DAG hands node `index` to exactly one thread per cycle, and messages are
         // applied only between cycles, so this is the only reference to the node.
         let planned = unsafe { &mut *self.nodes[index].0.get() };
         let mut ctx = ProcessContext {
             frames,
             sample_rate: self.sample_rate,
-            transport,
+            transport: published.core.transport,
+            timing: BlockTiming::new(published.core, timeline, self.sample_rate),
             inputs: Inputs {
                 buffers: &self.buffers,
                 ids: &self.io[planned.in_start..planned.in_start + planned.in_len],

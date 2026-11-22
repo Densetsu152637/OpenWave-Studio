@@ -13,9 +13,10 @@ mod runtime;
 pub use builder::{Graph, GraphError};
 
 use crate::plan::Buffers;
+pub use crate::transport::{BlockTiming, Transport, TransportCommand};
 pub use runtime::{
     AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiMessage, SwapError, Telemetry,
-    Transport, TransportCommand, default_worker_count,
+    default_worker_count,
 };
 
 /// Largest block, in frames, a plan processes at once. Longer device buffers are split.
@@ -80,6 +81,9 @@ pub struct ProcessContext<'a> {
     pub sample_rate: u32,
     /// Transport state at the start of the block.
     pub transport: Transport,
+    /// How the block's frames map to timeline samples and beats: loop wraps, punch range,
+    /// count-in and metronome clicks resolved to exact frames.
+    pub timing: BlockTiming<'a>,
     /// Read-only input channels.
     pub inputs: Inputs<'a>,
     /// Writable output channels.

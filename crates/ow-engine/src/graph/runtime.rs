@@ -16,7 +16,11 @@ use crate::rings::{ProducerRing, RingSender, producer_ring};
 use crate::sched::AbortOnPanic;
 use crate::sched::denormal::DenormalGuard;
 use crate::sched::pool::{Pool, PoolConfig, Shared};
+use crate::transport::{Timeline, TimelineSwapError, Transport, TransportCommand, TransportState};
 use crate::workgroup::AudioWorkgroup;
+
+/// Capacity of the timeline ring (and, plus two, of its retire ring).
+const TIMELINE_QUEUE: usize = 4;
 
 /// Largest worker count [`CoreBuilder::workers`] accepts.
 pub const MAX_WORKERS: usize = 64;
@@ -27,26 +31,6 @@ pub fn default_worker_count() -> usize {
     num_cpus::get_physical()
         .saturating_sub(1)
         .clamp(1, MAX_WORKERS)
-}
-
-/// Transport state handed to nodes each block. Tempo and timeline come in stage 7.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Transport {
-    /// Whether the transport is running.
-    pub playing: bool,
-    /// Position in samples at the start of the block.
-    pub position: u64,
-}
-
-/// A transport change sent through a message ring.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransportCommand {
-    /// Start advancing the position.
-    Play,
-    /// Stop advancing the position.
-    Stop,
-    /// Jump to a sample position.
-    Locate(u64),
 }
 
 /// A short MIDI message (status byte plus up to two data bytes).
@@ -96,6 +80,7 @@ pub struct Telemetry {
     cycles: AtomicU64,
     plan_swaps: AtomicU64,
     unrouted: AtomicU64,
+    position: AtomicU64,
     /// Nodes run per DSP thread: index 0 is the callback thread, `1..` the workers.
     nodes_run: Box<[AtomicU64]>,
     realtime_workers: AtomicU32,
@@ -109,6 +94,7 @@ impl Telemetry {
             cycles: AtomicU64::new(0),
             plan_swaps: AtomicU64::new(0),
             unrouted: AtomicU64::new(0),
+            position: AtomicU64::new(0),
             nodes_run: (0..threads).map(|_| AtomicU64::new(0)).collect(),
             realtime_workers: AtomicU32::new(0),
             unpromoted_workers: AtomicU32::new(0),
@@ -176,6 +162,11 @@ impl Telemetry {
     pub fn unrouted(&self) -> u64 {
         self.unrouted.load(Ordering::Relaxed)
     }
+    /// Transport position in samples at the end of the last cycle (for the UI's position
+    /// readout; a relaxed atomic the audio thread stores once per cycle).
+    pub fn transport_position(&self) -> u64 {
+        self.position.load(Ordering::Relaxed)
+    }
 }
 
 /// The plan ring was full; the plan is handed back so the caller can retry.
@@ -203,6 +194,7 @@ pub struct CoreBuilder {
     control_ring: usize,
     rings: Vec<ProducerRing<Message>>,
     pool: PoolConfig,
+    timeline: Timeline,
 }
 
 impl CoreBuilder {
@@ -215,6 +207,7 @@ impl CoreBuilder {
             control_ring: 1024,
             rings: Vec::new(),
             pool: PoolConfig::default(),
+            timeline: Timeline::default(),
         }
     }
 
@@ -265,6 +258,14 @@ impl CoreBuilder {
         self
     }
 
+    /// The timeline (tempo and time-signature maps) the core starts with; the default is
+    /// 120 beats per minute in 4/4. Replace it later with
+    /// [`ControlLink::swap_timeline`].
+    pub fn timeline(mut self, timeline: Timeline) -> Self {
+        self.timeline = timeline;
+        self
+    }
+
     /// Capacity of the control thread's message ring.
     pub fn control_ring(mut self, capacity: usize) -> Self {
         self.control_ring = capacity.max(1);
@@ -288,6 +289,9 @@ impl CoreBuilder {
         let (retire_tx, retire_rx) =
             producer_ring::<Box<RenderPlan>>(self.retire_queue.unwrap_or(self.plan_queue + 2));
         let (control_tx, control_rx) = producer_ring::<Message>(self.control_ring);
+        let (timeline_tx, timeline_rx) = producer_ring::<Box<Timeline>>(TIMELINE_QUEUE);
+        let (timeline_retire_tx, timeline_retire_rx) =
+            producer_ring::<Box<Timeline>>(TIMELINE_QUEUE + 2);
         let telemetry = Arc::new(Telemetry::new(self.pool.workers + 1));
         let pool = Pool::spawn(&self.pool, &telemetry);
         let mut rings = Vec::with_capacity(self.rings.len() + 1);
@@ -298,6 +302,8 @@ impl CoreBuilder {
                 plans: plan_tx,
                 retired: retire_rx,
                 messages: control_tx,
+                timelines: timeline_tx,
+                retired_timelines: timeline_retire_rx,
                 telemetry: Arc::clone(&telemetry),
                 sched: Arc::clone(pool.shared()),
             },
@@ -307,7 +313,11 @@ impl CoreBuilder {
                 rings,
                 current: None,
                 pending_retire: None,
-                transport: Transport::default(),
+                timelines: timeline_rx,
+                retire_timelines: timeline_retire_tx,
+                timeline: Box::new(self.timeline),
+                pending_retire_timeline: None,
+                transport: TransportState::new(),
                 telemetry,
                 pool,
             },
@@ -326,6 +336,8 @@ pub struct ControlLink {
     plans: RingSender<Box<RenderPlan>>,
     retired: ProducerRing<Box<RenderPlan>>,
     messages: RingSender<Message>,
+    timelines: RingSender<Box<Timeline>>,
+    retired_timelines: ProducerRing<Box<Timeline>>,
     telemetry: Arc<Telemetry>,
     sched: Arc<Shared>,
 }
@@ -338,10 +350,24 @@ impl ControlLink {
         self.plans.try_push(Box::new(plan)).map_err(SwapError)
     }
 
-    /// Drops plans the audio thread has retired (this is where their memory is freed) and
-    /// returns how many. A DSP worker may still be leaving a just-retired plan; this waits
+    /// Queues a timeline (tempo and time-signature maps) for the audio thread to swap in at its
+    /// next cycle boundary. The transport keeps its musical position (the beat) across the
+    /// swap, and its loop and punch ranges follow the new tempo. Returns the timeline if the
+    /// ring is full.
+    pub fn swap_timeline(&mut self, timeline: Timeline) -> Result<(), TimelineSwapError> {
+        self.collect_retired();
+        self.timelines
+            .try_push(Box::new(timeline))
+            .map_err(TimelineSwapError)
+    }
+
+    /// Drops timelines and plans the audio thread has retired (this is where their memory is
+    /// freed) and returns how many plans. A DSP worker may still be leaving a just-retired plan; this waits
     /// (yielding) until none is, which takes at most a few instructions of the worker's time.
     pub fn collect_retired(&mut self) -> usize {
+        while let Some(timeline) = self.retired_timelines.pop() {
+            drop(timeline);
+        }
         let mut dropped = 0;
         while let Some(plan) = self.retired.pop() {
             while self.sched.in_use(plan.data_ptr()) {
@@ -389,7 +415,11 @@ pub struct AudioCore {
     rings: Vec<ProducerRing<Message>>,
     current: Option<Box<RenderPlan>>,
     pending_retire: Option<Box<RenderPlan>>,
-    transport: Transport,
+    timelines: ProducerRing<Box<Timeline>>,
+    retire_timelines: RingSender<Box<Timeline>>,
+    timeline: Box<Timeline>,
+    pending_retire_timeline: Option<Box<Timeline>>,
+    transport: TransportState,
     telemetry: Arc<Telemetry>,
     pool: Pool,
 }
@@ -407,7 +437,7 @@ impl AudioCore {
 
     /// Current transport state.
     pub fn transport(&self) -> Transport {
-        self.transport
+        self.transport.summary()
     }
 
     /// Number of running DSP worker threads (the callback thread is not counted).
@@ -438,6 +468,7 @@ impl AudioCore {
         self.telemetry.cycles.fetch_add(1, Ordering::Relaxed);
         self.flush_retired();
         self.swap_pending_plan();
+        self.swap_pending_timeline();
         self.drain_rings();
         out.fill(0.0);
         let channels = channels.max(1);
@@ -446,13 +477,16 @@ impl AudioCore {
         while done < total {
             let Some(plan) = self.current.as_deref() else {
                 // No plan: silence, but keep the transport moving.
-                self.advance(total - done);
+                let block = self.transport.begin_block(total - done);
+                self.transport.end_block(&block, &self.timeline);
                 break;
             };
             let data = plan.data();
             let frames = (total - done).min(data.max_block);
-            // SAFETY: this is the audio thread and the previous cycle of this plan finished.
-            unsafe { data.begin_cycle(frames, self.transport) };
+            let block = self.transport.begin_block(frames);
+            // SAFETY: this is the audio thread and the previous cycle of this plan finished;
+            // `self.timeline` is replaced only between cycles, so it outlives this one.
+            unsafe { data.begin_cycle(frames, block, &self.timeline) };
             self.pool.wake();
             let ran = data.work(|| false);
             data.finish();
@@ -472,14 +506,11 @@ impl AudioCore {
                 }
             }
             done += frames;
-            self.advance(frames);
+            self.transport.end_block(&block, &self.timeline);
         }
-    }
-
-    fn advance(&mut self, frames: usize) {
-        if self.transport.playing {
-            self.transport.position += frames as u64;
-        }
+        self.telemetry
+            .position
+            .store(self.transport.position(), Ordering::Relaxed);
     }
 
     /// Hands a previously swapped-out plan back to the control thread; keeps it for the next
@@ -499,9 +530,30 @@ impl AudioCore {
         if let Some(new) = self.plans.pop() {
             // Workers move to the new plan before the old one can reach the control thread.
             self.pool.publish(new.data_ptr());
+            self.transport
+                .set_sample_rate(new.data().sample_rate, &self.timeline);
             self.pending_retire = self.current.replace(new);
             self.telemetry.plan_swaps.fetch_add(1, Ordering::Relaxed);
             self.flush_retired();
+        }
+    }
+
+    /// Swaps in queued timelines and hands the old ones back; with the retire ring full the
+    /// swap waits, so the audio thread never frees a timeline.
+    fn swap_pending_timeline(&mut self) {
+        loop {
+            if let Some(old) = self.pending_retire_timeline.take()
+                && let Err(old) = self.retire_timelines.try_push(old)
+            {
+                self.pending_retire_timeline = Some(old);
+                return;
+            }
+            let Some(new) = self.timelines.pop() else {
+                return;
+            };
+            let old = std::mem::replace(&mut self.timeline, new);
+            self.transport.timeline_changed(&old, &self.timeline);
+            self.pending_retire_timeline = Some(old);
         }
     }
 
@@ -511,6 +563,7 @@ impl AudioCore {
             current,
             transport,
             telemetry,
+            timeline,
             ..
         } = self;
         for ring in rings.iter_mut() {
@@ -524,11 +577,7 @@ impl AudioCore {
                         .as_deref()
                         .is_some_and(|plan| unsafe { plan.data().midi(node, message) }),
                     Message::Transport(command) => {
-                        match command {
-                            TransportCommand::Play => transport.playing = true,
-                            TransportCommand::Stop => transport.playing = false,
-                            TransportCommand::Locate(position) => transport.position = position,
-                        }
+                        transport.apply(command, timeline);
                         true
                     }
                 };

@@ -5,7 +5,8 @@
 //! delay compensation, see [`pdc`]), sent to the audio thread over a wait-free ring, and run by
 //! an [`AudioCore`] each device callback, with a pool of real-time DSP workers running
 //! independent nodes in parallel (see [`sched`]). The callback stays allocation-free and
-//! lock-free; control flows in through [`ProducerRing`]s carrying [`Message`]s.
+//! lock-free; control flows in through [`ProducerRing`]s carrying [`Message`]s. The transport,
+//! tempo map and sample-accurate block timing live in [`transport`].
 
 pub mod graph;
 pub mod offline;
@@ -13,6 +14,7 @@ pub mod pdc;
 pub mod plan;
 pub mod rings;
 pub mod sched;
+pub mod transport;
 pub mod workgroup;
 
 use std::f32::consts::TAU;
@@ -26,13 +28,17 @@ use ow_io::{OutputInfo, OutputStream};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
-    Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry, Transport,
-    TransportCommand, default_worker_count,
+    Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry,
+    default_worker_count,
 };
 pub use offline::OfflineRenderer;
 pub use pdc::DelayNode;
 pub use plan::RenderPlan;
 pub use rings::{ProducerRing, RingSender, producer_ring};
+pub use transport::{
+    BlockTiming, Click, MetronomeNode, Span, Spans, Timeline, TimelineSwapError, Transport,
+    TransportCommand,
+};
 pub use workgroup::{AudioWorkgroup, WorkgroupError, WorkgroupMembership};
 
 /// Test tone frequency in hertz.
