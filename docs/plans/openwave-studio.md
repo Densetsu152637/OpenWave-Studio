@@ -37,7 +37,7 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 ## Ownership rules and shared files
 
-- The root `Cargo.toml` (stage 1) declares `members = ["src-tauri", "crates/*", "plugins/ow-plugins", "xtask"]`, so new crates need no root edit. Each crate's own `Cargo.toml` is owned by the stage that creates the crate. `Cargo.lock` and `pnpm-lock.yaml` change in any stage that adds a dependency.
+- The root `Cargo.toml` (stage 1) declares `members = ["src-tauri", "crates/*"]` (Cargo rejects member paths that do not exist yet), so new `crates/*` need no root edit; the stage that creates `plugins/ow-plugins` (27) or `xtask` appends it to `members` in that same commit. Each crate's own `Cargo.toml` is owned by the stage that creates the crate. `Cargo.lock` and `pnpm-lock.yaml` change in any stage that adds a dependency.
 - Shared files are edited only in the section a stage names; later stages must not rewrite earlier stages' sections:
 
 | Shared file | Stages and sections |
@@ -78,9 +78,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
   - Launch and tone (manual, implementer's OS): `pnpm tauri dev`; window visible within 10 s; pressing "Play test tone" produces an audible tone within 1 s; status bar shows the device name. Record in Outcome.
   - Portable mode: `cargo test -p openwave-studio paths` exits 0 (covers marker present and absent).
   - Headless launch: the built binary run with `--version` exits 0 on all three OSes and its stdout equals the version in `tauri.conf.json` (Windows via the parent console attached by `AttachConsole`; step in `build-check.yml`). A unit test covers the version-string formatting.
-- Status: pending
-- Outcome:
-- Handoff notes: keep the smoke path behind the `Engine` handle later stages extend. App identifier `org.openwave.studio`, product name `OpenWave Studio`. Stage 2 deletes `build-check.yml` when `ci.yml` supersedes it.
+- Status: done
+- Outcome: `a2db2c3` (scaffold `d8daf75`, fixes `5b11550`, review fixes `a2db2c3`). `build-check.yml` runs 45002216940 and 45003101953 green on Windows, macOS, Linux (fmt, clippy, tests, `tauri build --no-bundle -- --locked`, headless `--version` = `0.1.0` on all three). `check-web.sh` and `cargo test -p openwave-studio paths` pass. Launch verified on Windows 11 via `pnpm tauri dev`: window up, default output opened (48 kHz, 2 ch). Test-tone audibility awaiting owner confirmation. Implementation-gate critic: no acceptance-changing findings; 3 improvements adopted.
+- Handoff notes: keep the smoke path behind the `Engine` handle later stages extend. App identifier `org.openwave.studio`, product name `OpenWave Studio`. Stage 2 deletes `build-check.yml` when `ci.yml` supersedes it. Engine API: `ow_engine::Engine::start()` handle with `output()`, `set_test_tone`, `cpu_load()`; `ow_io::OutputStream::open_default(render)` runs the cpal stream on its own thread. The main window is built in `setup()` so the portable WebView2 `data_directory` applies. `[workspace.package] version` must equal `tauri.conf.json` version (unit-tested). The CI rust job runs `pnpm build` before cargo because `generate_context!` embeds `dist/`. Placeholder icons in `src-tauri/icons/`. Known gaps for later stages: stream errors are only logged (stage 9 adds an error state and device-loss handling; the stream uses the device default config only); macOS may ignore `data_directory`, leaving WebKit storage outside the portable folder (stage 4 verifies and documents).
 
 ## Stage 2: Release CI
 

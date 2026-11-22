@@ -42,7 +42,7 @@ scripts/ci/, scripts/check-*.sh
 docs/
 ```
 
-Workspace members: `members = ["src-tauri", "crates/*", "plugins/ow-plugins", "xtask"]` (`plugins/au-wrapper` is CMake, not Cargo). Each crate's `Cargo.toml` is created by the plan stage that creates the crate.
+Workspace members: `members = ["src-tauri", "crates/*"]`, with `plugins/ow-plugins` and `xtask` appended by the stages that create them (Cargo rejects members that do not exist) (`plugins/au-wrapper` is CMake, not Cargo). Each crate's `Cargo.toml` is created by the plan stage that creates the crate.
 
 Dependency direction: `src-tauri` depends on every crate; `ow-engine` depends on `ow-dsp` and `ow-plugin-host` only through traits it defines (`Node`, `Device`); `ow-model` has no dependency on `ow-engine` (the compiler from model to render plan lives in `ow-engine::compile`, which depends on `ow-model`); `ow-ipc` depends only on `ow-model` types it re-exports as DTOs; `ow-plugins` depends on `ow-dsp`, never on the app.
 
