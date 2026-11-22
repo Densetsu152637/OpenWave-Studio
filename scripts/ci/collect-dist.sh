@@ -26,7 +26,7 @@ while IFS= read -r path; do
   esac
   name="$(basename "$path")"
   cp "$path" "dist/${name// /-}"
-done < <(node -p 'JSON.parse(process.env.ARTIFACT_PATHS).map((p) => p.replace(/\/g, "/")).join("\n")')
+done < <(node -p 'JSON.parse(process.env.ARTIFACT_PATHS).map((p) => p.split(String.fromCharCode(92)).join("/")).join(String.fromCharCode(10))')
 
 # The macOS update archive is named after the product only; give it the version and target.
 for archive in dist/*.app.tar.gz; do
