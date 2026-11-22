@@ -170,9 +170,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 - Acceptance checks:
   - Conversion round trips and ramp integrals hold: `cargo test -p ow-model time` (with `proptest`).
   - Loop playback has no gap or duplicate sample at the loop point: `cargo test -p ow-engine --test transport`.
-- Status: pending
-- Outcome:
-- Handoff notes: positions as `f64` beats plus 64-bit sample counters; 960 PPQ.
+- Status: done
+- Outcome: `experimental` `48ad831` (impl `507e382`). New crate `ow-model` with `time/`: 960 PPQ, tempo map (constant and linear ramps, closed-form conversion stable for tiny ramps), validated time-signature map (private fields), `MAX_SAMPLE = 1<<62` with saturating sample math (NaN/negative → 0). `ow-engine::transport`: audio-thread transport (play, stop, record arm, loop, seek, punch, metronome with count-in capped at 16 bars and retargeted on tempo or rate change), immutable `Timeline` swapped over its own ring, per-block `BlockTiming` spans with `contains_beat`/`frame_of_beat`, `MetronomeNode`. `cargo test -p ow-model time` (20, proptest incl. 10–999 bpm and tiny ramps); `--test transport` (22): loop gap/duplicate-free across loop shapes, block sizes, 44.1/48/96 kHz and fractional samples per beat with 0 and 8 workers; seek, punch, count-in and clicks sample-accurate; extreme/NaN commands play without panic; allocation-free under `assert_no_alloc`. CI green (45034063698). Implementation-gate critic: no acceptance-changing defects; 3 robustness fixes and 2 improvements adopted.
+- Handoff notes: place events only via `Span::frame_of_beat`/`frame_of_sample`/`contains_beat` (plain beat ranges are off by up to half a sample at edges). Transport commands and `Message::Midi.offset` apply at cycle start (not yet sample-accurate within a device buffer). Loop edited while the position is past its new end keeps playing past it (documented; revisit in stage 15 UX). `ow-model` has no serde yet. Original note: positions as `f64` beats plus 64-bit sample counters; 960 PPQ.
 
 ## Stage 8: Project model, edit commands, undo and serialization
 
