@@ -1,12 +1,8 @@
 [workspace]
 resolver = "3"
-# Cargo errors on explicit member paths that do not exist and on globs that match nothing, so
-# the members later stages create (`plugins/ow-plugins`, `xtask`) cannot be listed by name yet.
-# Both patterns match something today and keep matching as the tree grows:
-#   `*/ow-*`      crates/ow-*, plugins/ow-*
-#   `[sx]*[ik]`   src-tauri (the app crate) and xtask
-# Stage 1 owns this file; later stages add crates without editing it.
-members = ["*/ow-*", "[sx]*[ik]"]
+# Cargo errors on explicit member paths that do not exist, so list only what exists. The stages
+# that create `plugins/ow-plugins` or `xtask` append them here explicitly.
+members = ["src-tauri", "crates/*"]
 
 [workspace.package]
 version = "0.1.0"

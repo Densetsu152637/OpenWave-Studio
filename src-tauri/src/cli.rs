@@ -5,9 +5,15 @@ use std::io::Write;
 
 /// The build's effective version: CI injects `OW_VERSION` at build time so it matches the
 /// channel version passed to `tauri build --config`; local builds fall back to the crate
-/// version (which `tauri.conf.json` mirrors).
+/// version (which `tauri.conf.json` mirrors). An empty `OW_VERSION` counts as unset.
 pub fn effective_version() -> &'static str {
-    option_env!("OW_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+    pick_version(option_env!("OW_VERSION"), env!("CARGO_PKG_VERSION"))
+}
+
+fn pick_version<'a>(injected: Option<&'a str>, fallback: &'a str) -> &'a str {
+    injected
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or(fallback)
 }
 
 /// Exactly what `--version` writes to stdout: the bare version and a newline.
@@ -74,6 +80,14 @@ mod tests {
             version_output("1.2.34-experimental"),
             "1.2.34-experimental\n"
         );
+    }
+
+    #[test]
+    fn empty_injected_version_falls_back() {
+        assert_eq!(pick_version(Some("1.2.3"), "0.1.0"), "1.2.3");
+        assert_eq!(pick_version(Some(""), "0.1.0"), "0.1.0");
+        assert_eq!(pick_version(Some("  "), "0.1.0"), "0.1.0");
+        assert_eq!(pick_version(None, "0.1.0"), "0.1.0");
     }
 
     #[test]
