@@ -1,15 +1,19 @@
 //! Real-time audio engine for OpenWave Studio.
 //!
 //! The [`Engine`] handle opens the default output and plays a 440 Hz test tone on request. It
-//! runs on the stage 5 graph core: a [`Graph`] of [`Node`]s is compiled into a [`RenderPlan`],
-//! sent to the audio thread over a wait-free ring, and run by an [`AudioCore`] each device
-//! callback. The callback stays allocation-free and lock-free; control flows in through
-//! [`ProducerRing`]s carrying [`Message`]s.
+//! runs on the graph core: a [`Graph`] of [`Node`]s is compiled into a [`RenderPlan`] (with
+//! delay compensation, see [`pdc`]), sent to the audio thread over a wait-free ring, and run by
+//! an [`AudioCore`] each device callback, with a pool of real-time DSP workers running
+//! independent nodes in parallel (see [`sched`]). The callback stays allocation-free and
+//! lock-free; control flows in through [`ProducerRing`]s carrying [`Message`]s.
 
 pub mod graph;
 pub mod offline;
+pub mod pdc;
 pub mod plan;
 pub mod rings;
+pub mod sched;
+pub mod workgroup;
 
 use std::f32::consts::TAU;
 use std::fmt;
@@ -21,13 +25,15 @@ use ow_io::{OutputInfo, OutputStream};
 
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{
-    AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, Message,
-    MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry, Transport,
-    TransportCommand,
+    AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
+    Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry, Transport,
+    TransportCommand, default_worker_count,
 };
 pub use offline::OfflineRenderer;
+pub use pdc::DelayNode;
 pub use plan::RenderPlan;
 pub use rings::{ProducerRing, RingSender, producer_ring};
+pub use workgroup::{AudioWorkgroup, WorkgroupError, WorkgroupMembership};
 
 /// Test tone frequency in hertz.
 pub const TEST_TONE_HZ: f32 = 440.0;
@@ -104,7 +110,8 @@ struct Shared {
 /// Handle to the running engine. `Send + Sync`; dropping it stops audio.
 ///
 /// The device callback runs an [`AudioCore`] whose graph is the test tone feeding a stereo
-/// master. Later stages replace that plan through the same [`ControlLink`].
+/// master, with [`default_worker_count`] real-time DSP workers (joined to the output device's
+/// audio workgroup on macOS). Later stages replace that plan through the same [`ControlLink`].
 pub struct Engine {
     shared: Arc<Shared>,
     control: Mutex<ControlLink>,
@@ -132,7 +139,13 @@ impl Engine {
         let callback_shared = Arc::clone(&shared);
         let (started_tx, started_rx) = mpsc::channel::<Started>();
         let stream = OutputStream::open_default(move |info: &OutputInfo| {
-            let (mut link, mut core) = CoreBuilder::new().build();
+            let mut builder = CoreBuilder::new()
+                .workers(default_worker_count())
+                .realtime_workers(info.sample_rate, 0);
+            if let Ok(workgroup) = AudioWorkgroup::default_output() {
+                builder = builder.audio_workgroup(workgroup);
+            }
+            let (mut link, mut core) = builder.build();
             let started = smoke_plan(info.sample_rate)
                 .map_err(|error| error.to_string())
                 .and_then(|(plan, tone)| {

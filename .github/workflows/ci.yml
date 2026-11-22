@@ -86,6 +86,21 @@ jobs:
       # The app crate embeds the built frontend, so it must exist before fmt/clippy/test.
       - run: pnpm build
       - run: bash scripts/check-rust.sh
+      # Engine stage 6: the RT-safety suite again with eight DSP workers (allocation guard on
+      # every worker and the callback thread).
+      - name: RT safety with 8 DSP workers
+        timeout-minutes: 15
+        run: OW_TEST_WORKERS=8 cargo test -p ow-engine --locked --test rt_safety
+      # The workspace run covers this test too; this step shows its join or skip reason.
+      - name: macOS audio workgroup join
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: cargo test -p ow-engine --locked --lib workgroup -- --nocapture
+      # Track-count benchmark: tracked for trends, timings are not gated.
+      - name: Track-count benchmark
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: cargo bench -p ow-engine --locked --bench tracks -- --quick
 
   # Licenses of every platform's dependency graph (deny.toml): GPL, LGPL and AGPL are rejected.
   deny:

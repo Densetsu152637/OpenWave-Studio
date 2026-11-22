@@ -3,14 +3,19 @@
 //!
 //! Buffers are non-interleaved `f32`, one slice per channel, at most [`MAX_BLOCK`] frames.
 
+// `Inputs` and `Outputs` hand out slices of buffers shared between DSP threads.
+#![allow(unsafe_code)]
+
 mod builder;
 pub mod nodes;
 mod runtime;
 
 pub use builder::{Graph, GraphError};
+
+use crate::plan::Buffers;
 pub use runtime::{
-    AudioCore, ControlLink, CoreBuilder, Message, MidiMessage, SwapError, Telemetry, Transport,
-    TransportCommand,
+    AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiMessage, SwapError, Telemetry,
+    Transport, TransportCommand, default_worker_count,
 };
 
 /// Largest block, in frames, a plan processes at once. Longer device buffers are split.
@@ -23,7 +28,8 @@ pub struct NodeId(pub u32);
 /// A unit of audio processing.
 ///
 /// Nodes are created and configured on the control thread, moved into a plan, and from then on
-/// only touched by the audio thread. Everything on the audio side (`process`, `set_param`,
+/// only touched by the audio thread and its DSP workers: each block a node runs on whichever
+/// thread claims it, never on two threads at once, after every node it reads from. Everything on the audio side (`process`, `set_param`,
 /// `on_midi`) must not allocate, lock, block or perform I/O; preallocate in `prepare` or in the
 /// constructor. Channels are numbered from 0; an unconnected input reads as silence.
 pub trait Node: Send {
@@ -36,8 +42,8 @@ pub trait Node: Send {
     /// Number of output channels (fixed for the node's lifetime).
     fn output_channels(&self) -> usize;
 
-    /// Processing latency in samples. Recorded for delay compensation, which is computed when a
-    /// plan is compiled (stage 6); default 0.
+    /// Processing latency in samples; default 0. [`Graph::compile`] delays shorter parallel
+    /// paths so every input of a node arrives aligned (plugin delay compensation).
     fn latency_samples(&self) -> u32 {
         0
     }
@@ -82,7 +88,7 @@ pub struct ProcessContext<'a> {
 
 /// Read-only view of a node's input channels for one block.
 pub struct Inputs<'a> {
-    pub(crate) pool: &'a [Box<[f32]>],
+    pub(crate) buffers: &'a Buffers,
     pub(crate) ids: &'a [u32],
     pub(crate) frames: usize,
 }
@@ -100,29 +106,35 @@ impl Inputs<'_> {
 
     /// Samples of input channel `channel` (`frames` long). Panics if out of range.
     pub fn channel(&self, channel: usize) -> &[f32] {
-        &self.pool[self.ids[channel] as usize][..self.frames]
+        // SAFETY: the plan's buffer assignment and DAG guarantee that no node writes an input
+        // buffer while its readers run.
+        unsafe { self.buffers.slice(self.ids[channel], self.frames) }
     }
 }
 
 /// Writable view of a node's output channels for one block.
 pub struct Outputs<'a> {
-    pub(crate) bufs: &'a mut [Box<[f32]>],
+    pub(crate) buffers: &'a Buffers,
+    pub(crate) ids: &'a [u32],
     pub(crate) frames: usize,
 }
 
 impl Outputs<'_> {
     /// Number of output channels.
     pub fn len(&self) -> usize {
-        self.bufs.len()
+        self.ids.len()
     }
 
     /// True when the node has no outputs.
     pub fn is_empty(&self) -> bool {
-        self.bufs.is_empty()
+        self.ids.is_empty()
     }
 
     /// Mutable samples of output channel `channel` (`frames` long). Panics if out of range.
     pub fn channel_mut(&mut self, channel: usize) -> &mut [f32] {
-        &mut self.bufs[channel][..self.frames]
+        // SAFETY: a node's output buffers are distinct from each other and from its inputs,
+        // and the DAG runs no other user of them concurrently; `&mut self` prevents two live
+        // slices of the same channel.
+        unsafe { self.buffers.slice_mut(self.ids[channel], self.frames) }
     }
 }

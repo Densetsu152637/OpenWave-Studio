@@ -12,9 +12,16 @@ pub struct OfflineRenderer {
 }
 
 impl OfflineRenderer {
-    /// A renderer producing `channels` interleaved output channels from `plan`.
+    /// A renderer producing `channels` interleaved output channels from `plan`, running every
+    /// node on the calling thread.
     pub fn new(plan: RenderPlan, channels: usize) -> Self {
-        let (mut link, core) = CoreBuilder::new().build();
+        Self::with_workers(plan, channels, 0)
+    }
+
+    /// Like [`new`](Self::new) with `workers` DSP worker threads (normal priority) helping the
+    /// calling thread. The output is bit-identical to [`new`](Self::new).
+    pub fn with_workers(plan: RenderPlan, channels: usize, workers: usize) -> Self {
+        let (mut link, core) = CoreBuilder::new().workers(workers).build();
         assert!(
             link.swap_plan(plan).is_ok(),
             "a fresh plan queue has room for one plan"

@@ -1,9 +1,14 @@
 //! Real-time safety: the engine cycle must not allocate (or free) with plan swaps in flight or
-//! with a producer ring overflowing.
+//! with a producer ring overflowing, on the callback thread or on any DSP worker.
 //!
 //! `AllocDisabler` is installed as this test binary's global allocator, and `AudioCore::process`
 //! runs every cycle under `assert_no_alloc`, which aborts the process on any allocation,
-//! reallocation or deallocation inside the cycle.
+//! reallocation or deallocation inside the cycle. DSP workers run their whole loop under the
+//! same guard.
+//!
+//! `OW_TEST_WORKERS=<n>` builds every core in this file with `n` DSP workers (default 0), so
+//! `OW_TEST_WORKERS=8 cargo test -p ow-engine --test rt_safety` repeats the suite with the
+//! multithreaded scheduler.
 
 #[cfg(not(debug_assertions))]
 compile_error!(
@@ -12,6 +17,7 @@ compile_error!(
      Run them in the dev or test profile."
 );
 
+use std::cell::Cell;
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,6 +35,19 @@ use ow_engine::{
 static ALLOCATOR: AllocDisabler = AllocDisabler;
 
 const SAMPLE_RATE: u32 = 48_000;
+
+/// Worker count from `OW_TEST_WORKERS` (0 when unset).
+fn test_workers() -> usize {
+    std::env::var("OW_TEST_WORKERS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
+}
+
+/// A core builder with the worker count under test.
+fn builder() -> CoreBuilder {
+    CoreBuilder::new().workers(test_workers())
+}
 
 /// Plans alternate between a short and a long chain so buffer counts and node counts differ
 /// from swap to swap. Returns the plan and the id of its first gain node.
@@ -53,7 +72,7 @@ fn plan(variant: usize) -> (RenderPlan, NodeId) {
 #[test]
 fn no_allocation_across_1000_plan_swaps() {
     const SWAPS: u64 = 1000;
-    let builder = CoreBuilder::new().plan_queue(4).control_ring(256);
+    let builder = builder().plan_queue(4).control_ring(256);
     let (mut link, mut core) = builder.build();
     let telemetry = Arc::clone(link.telemetry());
     let stop = Arc::new(AtomicBool::new(false));
@@ -111,7 +130,7 @@ fn no_allocation_across_1000_plan_swaps() {
 
 #[test]
 fn ring_overflow_counts_without_allocating_or_panicking() {
-    let mut builder = CoreBuilder::new().control_ring(8);
+    let mut builder = builder().control_ring(8);
     let mut midi = builder.producer_ring(4);
     let (mut link, mut core) = builder.build();
     assert_eq!(core.ring_count(), 2);
@@ -153,7 +172,7 @@ fn ring_overflow_counts_without_allocating_or_panicking() {
 
 #[test]
 fn oversized_buffers_and_empty_cores_are_allocation_free() {
-    let (mut link, mut core) = CoreBuilder::new().build();
+    let (mut link, mut core) = builder().build();
     // No plan yet: silence, no allocation.
     let mut big = vec![1.0_f32; (MAX_BLOCK * 2 + 17) * 2];
     core.process(&mut big, 2, None);
@@ -189,14 +208,74 @@ impl Node for AllocatingNode {
     }
 }
 
-/// Child half of the canary: does nothing unless the parent set `OW_RT_CANARY`.
+thread_local! {
+    /// Set on the thread that calls `AudioCore::process` in the worker canary.
+    static ON_CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Burns a little time, then allocates, but only off the callback thread (on a DSP worker).
+struct AllocatingOnWorkerNode;
+
+impl Node for AllocatingOnWorkerNode {
+    fn name(&self) -> &'static str {
+        "allocating-on-worker"
+    }
+    fn input_channels(&self) -> usize {
+        0
+    }
+    fn output_channels(&self) -> usize {
+        1
+    }
+    fn process(&mut self, ctx: &mut ProcessContext<'_>) {
+        let out = ctx.outputs.channel_mut(0);
+        let mut value = 0.0_f32;
+        for sample in out.iter_mut() {
+            for _ in 0..64 {
+                value = std::hint::black_box(value * 0.5 + 0.25);
+            }
+            *sample = value;
+        }
+        if !ON_CALLBACK_THREAD.get() {
+            let scratch: Vec<u8> = Vec::with_capacity(64);
+            std::hint::black_box(&scratch);
+        }
+    }
+}
+
+/// Child for the worker canary: many allocating-on-worker nodes and two workers, cycled until
+/// a worker picks one up (the guard must abort the process) or 20 s pass (exit 0: failure).
+fn worker_canary_child() {
+    let mut graph = Graph::new();
+    let master = graph.add_node(Box::new(MasterNode::new()));
+    for index in 0..64 {
+        let node = graph.add_node(Box::new(AllocatingOnWorkerNode));
+        graph.connect(node, 0, master, index % 2).unwrap();
+    }
+    graph.set_master(master).unwrap();
+    let (mut link, mut core) = CoreBuilder::new().workers(2).build();
+    link.swap_plan(graph.compile(SAMPLE_RATE, 256).unwrap())
+        .unwrap();
+    let mut buffer = vec![0.0_f32; 256 * 2];
+    ON_CALLBACK_THREAD.set(true);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        core.process(&mut buffer, 2, None);
+    }
+}
+
+/// Child half of the canaries: does nothing unless the parent set `OW_RT_CANARY`.
 /// `alloc` runs the allocating node (the process must abort); `clean` runs a normal graph
-/// (the process must exit 0), proving the subprocess mechanism itself works.
+/// (the process must exit 0), proving the subprocess mechanism itself works; `worker-alloc`
+/// allocates only on DSP workers (the process must abort).
 #[test]
 fn canary_child() {
     let Ok(mode) = std::env::var("OW_RT_CANARY") else {
         return;
     };
+    if mode == "worker-alloc" {
+        worker_canary_child();
+        return;
+    }
     let mut graph = Graph::new();
     let source = if mode == "alloc" {
         graph.add_node(Box::new(AllocatingNode))
@@ -206,7 +285,7 @@ fn canary_child() {
     let master = graph.add_node(Box::new(MasterNode::new()));
     graph.connect(source, 0, master, 0).unwrap();
     graph.set_master(master).unwrap();
-    let (mut link, mut core) = CoreBuilder::new().build();
+    let (mut link, mut core) = builder().build();
     link.swap_plan(graph.compile(SAMPLE_RATE, 256).unwrap())
         .unwrap();
     let mut buffer = vec![0.0_f32; 256 * 2];
@@ -244,8 +323,65 @@ fn the_allocation_guard_fires_on_an_allocating_node() {
 }
 
 #[test]
+fn the_allocation_guard_fires_on_a_worker_thread() {
+    let alloc = run_canary("worker-alloc");
+    assert!(
+        !alloc.status.success(),
+        "a node allocating on a DSP worker ran for 20 s without the guard aborting"
+    );
+    assert_ne!(
+        alloc.status.code(),
+        Some(101),
+        "expected an abort, not a panic: {}",
+        String::from_utf8_lossy(&alloc.stderr)
+    );
+}
+
+/// With workers (`OW_TEST_WORKERS`), a wide graph must actually run on them, so the suite
+/// exercised the guard on worker threads; without, nothing runs off the callback thread.
+#[test]
+fn workers_run_nodes_under_the_guard() {
+    let workers = test_workers();
+    let mut graph = Graph::new();
+    let master = graph.add_node(Box::new(MasterNode::new()));
+    for track in 0..32 {
+        let osc = graph.add_node(Box::new(OscillatorNode::new(100.0 + track as f32, 0.01)));
+        let mut tail = osc;
+        for _ in 0..4 {
+            let gain = graph.add_node(Box::new(GainNode::new(1, 0.99)));
+            graph.connect(tail, 0, gain, 0).unwrap();
+            tail = gain;
+        }
+        graph.connect(tail, 0, master, track % 2).unwrap();
+    }
+    graph.set_master(master).unwrap();
+    let (mut link, mut core) = builder().build();
+    assert_eq!(core.workers(), workers);
+    link.swap_plan(graph.compile(SAMPLE_RATE, 512).unwrap())
+        .unwrap();
+    let telemetry = Arc::clone(link.telemetry());
+    let mut buffer = vec![0.0_f32; 512 * 2];
+    let worker_nodes = || {
+        (1..telemetry.threads())
+            .map(|thread| telemetry.nodes_run(thread))
+            .sum::<u64>()
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut cycles = 0;
+    while cycles < 500 || (workers > 0 && worker_nodes() == 0) {
+        assert!(Instant::now() < deadline, "no worker ran a node in 60 s");
+        core.process(&mut buffer, 2, None);
+        cycles += 1;
+    }
+    if workers == 0 {
+        assert_eq!(worker_nodes(), 0);
+    }
+    assert!(buffer.iter().any(|s| s.abs() > 0.0));
+}
+
+#[test]
 fn a_full_retire_ring_delays_swaps_without_freeing_on_the_audio_thread() {
-    let (mut link, mut core) = CoreBuilder::new().plan_queue(4).retire_queue(1).build();
+    let (mut link, mut core) = builder().plan_queue(4).retire_queue(1).build();
     let telemetry = Arc::clone(link.telemetry());
     for variant in 0..4 {
         link.swap_plan(plan(variant).0).unwrap();

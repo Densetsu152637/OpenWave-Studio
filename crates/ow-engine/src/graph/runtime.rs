@@ -1,14 +1,32 @@
 //! The audio-thread side of the engine ([`AudioCore`]) and the control-thread side
 //! ([`ControlLink`]), joined by wait-free rings (architecture section 4).
 
+// The audio thread routes messages into the live plan between cycles; see `PlanData`.
+#![allow(unsafe_code)]
+
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::thread;
 
 use assert_no_alloc::assert_no_alloc;
 
 use super::NodeId;
 use crate::plan::RenderPlan;
 use crate::rings::{ProducerRing, RingSender, producer_ring};
+use crate::sched::denormal::DenormalGuard;
+use crate::sched::pool::{Pool, PoolConfig, Shared};
+use crate::workgroup::AudioWorkgroup;
+
+/// Largest worker count [`CoreBuilder::workers`] accepts.
+pub const MAX_WORKERS: usize = 64;
+
+/// The architecture's default worker count: physical cores minus one (the callback thread is
+/// the remaining DSP thread), at least 1.
+pub fn default_worker_count() -> usize {
+    num_cpus::get_physical()
+        .saturating_sub(1)
+        .clamp(1, MAX_WORKERS)
+}
 
 /// Transport state handed to nodes each block. Tempo and timeline come in stage 7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -71,15 +89,67 @@ pub enum Message {
     },
 }
 
-/// Counters the audio thread publishes; read from any thread.
-#[derive(Debug, Default)]
+/// Counters the audio thread and the DSP workers publish; read from any thread.
+#[derive(Debug)]
 pub struct Telemetry {
     cycles: AtomicU64,
     plan_swaps: AtomicU64,
     unrouted: AtomicU64,
+    /// Nodes run per DSP thread: index 0 is the callback thread, `1..` the workers.
+    nodes_run: Box<[AtomicU64]>,
+    realtime_workers: AtomicU32,
+    workgroup_workers: AtomicU32,
 }
 
 impl Telemetry {
+    fn new(threads: usize) -> Self {
+        Self {
+            cycles: AtomicU64::new(0),
+            plan_swaps: AtomicU64::new(0),
+            unrouted: AtomicU64::new(0),
+            nodes_run: (0..threads).map(|_| AtomicU64::new(0)).collect(),
+            realtime_workers: AtomicU32::new(0),
+            workgroup_workers: AtomicU32::new(0),
+        }
+    }
+
+    pub(crate) fn count_nodes(&self, thread: usize, nodes: u64) {
+        if let Some(counter) = self.nodes_run.get(thread) {
+            counter.fetch_add(nodes, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn count_realtime_worker(&self) {
+        self.realtime_workers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn count_workgroup_worker(&self) {
+        self.workgroup_workers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// DSP threads the core was built with: the callback thread plus the requested workers.
+    pub fn threads(&self) -> usize {
+        self.nodes_run.len()
+    }
+
+    /// Nodes run so far by DSP thread `thread` (0 is the callback thread, `1..` the workers);
+    /// 0 for an unknown thread. Shows how work spreads across the pool.
+    pub fn nodes_run(&self, thread: usize) -> u64 {
+        self.nodes_run
+            .get(thread)
+            .map_or(0, |counter| counter.load(Ordering::Relaxed))
+    }
+
+    /// Workers that obtained real-time priority from `audio_thread_priority`.
+    pub fn realtime_workers(&self) -> u32 {
+        self.realtime_workers.load(Ordering::Relaxed)
+    }
+
+    /// Workers that joined the macOS audio workgroup.
+    pub fn workgroup_workers(&self) -> u32 {
+        self.workgroup_workers.load(Ordering::Relaxed)
+    }
+
     /// Engine cycles (device callbacks) run so far.
     pub fn cycles(&self) -> u64 {
         self.cycles.load(Ordering::Relaxed)
@@ -111,23 +181,51 @@ impl std::fmt::Display for SwapError {
 
 impl std::error::Error for SwapError {}
 
-/// Assembles an [`AudioCore`] and its [`ControlLink`], registering extra producer rings.
+/// Assembles an [`AudioCore`] and its [`ControlLink`], registering extra producer rings and
+/// configuring the DSP worker pool.
 pub struct CoreBuilder {
     plan_queue: usize,
     retire_queue: Option<usize>,
     control_ring: usize,
     rings: Vec<ProducerRing<Message>>,
+    pool: PoolConfig,
 }
 
 impl CoreBuilder {
-    /// A builder with a plan queue of 8 plans and a control ring of 1024 messages.
+    /// A builder with a plan queue of 8 plans, a control ring of 1024 messages and no DSP
+    /// workers (the callback thread runs every node).
     pub fn new() -> Self {
         Self {
             plan_queue: 8,
             retire_queue: None,
             control_ring: 1024,
             rings: Vec::new(),
+            pool: PoolConfig::default(),
         }
+    }
+
+    /// Number of DSP worker threads that help the callback thread run each cycle (the user's
+    /// setting; [`default_worker_count`] is the architecture default). 0 runs everything on the
+    /// callback thread. Clamped to [`MAX_WORKERS`]. Output is bit-identical for every count.
+    pub fn workers(mut self, count: usize) -> Self {
+        self.pool.workers = count.min(MAX_WORKERS);
+        self
+    }
+
+    /// Promotes the workers to real-time priority with `audio_thread_priority`, sized for
+    /// device blocks of `block_frames` (0 for a default) at `sample_rate`. Without this the
+    /// workers keep normal priority, which suits offline rendering. A failed promotion leaves
+    /// the worker at normal priority ([`Telemetry::realtime_workers`] counts successes).
+    pub fn realtime_workers(mut self, sample_rate: u32, block_frames: u32) -> Self {
+        self.pool.realtime = Some((block_frames, sample_rate));
+        self
+    }
+
+    /// Makes every worker join `workgroup` (macOS audio workgroup of the output device) for
+    /// its lifetime. [`Telemetry::workgroup_workers`] counts successful joins.
+    pub fn audio_workgroup(mut self, workgroup: AudioWorkgroup) -> Self {
+        self.pool.workgroup = Some(Arc::new(workgroup));
+        self
     }
 
     /// Capacity of the plan ring (and the retire ring behind it).
@@ -158,15 +256,17 @@ impl CoreBuilder {
         sender
     }
 
-    /// Creates both halves. The control thread keeps the [`ControlLink`]; the audio callback
-    /// owns the [`AudioCore`].
+    /// Creates both halves and starts the worker threads. The control thread keeps the
+    /// [`ControlLink`]; the audio callback owns the [`AudioCore`]. Dropping the core stops the
+    /// workers.
     pub fn build(self) -> (ControlLink, AudioCore) {
         let (plan_tx, plan_rx) = producer_ring::<Box<RenderPlan>>(self.plan_queue);
         // One more slot than plans in flight, so the audio thread can always retire.
         let (retire_tx, retire_rx) =
             producer_ring::<Box<RenderPlan>>(self.retire_queue.unwrap_or(self.plan_queue + 2));
         let (control_tx, control_rx) = producer_ring::<Message>(self.control_ring);
-        let telemetry = Arc::new(Telemetry::default());
+        let telemetry = Arc::new(Telemetry::new(self.pool.workers + 1));
+        let pool = Pool::spawn(&self.pool, &telemetry);
         let mut rings = Vec::with_capacity(self.rings.len() + 1);
         rings.push(control_rx);
         rings.extend(self.rings);
@@ -176,6 +276,7 @@ impl CoreBuilder {
                 retired: retire_rx,
                 messages: control_tx,
                 telemetry: Arc::clone(&telemetry),
+                sched: Arc::clone(pool.shared()),
             },
             AudioCore {
                 plans: plan_rx,
@@ -185,6 +286,7 @@ impl CoreBuilder {
                 pending_retire: None,
                 transport: Transport::default(),
                 telemetry,
+                pool,
             },
         )
     }
@@ -202,6 +304,7 @@ pub struct ControlLink {
     retired: ProducerRing<Box<RenderPlan>>,
     messages: RingSender<Message>,
     telemetry: Arc<Telemetry>,
+    sched: Arc<Shared>,
 }
 
 impl ControlLink {
@@ -213,10 +316,15 @@ impl ControlLink {
     }
 
     /// Drops plans the audio thread has retired (this is where their memory is freed) and
-    /// returns how many.
+    /// returns how many. A DSP worker may still be leaving a just-retired plan; this waits
+    /// (yielding) until none is, which takes at most a few instructions of the worker's time.
     pub fn collect_retired(&mut self) -> usize {
         let mut dropped = 0;
-        while self.retired.pop().is_some() {
+        while let Some(plan) = self.retired.pop() {
+            while self.sched.in_use(plan.data_ptr()) {
+                thread::yield_now();
+            }
+            drop(plan);
             dropped += 1;
         }
         dropped
@@ -245,11 +353,13 @@ impl ControlLink {
     }
 }
 
-/// Audio-thread end: owns the current plan and runs one engine cycle per device buffer.
+/// Audio-thread end: owns the current plan and the DSP worker pool, and runs one engine cycle
+/// per device buffer.
 ///
-/// [`process`](Self::process) is allocation-free, lock-free and wait-free, and runs under
-/// `assert_no_alloc` (active in debug and test builds when the binary installs
-/// `assert_no_alloc::AllocDisabler` as its global allocator).
+/// [`process`](Self::process) is allocation-free and lock-free and runs under `assert_no_alloc`
+/// (active in debug and test builds when the binary installs `assert_no_alloc::AllocDisabler`
+/// as its global allocator), as does every worker. The callback thread takes part in running
+/// the nodes; it waits only for nodes a worker has already started (see [`crate::sched`]).
 pub struct AudioCore {
     plans: ProducerRing<Box<RenderPlan>>,
     retire: RingSender<Box<RenderPlan>>,
@@ -258,6 +368,7 @@ pub struct AudioCore {
     pending_retire: Option<Box<RenderPlan>>,
     transport: Transport,
     telemetry: Arc<Telemetry>,
+    pool: Pool,
 }
 
 impl AudioCore {
@@ -276,6 +387,11 @@ impl AudioCore {
         self.transport
     }
 
+    /// Number of running DSP worker threads (the callback thread is not counted).
+    pub fn workers(&self) -> usize {
+        self.pool.workers()
+    }
+
     /// Runs one cycle: swap in a pending plan, apply queued messages, render into the
     /// interleaved device buffer `out` with `channels` channels. A device buffer longer than the
     /// plan's block is rendered in chunks. With no plan the output is silence. Non-finite
@@ -286,7 +402,10 @@ impl AudioCore {
     /// stage 14 recording and is currently ignored.
     pub fn process(&mut self, out: &mut [f32], channels: usize, input: Option<&[f32]>) {
         let _ = input;
-        assert_no_alloc(|| self.cycle(out, channels));
+        assert_no_alloc(|| {
+            let _denormals = DenormalGuard::new();
+            self.cycle(out, channels);
+        });
     }
 
     fn cycle(&mut self, out: &mut [f32], channels: usize) {
@@ -299,20 +418,27 @@ impl AudioCore {
         let total = out.len() / channels;
         let mut done = 0;
         while done < total {
-            let Some(plan) = self.current.as_deref_mut() else {
+            let Some(plan) = self.current.as_deref() else {
                 // No plan: silence, but keep the transport moving.
                 self.advance(total - done);
                 break;
             };
-            let frames = (total - done).min(plan.max_block());
-            plan.process_block(frames, self.transport);
+            let data = plan.data();
+            let frames = (total - done).min(data.max_block);
+            // SAFETY: this is the audio thread and the previous cycle of this plan finished.
+            unsafe { data.begin_cycle(frames, self.transport) };
+            self.pool.wake();
+            let ran = data.work();
+            data.finish();
+            self.telemetry.count_nodes(0, ran);
             for channel in 0..channels {
-                let source = if plan.master_channels() == 1 {
-                    plan.master_channel(0, frames)
+                let master_channel = if data.master_channels() == 1 {
+                    0
                 } else {
-                    plan.master_channel(channel, frames)
+                    channel
                 };
-                if let Some(source) = source {
+                // SAFETY: the cycle finished, so no node writes the master buffers.
+                if let Some(source) = unsafe { data.master_channel(master_channel, frames) } {
                     for (frame, sample) in source.iter().enumerate() {
                         out[(done + frame) * channels + channel] =
                             if sample.is_finite() { *sample } else { 0.0 };
@@ -345,6 +471,8 @@ impl AudioCore {
             return;
         }
         if let Some(new) = self.plans.pop() {
+            // Workers move to the new plan before the old one can reach the control thread.
+            self.pool.publish(new.data_ptr());
             self.pending_retire = self.current.replace(new);
             self.telemetry.plan_swaps.fetch_add(1, Ordering::Relaxed);
             self.flush_retired();
@@ -362,12 +490,13 @@ impl AudioCore {
         for ring in rings.iter_mut() {
             while let Some(message) = ring.pop() {
                 let routed = match message {
+                    // SAFETY (both arms): audio thread, between cycles.
                     Message::SetParam { node, param, value } => current
-                        .as_deref_mut()
-                        .is_some_and(|plan| plan.set_param(node, param, value)),
+                        .as_deref()
+                        .is_some_and(|plan| unsafe { plan.data().set_param(node, param, value) }),
                     Message::Midi { node, message, .. } => current
-                        .as_deref_mut()
-                        .is_some_and(|plan| plan.midi(node, message)),
+                        .as_deref()
+                        .is_some_and(|plan| unsafe { plan.data().midi(node, message) }),
                     Message::Transport(command) => {
                         match command {
                             TransportCommand::Play => transport.playing = true,
@@ -382,5 +511,12 @@ impl AudioCore {
                 }
             }
         }
+    }
+}
+
+impl Drop for AudioCore {
+    fn drop(&mut self) {
+        // Stop the workers before the plans they may reference are dropped with the fields.
+        self.pool.shutdown();
     }
 }
