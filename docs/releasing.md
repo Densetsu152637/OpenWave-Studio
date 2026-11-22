@@ -65,6 +65,8 @@ Publish order, in `scripts/ci/publish-release.sh` and `publish-experimental.sh`:
 
 The publish job of each workflow holds `concurrency: { group: updater-feed-<channel>, cancel-in-progress: false }`, so two runs never write one feed at once. Only stable main releases write the main feed: a main pre-release (for example `v0.2.0-rc.1`) never feeds the stable channel.
 
+GitHub serves release assets through a cache: after the feed is replaced, the public URL can keep returning the previous `latest.json` for about three minutes (observed), while `gh release download updater-<channel> -p latest.json -O -` shows the new one at once. Wait that long after a publish before testing an update, and expect installed apps to see a new build that much later.
+
 Check a feed from outside: `curl -sL <feed url> | jq -r '.platforms | keys[]'` and `scripts/ci/check-feed.sh <feed url>`.
 
 ### Signing keys
