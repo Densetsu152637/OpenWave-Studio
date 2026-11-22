@@ -143,9 +143,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 - Acceptance checks:
   - Offline render of oscillator → gain → master matches the reference within -90 dBFS: `cargo test -p ow-engine --test render`.
   - No allocation in the cycle across 1000 plan swaps and with ring overflow: `cargo test -p ow-engine --test rt_safety`.
-- Status: pending
-- Outcome:
-- Handoff notes: document `Node`, `ProcessContext`, `RenderPlan` and `ProducerRing` with rustdoc; every later engine stage consumes them.
+- Status: done
+- Outcome: `experimental` `80ff56c` (impl `2e56ac6`, deny fix `7af2b07`). `Node` trait, `Graph` compiler (topological order, buffer reuse, fan-in `SumNode`), immutable `RenderPlan` swapped over `rtrb` with a retire ring (plans freed on the control thread), per-producer `ProducerRing`/`RingSender` with overflow counters, `OfflineRenderer`, `assert_no_alloc` around every cycle. `--test render` (11) matches an analytic reference (`tests/fixtures/graphs/osc_gain_master.txt`) within -90 dBFS and is bit-identical across block sizes 1–10000; `--test rt_safety` (6): 1000 plan swaps and ring overflow allocation-free, canary subprocess proves the guard aborts, retire back-pressure covered, `compile_error!` in non-debug builds. Non-finite params ignored and non-finite samples zeroed at the device. CI green (45027586996). Implementation-gate critic: no acceptance-changing defects; 3 improvements adopted. Test tone routed through the graph; not re-checked on hardware.
+- Handoff notes: API: `Message::Midi` has `offset: u32` (applied at cycle start for now); `AudioCore::process(out, channels, input: Option<&[f32]>)` (input ignored for now); `ControlLink::{swap_plan, collect_retired, send, try_send}`; `CoreBuilder::{plan_queue, control_ring, retire_queue, producer_ring}`. Node state does not survive a recompile unless the control thread carries it over. `src-tauri` does not install `AllocDisabler`, so its debug build has no guard. `rt_safety` must run in debug. Original note: document `Node`, `ProcessContext`, `RenderPlan` and `ProducerRing` with rustdoc; every later engine stage consumes them.
 
 ## Stage 6: Multithreaded scheduler and delay compensation
 
@@ -160,7 +160,7 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
   - Benchmarks run: `cargo bench -p ow-engine --bench tracks -- --quick` completes in CI (tracked, not gated).
 - Status: pending
 - Outcome:
-- Handoff notes: coarse track-chain nodes; split only where a sidechain edge requires it.
+- Handoff notes: from the stage 5 review: `RenderPlan::process_block` takes `&mut self`, moves buffers via `mem::take` and shares one `scratch` Vec, so parallel execution needs per-buffer interior mutability; buffer reuse is decided by serial order and adds hidden write-after-read dependencies that the DAG scheduler must make explicit (or disable reuse); keep `SumNode` summation order fixed for bit-identical renders across worker counts; set FTZ/DAZ on the callback thread and every worker; `NodeId` comes from insertion order (model-stable ids need `add_node_with_id`); PDC delay nodes can be inserted at compile like `SumNode`. coarse track-chain nodes; split only where a sidechain edge requires it.
 
 ## Stage 7: Transport, tempo map and timeline
 
