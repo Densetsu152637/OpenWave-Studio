@@ -1,7 +1,7 @@
 # OpenWave Studio architecture decision record
 
 Status: accepted for implementation (initial design)
-Date: 2026-11-22
+Date: 2026-11-22 (revision 1, same day: release ancestry and feed safety, updater platform keys, macOS translocation and entitlements, plugin editor windows, per-producer rings, mock audio backend)
 Implementation plan: [docs/plans/openwave-studio.md](plans/openwave-studio.md). This record owns design decisions; the plan owns ordering, acceptance checks and status. On conflict about a design choice, this record wins; on conflict about sequencing or scope of a stage, the plan wins.
 
 ## 1. Problem and requirements
@@ -42,6 +42,8 @@ scripts/ci/, scripts/check-*.sh
 docs/
 ```
 
+Workspace members: `members = ["src-tauri", "crates/*", "plugins/ow-plugins", "xtask"]` (`plugins/au-wrapper` is CMake, not Cargo). Each crate's `Cargo.toml` is created by the plan stage that creates the crate.
+
 Dependency direction: `src-tauri` depends on every crate; `ow-engine` depends on `ow-dsp` and `ow-plugin-host` only through traits it defines (`Node`, `Device`); `ow-model` has no dependency on `ow-engine` (the compiler from model to render plan lives in `ow-engine::compile`, which depends on `ow-model`); `ow-ipc` depends only on `ow-model` types it re-exports as DTOs; `ow-plugins` depends on `ow-dsp`, never on the app.
 
 ## 3. Frontend
@@ -68,7 +70,11 @@ Threads:
 - **UI bridge thread**: reads engine telemetry at up to 60 Hz and pushes it to the webview.
 - **Host main thread**: Tauri's event-loop thread; plugin calls the formats require on the "main thread" (CLAP main-thread calls, VST3 controller and editor calls, AU UI) are marshalled there with `AppHandle::run_on_main_thread`.
 
-Model to engine: the control thread compiles the model into an immutable `RenderPlan` (node list, buffer assignments, dependency counts, latency compensation delays, clip schedules) and sends it to the audio thread over a wait-free SPSC ring (`rtrb`). The audio thread swaps plans at a cycle boundary and returns the old plan through a second ring so it is dropped on the control thread (the `basedrop` pattern). Fine-grained changes that must not rebuild the plan (parameter values, mute and solo, transport commands) travel as fixed-size messages on the same ring or as atomics.
+Model to engine: the control thread compiles the model into an immutable `RenderPlan` (node list, buffer assignments, dependency counts, latency compensation delays, clip schedules) and sends it to the audio thread over a wait-free SPSC ring (`rtrb`). The audio thread swaps plans at a cycle boundary and returns the old plan through a second ring so it is dropped on the control thread (the `basedrop` pattern). Fine-grained changes that must not rebuild the plan (parameter values, mute and solo, transport commands) travel as fixed-size messages or as atomics.
+
+Every producer that feeds the audio thread gets **its own SPSC ring**, because `rtrb` is single-producer: control thread (plans, parameters, transport), MIDI input (one ring per `midir` callback thread), and control surfaces / MIDI-learn automation input. The audio thread drains all rings at the start of each cycle; ring capacities are fixed at stream start and overflow drops the newest message and increments a telemetry counter.
+
+macOS: worker threads join the output device's audio workgroup (`os_workgroup_join` on the workgroup from `kAudioDevicePropertyIOThreadOSWorkgroup`) so Apple Silicon schedules them like the IO thread; through `audio_thread_priority` if it exposes this, otherwise a small FFI shim in `ow-engine`.
 
 Parallel scheduling: the plan is a DAG. Each cycle resets per-node atomic dependency counters; workers pop ready nodes from a lock-free queue, process them and decrement successors. Track chains are coarse nodes (a track with its inserts is one node unless it feeds a sidechain), which keeps scheduling overhead small at high track counts.
 
@@ -88,7 +94,9 @@ Formats: processing in `f32`, non-interleaved buffers, maximum block 4096 frames
 
 MIDI input and output: `midir` (MIT). MIDI files: `midly` (Unlicense).
 
-ASIO decision: the ASIO SDK is available under GPLv3 or Steinberg's proprietary license since October 2025 ([Steinberg press release, 2025-10-15](https://ocl-steinberg-live.steinberg.net/_storage/asset/808575/storage/master/Press%20Release%20-%202025-10-15%20-%20OBS%20Partnership-%20EN.pdf); [Libre Arts, 2025-11](https://librearts.org/2025/11/steinberg-relicenses-vst3-and-asio/)). Linking it would put the distributed binary under GPLv3 obligations. Official OpenWave binaries therefore ship **without ASIO**; `ow-io` exposes an `asio` Cargo feature (wrapping cpal's `asio` feature) that is off by default, so users may build an ASIO-enabled binary from source, which they then hold under GPLv3. WASAPI exclusive mode is the default low-latency path on Windows. Whether to also publish a separately labelled GPLv3 "ASIO edition" is an open question for the project owner (section 13).
+All backends sit behind an `AudioBackend` trait in `ow-io`. A **mock backend** drives the engine callback from a plain thread (or synchronously from a test) with configurable buffer size, injected input audio, timestamped MIDI events and an optional loopback (output fed back to input after a set latency). It is the "realtime path" for tests on CI runners, which have no audio hardware.
+
+ASIO decision: the ASIO SDK is available under GPLv3 or Steinberg's proprietary license since October 2025 ([Steinberg press release, 2025-10-15](https://ocl-steinberg-live.steinberg.net/_storage/asset/808575/storage/master/Press%20Release%20-%202025-10-15%20-%20OBS%20Partnership-%20EN.pdf); [Libre Arts, 2025-11](https://librearts.org/2025/11/steinberg-relicenses-vst3-and-asio/)). Linking it would put the distributed binary under GPLv3 obligations. Official OpenWave binaries therefore ship **without ASIO**; `ow-io` exposes an `asio` Cargo feature (wrapping cpal's `asio` feature) that is off by default, so users may build an ASIO-enabled binary from source, which they then hold under GPLv3. WASAPI exclusive mode is the default low-latency path on Windows. The owner decided (2026-11-22) that ASIO stays source-build-only: no separate GPLv3 "ASIO edition" is published.
 
 ## 6. Project model and file format
 
@@ -125,7 +133,7 @@ The audio thread never talks to IPC directly.
 | --- | --- | --- | --- | --- |
 | CLAP | all | `clack-host` ([prokopyl/clack](https://github.com/prokopyl/clack)) | MIT OR Apache-2.0 | first |
 | VST3 | all | `vst3` bindings ([coupler-rs/vst3-rs](https://github.com/coupler-rs/vst3-rs), crates.io 0.3.0) plus our own host-side interfaces (`IHostApplication`, `IComponentHandler`, `IPlugFrame`, parameter changes, event lists) | MIT OR Apache-2.0; VST3 SDK itself MIT since 3.8 | second |
-| AU (v2 and v3) | macOS | `objc2-audio-toolbox` / `objc2-avf-audio` (`AVAudioUnit` instantiation) | Zlib OR Apache-2.0 OR MIT | third |
+| AU (v2 and v3) | macOS | `objc2-audio-toolbox` / `objc2-avf-audio`: instantiate an `AUAudioUnit` and process through its render block (`renderBlock` with our own pull-input block), not through an `AVAudioEngine` graph | Zlib OR Apache-2.0 OR MIT | third |
 | LV2 | Linux | `livi` (MIT) over the system `lilv` library (ISC) | MIT / ISC | third |
 | VST2 | — | not supported: the VST2 SDK is discontinued and not redistributable; no clean-room path is planned | — | — |
 
@@ -133,8 +141,10 @@ Shared design:
 
 - One `HostedPlugin` trait in `ow-plugin-host` adapts every format to the engine's `Device` interface (process, parameters, note and MIDI events, state save/restore, latency, editor).
 - **Scanning runs out of process**: the app re-launches its own executable with `--scan-plugin <path>`, with a timeout; a crashing or hanging plugin is blacklisted, not fatal. Results are cached in `plugin-cache.json` keyed by path, size and modification time.
+- Hosted plugin parameters are automatable like built-in ones (automation lanes address `(device id, parameter id)` for every format), and plugin-reported latency feeds PDC.
 - **Processing runs in process** for performance. Crash isolation by out-of-process bridging is deferred; revisit if crash reports from third-party plugins become a leading cause of data loss.
-- **Editor windows**: a native top-level Tauri window without a webview supplies the raw window handle (`HWND`, `NSView`, X11 window). On Linux the app starts with `GDK_BACKEND=x11` (XWayland on Wayland sessions) because current plugin GUIs expect X11.
+- **Editor windows**: decision: **OpenWave creates plain platform windows itself** in `ow-plugin-host::editor` and passes their raw handles to plugins: Win32 (`windows` crate, `CreateWindowExW`), AppKit (`objc2-app-kit` `NSWindow`/`NSView` on the main thread) and X11 (`x11rb`, its own X connection). Rejected: Tauri's `WindowBuilder` without a webview, which requires Tauri's `unstable` feature (API may change in minor releases) and on Linux yields a GTK window whose X11 id is unavailable under native Wayland. Owning the windows also gives us the Linux run loop plugins need: one editor thread polls the X11 connection fd plus every fd and timer registered through CLAP `posix-fd-support` and `timer-support` and VST3 `IRunLoop`. The Tauri webview keeps its native GTK backend; under Wayland sessions plugin editors are X11 windows through XWayland. Risk: on Wayland they cannot be parented to or stacked with the main window (kept-on-top is the mitigation); revisit when CLAP/VST3 Wayland embedding is common.
+- **macOS code signing**: the app's entitlements include `com.apple.security.cs.disable-library-validation`; without it a hardened-runtime build refuses to load plugins signed by other teams or unsigned.
 - Plugin state is stored in `project.json` as base64 chunks per format, plus a format-neutral parameter snapshot for recovery.
 
 ## 9. Plugin export (OpenWave devices in other DAWs)
@@ -146,7 +156,7 @@ Decision: **export built-in instruments and effects as CLAP and VST3 on all plat
 - AU: [clap-wrapper](https://github.com/free-audio/clap-wrapper) (MIT; AudioUnitSDK Apache-2.0) builds an AUv2 that dynamically loads the Rust-built `.clap`. It is a CMake/C++ step on the macOS runner only. If it proves unworkable, macOS users keep CLAP and VST3 (revisit condition).
 - DSP is shared: each device lives in `ow-dsp` behind the `Device` trait; `ow-plugins` adapts it to nice-plug's `Plugin` trait, so the in-app device and the exported plugin produce identical output (tested).
 - GUI: in the app, devices use Svelte panels; exported plugins use `nice-plug-egui` editors generated from the same parameter descriptors.
-- Distribution: a separate release asset `OpenWave-Plugins-<version>-<platform>.zip` with `.clap`, `.vst3` and (macOS) `.component` bundles, built in the same release workflows.
+- Distribution: a separate release asset `OpenWave-Plugins-<version>-<platform>.zip` with `.clap`, `.vst3` and (macOS) `.component` bundles, built and attached on **both** stable and experimental releases (owner decision 2026-11-22). On macOS the bundles are ad-hoc signed and not notarized (section 10), so users may need `xattr -dr com.apple.quarantine <bundle>` before a DAW will load them; `docs/plugins.md` says so.
 - Licence guard: CI runs `cargo deny check licenses` with an allowlist (MIT, Apache-2.0, BSD-*, ISC, Zlib, Unicode, MPL-2.0, Unlicense, CC0) and denies GPL/LGPL/AGPL, so a GPL dependency cannot slip back in. Fallback if a GPL dependency becomes unavoidable for VST3: ship CLAP-only plugins (CLAP is MIT) rather than relicensing.
 
 ## 10. Release CI, update channels and portable builds
@@ -156,17 +166,32 @@ Modelled on the Imperium-AI workflows (`ci.yml`, `build.yml`, `release.yml`, `ex
 | Workflow | Trigger | Behaviour |
 | --- | --- | --- |
 | `ci.yml` | pull requests, pushes to `main` and `experimental`, merge queue | docs lint, actionlint, Rust (fmt, clippy, test, cargo-deny) on Windows/macOS/Linux, web checks, plugin validators; a `source branch` job rejects PRs into `main` whose head is not `experimental`; a final `CI gate` job aggregates results |
-| `build.yml` | `workflow_call` with `channel` and `version` | matrix: `linux-x64` (ubuntu-22.04: appimage, deb, rpm), `linux-arm64` (ubuntu-22.04-arm), `windows-x64` (msi, nsis), `windows-arm64` (nsis), `macos-universal` (app, dmg); builds with `tauri-apps/tauri-action@v1` in build-only mode (no `tagName`/`releaseId`), passing `--target`, `--bundles` and `--config` with the version and `createUpdaterArtifacts`; collects `artifactPaths`, portable packages and plugin bundles into `dist/`, uploads `openwave-<channel>-<id>` workflow artifacts |
-| `release.yml` | tags `v*` excluding `v*-experimental*` | `prepare` derives version and pre-release flag (hyphen means pre-release), `build` calls `build.yml`, `publish` creates the GitHub Release (`--latest` for stable), writes `SHA256SUMS`, updates the `main` feed only for non-pre-releases, prunes older main releases |
-| `experimental.yml` | push to `experimental`, manual dispatch | version `X.Y.<run_number>-experimental` from the app version, pre-release with `--latest=false` at the built SHA, updates the `experimental` feed, prunes older experimental releases |
+| `build.yml` | `workflow_call` with `channel` and `version` | matrix: `linux-x64` (ubuntu-22.04: appimage, deb, rpm), `linux-arm64` (ubuntu-22.04-arm: appimage, deb, rpm), `windows-x64` (nsis), `windows-arm64` (nsis), `macos-universal` (app, dmg); builds with `tauri-apps/tauri-action` (v1 line; its release tags are named `action-vX.Y.Z`, so the commit SHA of the chosen `action-v1.x` tag is resolved and pinned in stage 2) in build-only mode (no `tagName`/`releaseId`), passing `--target`, `--bundles` and `--config` with the version and `createUpdaterArtifacts`; collects `artifactPaths`, portable packages and plugin bundles into `dist/`, signs portable zips with `tauri signer sign` and fails if any updater artifact lacks a `.sig`; uploads `openwave-<channel>-<id>` workflow artifacts |
+| `release.yml` | tags `v*` excluding `v*-experimental*` | `prepare` (checkout with `fetch-depth: 0`) derives version and pre-release flag (hyphen means pre-release) and fails unless `git merge-base --is-ancestor "$GITHUB_SHA" origin/main`, so the main channel only ships commits on `main`; `build` calls `build.yml`; `publish` creates the GitHub Release (`--latest` for stable), writes `SHA256SUMS`, then updates the `main` feed (non-pre-releases only), then prunes older main releases |
+| `experimental.yml` | push to `experimental`, manual dispatch | `prepare` fails unless the ref is `experimental` and `git merge-base --is-ancestor "$GITHUB_SHA" origin/experimental`; version `X.Y.<run_number>-experimental` from the app version; pre-release with `--latest=false` at the built SHA; then the `experimental` feed is updated; then older experimental releases are pruned |
+
+Publication order and feed safety: (1) the versioned release with all assets is created, (2) the feed's `latest.json` is uploaded, (3) older releases are pruned, so the feed never points at a missing asset. Feed-updating jobs share `concurrency: { group: updater-feed-<channel>, cancel-in-progress: false }`. Before uploading, the publish script downloads the current feed and skips the upload if the feed's version is greater than the one being published (a late-finishing older run cannot roll the channel back). After upload it requests every URL in the new `latest.json` and fails unless each returns HTTP 200.
 
 Differences from Imperium, with reasons:
 
 - Builds use `tauri-action` in build-only mode instead of a hand-written `tauri build` script, as requested; the publish step stays a script because tauri-action's own `latest.json` upload assumes one release per feed.
 - **Feed hosting**: each channel has a fixed-tag GitHub Release that holds only the feed: `updater-main` and `updater-experimental`, each with an asset `latest.json` replaced by `gh release upload --clobber`. Endpoint: `https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-<channel>/latest.json`. Imperium instead lists releases through the GitHub REST API at runtime, which is limited to 60 unauthenticated requests per hour per IP; a static asset URL has no such limit and needs no client logic. A gh-pages endpoint was rejected because it adds a branch and Pages deploy latency for no gain. Feed tags start with `updater-`, so they never match the `v*` release trigger.
-- As in Imperium, MSI and RPM are skipped for pre-release versions (they reject the hyphen), and empty signing secrets are unset before building.
+- Windows ships NSIS only (no MSI), which removes MSI's pre-release version problem and gives one updater artifact per Windows target. RPM is skipped for pre-release versions (it rejects the hyphen), as in Imperium. Empty signing secrets are unset before building.
 
-Updater (`tauri-plugin-updater` 2.x): `pubkey` in `tauri.conf.json`; `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are repository secrets; updater artifacts are signed installers (NSIS `-setup.exe` preferred over MSI on Windows), `.app.tar.gz` on macOS and the AppImage on Linux ([Tauri updater docs](https://v2.tauri.app/plugin/updater/)). The app builds its updater at runtime with `updater_builder().endpoints([feed_url(channel)])`. The channel defaults to the one the running version was released on (version contains `-experimental` or not) and can be switched in settings; after a switch the version comparator accepts any different version so moving from experimental back to main can "downgrade". Checks run 20 s after start and every 6 h; updates download in the background and install on quit or on "restart now" (Windows `installMode: passive`).
+Updater (`tauri-plugin-updater` 2.x): `pubkey` in `tauri.conf.json`; `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are repository secrets; updater artifacts are the signed NSIS `-setup.exe` on Windows, `.app.tar.gz` on macOS and the AppImage on Linux ([Tauri updater docs](https://v2.tauri.app/plugin/updater/)). Feed platform keys, one per matrix target, with installer-specific keys so a future second installer type cannot be confused:
+
+| Key | Artifact |
+| --- | --- |
+| `windows-x86_64`, `windows-x86_64-nsis` | `_x64-setup.exe` |
+| `windows-aarch64`, `windows-aarch64-nsis` | `_arm64-setup.exe` |
+| `windows-x86_64-portable`, `windows-aarch64-portable` | signed portable zips |
+| `darwin-x86_64`, `darwin-aarch64` (and `-app` variants) | `_universal.app.tar.gz` |
+| `linux-x86_64`, `linux-x86_64-appimage` | `_amd64.AppImage` |
+| `linux-aarch64`, `linux-aarch64-appimage` | `_aarch64.AppImage` |
+
+deb and rpm installs do not self-update (the Tauri updater replaces only AppImages on Linux). On Linux the app treats itself as package-managed when `$APPIMAGE` is unset: automatic checks are off and the update panel says "Update OpenWave Studio through your package manager".
+
+The app builds its updater at runtime with `updater_builder().endpoints([feed_url(channel)])`. The channel defaults to the one the running version was released on (version contains `-experimental` or not) and can be switched in settings. Directly after a switch, one check runs with a version comparator that accepts any different version, so moving from experimental back to main can "downgrade"; the relaxed comparator is not persisted, and every later check uses the normal "newer only" rule. Checks run 20 s after start and every 6 h; updates download in the background and install on quit or on "restart now" (Windows `installMode: passive`).
 
 Portable builds and self-update:
 
@@ -177,6 +202,10 @@ Portable builds and self-update:
 | macOS | `OpenWave-Studio_<v>_universal_portable.zip` containing the `.app` and a `portable` marker beside it | the standard updater replaces the `.app` bundle in place |
 
 Portable mode: at startup the app looks for a file named `portable` beside the executable (Windows), beside the AppImage (`$APPIMAGE`, Linux) or beside the `.app` bundle (macOS; not inside it, which would break code signing). If present, all settings, caches, plugin cache, logs, the WebView2 user-data folder and the default projects directory live under `<that folder>/OpenWave Studio Data/`; otherwise platform directories from Tauri's path resolver are used. Tauri has no official portable mode ([tauri-action README](https://github.com/tauri-apps/tauri-action)), so this is our own `paths` module. On Windows the WebView2 runtime must already be present (it ships with Windows 10 and 11).
+
+macOS signing (owner decision 2026-11-22: no Apple Developer ID for now): macOS builds are **ad-hoc signed** (`bundle.macOS.signingIdentity: "-"`, which Apple Silicon requires at minimum and which still embeds the entitlements from section 8) and **not notarized**. Gatekeeper therefore blocks the first launch of a downloaded copy; the documented workaround (README, `docs/portable.md`) is right-click › Open (or System Settings › Privacy & Security › Open Anyway on newer macOS), or `xattr -dr com.apple.quarantine "/path/OpenWave Studio.app"`. Updates installed by the updater are not quarantined, so the workaround is needed only once per manual download. Developer ID signing and notarization remain a future optional step: `build.yml` uses them only when the `APPLE_*` secrets are present (as Imperium does), with no other change.
+
+macOS App Translocation (more important without notarization, since every browser-downloaded copy is quarantined): a quarantined `.app` launched from where it was unzipped runs from a randomized read-only path (`/private/var/folders/.../AppTranslocation/...`), so the marker beside it is invisible and the updater cannot replace the bundle. The app detects a path containing `/AppTranslocation/` (or `SecTranslocateIsTranslocatedURL`) and shows a blocking prompt explaining how to move the app (with its `portable` marker) to another folder, or how to clear quarantine with `xattr -dr com.apple.quarantine`, before portable mode and updates are enabled. This is documented in `docs/portable.md`.
 
 ## 11. Media, time-stretch and export
 
@@ -190,6 +219,8 @@ Portable mode: at startup the app looks for a file named `portable` beside the e
 ## 12. Testing strategy
 
 - **Unit and property tests** (`cargo test`, `proptest`): model commands and undo/redo invariants (apply then inverse restores state), tempo-map conversions, serialization round trips, migrations against golden files.
+- **Realtime-path tests**: the mock `AudioBackend` (section 5) runs the engine through its callback with fixed buffer sizes, timestamped synthetic MIDI and loopback input, so recording, MIDI timing and "realtime equals export" checks run on CI without audio hardware.
+- **Manual checks** are kept to what needs real hardware or third-party software; each has a written procedure, a numeric threshold and is recorded in the plan stage's Outcome (OS, build version, hardware, result).
 - **Offline render tests**: fixture projects in `crates/ow-engine/tests/fixtures/` rendered offline; output compared to reference renders within a tolerance (`-90 dBFS` difference) and deterministic across thread counts.
 - **Real-time safety tests**: engine cycles under `assert_no_alloc`; plan swaps under load.
 - **Performance benchmarks** (`criterion`): DSP kernels and a track-count benchmark (target, an estimate until measured: 200 tracks with a synth and three effects each at 128-frame buffers, 48 kHz, under 70% of the callback budget on an 8-core desktop). Benchmarks run in CI for trend tracking, not as a gate.
@@ -204,16 +235,16 @@ Risks:
 - nice-plug is young and describes itself as experimental; pin versions and keep the `Device` to nice-plug adapter thin so another framework (or direct `clack-plugin` plus `vst3`) can replace it.
 - `clack` and `vst3` are pre-1.0 with breaking changes possible; pin and wrap behind `HostedPlugin`.
 - Webview rendering performance on Linux (WebKitGTK) is the weakest target; canvas views must be profiled there first.
-- Plugin GUIs under Wayland rely on XWayland.
+- Plugin GUIs under Wayland rely on XWayland and cannot be parented to the main window.
+- Third-party license notices: clap-wrapper (MIT) and AudioUnitSDK (Apache-2.0) in AU plugin bundles, and lilv/serd/sord/sratom (ISC) bundled in the AppImage for LV2 hosting, need their notices shipped; this is a manual check recorded in `docs/plugins.md` and `docs/audio-devices.md` by the owning stages.
 
 Revisit when: plugin crashes become frequent (add out-of-process bridging); WASAPI exclusive proves insufficient for users with ASIO-only hardware (reconsider an ASIO edition); clap-wrapper AU builds fail on CI (drop AU export); a permissive MP3 encoder path appears (add MP3 export).
 
 Open questions for the project owner:
 
-1. Publish a separately licensed GPLv3 "ASIO edition" Windows build, or keep ASIO source-build only?
-2. Should experimental releases also publish plugin bundles, or only stable releases?
-3. Source of loop and instrument content (commission, CC0 collections, community) and whether content packs are in scope for 1.0.
-4. Apple Developer ID signing and notarization: unsigned macOS builds work only after the user clears quarantine; is an Apple developer account available?
+1. Source of loop and instrument content (commission, CC0 collections, community) and whether content packs are in scope for 1.0.
+
+Resolved by the owner on 2026-11-22: ASIO stays source-build-only (no GPLv3 edition); plugin bundles ship on experimental releases too; no Apple Developer ID for now (ad-hoc signing, no notarization, section 10). Owner action, unchanged: generate the updater signing key and add the secrets (plan stage 3).
 
 ## 14. Sources
 

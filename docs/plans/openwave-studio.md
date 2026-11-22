@@ -1,360 +1,463 @@
 # Plan: OpenWave Studio
 
-Revision: 2026-11-22 (initial plan; no stage started)
+Revision: 2026-11-22, revision 1 (critic findings A1–A9 and P1–P7 applied; owner answers to open questions 1, 2 and 4 applied; no stage started)
 
 Goals: each is true when its verifying command or observation succeeds.
 
-- G1. The app builds and launches on Windows, macOS and Linux: `gh run list --workflow ci.yml --branch main --limit 1 --json conclusion` reports `success`, and a downloaded release bundle opens its main window on each OS.
-- G2. Pushing a `v*` tag publishes a stable release and the `main` feed; pushing to `experimental` publishes an experimental pre-release and the `experimental` feed: `gh release view updater-main` and `gh release view updater-experimental` each list `latest.json`.
-- G3. An installed or portable build on either channel updates itself to the next build of the same channel: observed by installing build N, publishing N+1, and seeing the app report and apply N+1.
-- G4. A user can record audio and MIDI, arrange, mix, automate and export a song using only built-in instruments and effects: the end-to-end fixture `crates/ow-engine/tests/fixtures/demo_song.owave` renders to WAV in `cargo test -p ow-engine --test render` and the manual journey in stage 22 succeeds.
-- G5. Third-party CLAP, VST3, AU (macOS) and LV2 (Linux) plugins load, play and save state: plugin-host integration tests pass in CI on all three OSes.
-- G6. OpenWave's built-in devices load in other DAWs as CLAP and VST3 (and AUv2 on macOS): `clap-validator` and the VST3 `validator` pass in CI and the plugin bundle zip is attached to releases.
-- G7. Official binaries stay MIT-compatible: `cargo deny check licenses` passes in CI with GPL/LGPL/AGPL denied.
+- G1. The app builds and launches on Windows, macOS and Linux. Verify: `gh run list --workflow ci.yml --branch main --limit 1 --json conclusion` reports `success`; and the stage 2 launch procedure (download each OS's release bundle on a machine without dev tools, launch, main window visible within 10 s, test tone audible) passes on all three OSes, recorded in stage 2's Outcome.
+- G2. Pushing a `v*` tag on a `main` commit publishes a stable release and the `main` feed; pushing to `experimental` publishes an experimental pre-release and the `experimental` feed. Verify: `gh release view updater-main --json assets` and `gh release view updater-experimental --json assets` each list `latest.json`, and the post-publish URL check (every URL in each `latest.json` returns HTTP 200) passes in the publish job.
+- G3. An installed or portable build on either channel updates itself to the next build of the same channel. Verify: the stage 3 and stage 4 update procedures (install build N, publish N+1, app shows "update ready" within 2 minutes of a manual check, after restart Settings › About shows N+1) pass, recorded in those stages' Outcomes.
+- G4. A song can be recorded, arranged, mixed, automated and exported using only built-in instruments and effects. Verify: `cargo test -p ow-engine --test demo_song` passes in CI (stage 23), and the stage 23 manual journey is recorded in its Outcome.
+- G5. Third-party CLAP, VST3, AU (macOS) and LV2 (Linux) plugins load, play, automate and save state. Verify: `cargo test -p ow-plugin-host` passes in CI on all three OSes.
+- G6. OpenWave's built-in devices load in other DAWs as CLAP and VST3 (and AUv2 on macOS). Verify: the `clap-validator`, VST3 `validator` and `auval` CI jobs pass, and `gh release view <tag> --json assets` lists `OpenWave-Plugins-<version>-<platform>.zip` for every platform.
+- G7. Official binaries stay MIT-compatible. Verify: `cargo deny check licenses` passes in CI with GPL/LGPL/AGPL denied.
 
-Scope / non-goals: scope is the application, its CI and release pipeline, the updater, and plugin hosting and export as described in the [architecture record](../architecture.md). Non-goals: VST2, AAX, mobile, cloud or collaboration, video tracks, notation, MP3 export, ASIO in official binaries, bundling the WebView2 runtime.
+Scope / non-goals: scope is the application, its CI and release pipeline, the updater, and plugin hosting and export as described in the [architecture record](../architecture.md). Non-goals: VST2, AAX, mobile, cloud or collaboration, video tracks, notation, MP3 export, ASIO in official binaries, MSI installers, bundling the WebView2 runtime.
 
 Assumptions:
 
 - Repository `Densetsu152637/OpenWave-Studio` on GitHub with Actions enabled, branches `main` and `experimental`; work lands on `experimental` and `main` only takes merges from `experimental` (enforced from stage 2).
-- Repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are created by the owner in stage 3; Apple signing secrets are optional (builds proceed unsigned without them, as in Imperium-AI).
-- Toolchains: stable Rust, Node 24 with pnpm, Tauri CLI 2.x; current versions at plan time are listed in the architecture record's sources.
-- Builds and test suites run in CI (CI-first); implementers run only focused local checks.
+- The owner creates `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` in stage 3.
+- No Apple Developer ID: macOS app and plugin bundles are ad-hoc signed (`signingIdentity "-"`) and not notarized. Users clear Gatekeeper once per manual download (right-click › Open, or `xattr -dr com.apple.quarantine <path>`). Developer ID signing and notarization stay optional, used only if `APPLE_*` secrets are ever added.
+- Toolchains: stable Rust, Node 24 with pnpm, Tauri CLI 2.x; versions at plan time are in the architecture record's sources.
+- Builds and test suites run in CI (CI-first); implementers run only focused local checks. CI runners have no audio hardware, so realtime-path tests use the mock `AudioBackend` from stage 9.
+- Manual checks: each states its procedure and threshold; the implementer records OS, build version, hardware and result in that stage's Outcome.
 
 Relevant paths: `Cargo.toml`, `package.json`, `src/`, `src-tauri/`, `crates/*`, `plugins/*`, `xtask/`, `scripts/`, `.github/workflows/`, `docs/`. Reference CI: `D:\Git Repositories\Imperium-AI\.github\workflows\` and `D:\Git Repositories\Imperium-AI\scripts\ci\`.
 
 Related docs: [docs/architecture.md](../architecture.md) wins on design decisions (crates, formats, licensing, IPC, threading); this plan wins on stage order, ownership and acceptance.
 
+Open questions for the owner:
+
+1. Source of loop and instrument content, and whether content packs are in scope for 1.0 (affects stage 22; does not block it).
+
+Owner actions: generate the updater key pair and add both secrets (blocks stage 3).
+
+Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bundles ship on stable and experimental releases; no Apple Developer ID for now (ad-hoc signing, no notarization).
+
+## Ownership rules and shared files
+
+- The root `Cargo.toml` (stage 1) declares `members = ["src-tauri", "crates/*", "plugins/ow-plugins", "xtask"]`, so new crates need no root edit. Each crate's own `Cargo.toml` is owned by the stage that creates the crate. `Cargo.lock` and `pnpm-lock.yaml` change in any stage that adds a dependency.
+- Shared files are edited only in the section a stage names; later stages must not rewrite earlier stages' sections:
+
+| Shared file | Stages and sections |
+| --- | --- |
+| `.github/workflows/build.yml` | 2 (matrix, tauri-action), 3 (signing secrets), 4 (portable signing), 27 (plugin packaging), 28 (macOS AU step), 30 (lilv in AppImage) |
+| `.github/workflows/ci.yml` | 2 (all jobs), 27 (validator job), 28 (auval job) |
+| `scripts/ci/publish-*.sh` | 2 (creates), 3 (feed upload), 27 (plugin zip attach) |
+| `scripts/ci/install-linux-deps.sh` | 2 (creates), 30 (lilv) |
+| `src-tauri/tauri.conf.json` | 1 (creates), 2 (macOS signing identity), 3 (updater plugin), 24 (macOS entitlements reference), 30 (AppImage libs) |
+| `src-tauri/Cargo.toml` | 1 (creates); any stage adding app dependencies |
+| `src/routes/settings/` | 3 (updates panel), 9 (audio/MIDI/paths/theme/shortcuts panels) |
+| `crates/ow-engine/tests/` | 5 (`render.rs`, `rt_safety.rs`), 6, 7, 14, 19, 21, 23 (each its own test file and fixtures) |
+| `docs/releasing.md` | 2 (creates), 3 (feeds and keys), 4 (portable) |
+| `docs/plugins.md` | 25 (hosting), 27 (export), 28 (AU license notes), 30 (lilv license notes) |
+
 ## How release CI mirrors Imperium-AI
 
 | Imperium-AI | OpenWave Studio |
 | --- | --- |
-| `ci.yml`: PRs, pushes to `main`/`experimental`, merge queue; detect, docs, actionlint, rust, web, `source branch` (PRs into `main` only from `experimental`), `CI gate` | same jobs, plus `cargo deny`, and from stage 23 plugin validators |
-| `build.yml` reusable (`channel`, `version`), five-target matrix, `scripts/ci/build-desktop.sh` calling `tauri build` | same matrix and inputs; `tauri-apps/tauri-action@v1` in build-only mode (no `tagName`/`releaseId`) with `--target`, `--bundles`, `--config {version, bundle.createUpdaterArtifacts}`; `scripts/ci/collect-dist.sh` copies `artifactPaths` and builds portable zips into `dist/` |
-| `release.yml`: tags `v*`, `!v*-experimental*`; `release-prepare.sh` (hyphen = pre-release); `publish-release.sh` (`--latest`, `SHA256SUMS`, prune) | identical trigger and prepare logic; publish also uploads `latest.json` to the fixed `updater-main` release, only for non-pre-releases |
-| `experimental.yml`: push to `experimental`; version `X.Y.<run>-experimental`; pre-release `--latest=false`; prune to one | identical; publish uploads `latest.json` to the fixed `updater-experimental` release |
-| updater feed = `latest.json` asset of the newest channel release, found at runtime via the GitHub REST API | feed = fixed URL `releases/download/updater-<channel>/latest.json` (no API rate limit, no client listing logic) |
-| `updater-manifest.sh` maps signed installers to platform keys | same, plus `windows-<arch>-portable` keys pointing at signed portable zips |
-| MSI/RPM skipped for hyphenated versions; empty signing secrets unset | same |
+| `ci.yml`: PRs, pushes to `main`/`experimental`, merge queue; detect, docs, actionlint, rust, web, `source branch` (PRs into `main` only from `experimental`), `CI gate` | same jobs, plus `cargo deny`; plugin validators from stage 27 |
+| `build.yml` reusable (`channel`, `version`), five-target matrix, `build-desktop.sh` calling `tauri build` | same matrix and inputs; `tauri-apps/tauri-action` v1 in build-only mode pinned by SHA; `collect-dist.sh` copies `artifactPaths`, builds and signs portable zips, fails on a missing `.sig` |
+| `release.yml`: tags `v*`, `!v*-experimental*`; hyphen = pre-release | same, plus prepare fails unless the tagged commit is an ancestor of `origin/main` |
+| `experimental.yml`: push to `experimental`; version `X.Y.<run>-experimental`; pre-release `--latest=false` | same, plus prepare fails unless the commit is an ancestor of `origin/experimental` |
+| feed = `latest.json` of the newest channel release, found at runtime via the GitHub REST API | feed = fixed URL `releases/download/updater-<channel>/latest.json`; order release → feed → prune; `concurrency: updater-feed-<channel>`; no rollback of a newer feed; every feed URL checked for HTTP 200 |
+| MSI and RPM skipped for hyphenated versions | NSIS only on Windows (no MSI); RPM skipped for hyphenated versions |
+| Apple signing and notarization when `APPLE_*` secrets exist | macOS ad-hoc signed always; Developer ID signing and notarization only when `APPLE_*` secrets exist (none today) |
+| — | plugin bundle zips attached to both stable and experimental releases (from stage 27) |
 
 ## Stage 1: Base app scaffold and engine smoke path
 
-- Objective: a Tauri v2 app (Svelte 5 + TypeScript + Vite, pnpm) with the workspace layout from the architecture record, a minimal UI shell (menu bar, empty arrangement area, transport bar with play/stop, status bar showing audio device and CPU), a minimal `ow-engine` that opens the default output device through `cpal` and plays a 440 Hz test tone when "Play test tone" is pressed, and the portable-mode `paths` module (marker detection, data directory, WebView2 data directory). Local check scripts `scripts/check-rust.sh` (fmt, clippy `-D warnings`, test) and `scripts/check-web.sh` (lint, svelte-check, vitest, build).
+- Objective: a Tauri v2 app (Svelte 5 + TypeScript + Vite, pnpm) with the workspace layout from the architecture record; a minimal UI shell (menu bar, empty arrangement area, transport bar with play/stop, status bar with audio device and CPU); a minimal `ow-engine` that opens the default output through `cpal` and plays a 440 Hz tone on "Play test tone"; the portable `paths` module (marker detection, data directory, WebView2 data directory); `scripts/check-rust.sh` and `scripts/check-web.sh`; and a minimal `build-check.yml` workflow (fmt, clippy, test, `tauri build --no-bundle` on Windows, macOS and Linux) so the OS matrix is verified within this stage.
 - Depends on: none
-- Owned paths: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `vite.config.ts`, `svelte.config.js`, `tsconfig.json`, `index.html`, `src/`, `src-tauri/`, `crates/ow-engine/`, `crates/ow-io/`, `scripts/check-rust.sh`, `scripts/check-web.sh`, `README.md` (build section), `.gitignore`
+- Owned paths: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `vite.config.ts`, `svelte.config.js`, `tsconfig.json`, `index.html`, `src/`, `src-tauri/` (incl. `Cargo.toml`, `tauri.conf.json`), `crates/ow-engine/Cargo.toml`, `crates/ow-engine/src/lib.rs`, `crates/ow-io/Cargo.toml`, `crates/ow-io/src/lib.rs`, `scripts/check-rust.sh`, `scripts/check-web.sh`, `.github/workflows/build-check.yml`, `README.md` (build section), `.gitignore`
 - Acceptance checks:
-  - Rust checks pass on all three OSes: true when `bash scripts/check-rust.sh` exits 0 on Windows, macOS and Linux (verified by stage 2's CI run; before then, on the implementer's OS plus `cargo check --target` where available).
-  - Web checks pass: `bash scripts/check-web.sh` exits 0.
-  - App launches and the tone plays: `pnpm tauri dev` opens the window, pressing "Play test tone" produces audio and the status bar shows the device name (manual observation, recorded in Outcome).
-  - Portable mode: with a `portable` file beside the built executable, settings are written under `OpenWave Studio Data/` beside it; `cargo test -p openwave-studio paths` exits 0.
+  - OS matrix builds: `build-check.yml` succeeds on Windows, macOS and Linux for the stage's pushed commit (`gh run list --workflow build-check.yml --limit 1 --json conclusion` = `success`).
+  - Web checks: `bash scripts/check-web.sh` exits 0 (in `build-check.yml`).
+  - Launch and tone (manual, implementer's OS): `pnpm tauri dev`; window visible within 10 s; pressing "Play test tone" produces an audible tone within 1 s; status bar shows the device name. Record in Outcome.
+  - Portable mode: `cargo test -p openwave-studio paths` exits 0 (covers marker present and absent).
 - Status: pending
 - Outcome:
-- Handoff notes: keep the engine smoke path behind the same `Engine` handle later stages extend (do not build a throwaway). Enable `tauri-plugin-updater` only in stage 3. App identifier `org.openwave.studio`, product name `OpenWave Studio`.
+- Handoff notes: keep the smoke path behind the `Engine` handle later stages extend. App identifier `org.openwave.studio`, product name `OpenWave Studio`. Stage 2 deletes `build-check.yml` when `ci.yml` supersedes it.
 
 ## Stage 2: Release CI
 
-- Objective: CI and release workflows mirroring Imperium-AI as summarized above: `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`, `scripts/ci/*` (`detect.sh`, `install-linux-deps.sh`, `release-prepare.sh`, `experimental-prepare.sh`, `collect-dist.sh`, `publish-release.sh`, `publish-experimental.sh`, `prune-releases.sh`, `check-links.py`), `.markdownlint-cli2.jsonc`, `deny.toml`. Create the `experimental` branch. Portable artifacts: Windows plain-exe zip with `portable` marker, macOS `.app` zip with marker, Linux AppImage. Pin actions by SHA as Imperium does.
+- Objective: CI and release workflows mirroring Imperium-AI as tabled above: `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`, and `scripts/ci/{detect,install-linux-deps,release-prepare,experimental-prepare,collect-dist,publish-release,publish-experimental,prune-releases}.sh` plus `check-links.py`; `deny.toml`; `.markdownlint-cli2.jsonc`; create the `experimental` branch. Prepare jobs check out with `fetch-depth: 0` and enforce branch ancestry (`git merge-base --is-ancestor "$GITHUB_SHA" origin/main` for stable tags, `origin/experimental` for experimental builds). Resolve and pin by SHA every action, including the commit of tauri-action's chosen `action-v1.x.y` release tag (its tags are named `action-vX.Y.Z`). Portable artifacts without updater signatures at this stage: Windows plain-exe zip with `portable` marker, macOS `.app` zip with marker, Linux AppImage. macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity: "-"`); the Developer ID/notarization path is wired but runs only when `APPLE_*` secrets are present. README and `docs/releasing.md` document the Gatekeeper workaround (right-click › Open, or `xattr -dr com.apple.quarantine`). Delete `build-check.yml`.
 - Depends on: stage 1
-- Owned paths: `.github/workflows/`, `scripts/ci/`, `deny.toml`, `.markdownlint-cli2.jsonc`, `docs/releasing.md`
+- Owned paths: `.github/workflows/` (creates `ci.yml`, `build.yml`, `release.yml`, `experimental.yml`; deletes `build-check.yml`), `scripts/ci/`, `deny.toml`, `.markdownlint-cli2.jsonc`, `docs/releasing.md`, `src-tauri/tauri.conf.json` (`bundle.macOS.signingIdentity`), `README.md` (install section)
 - Acceptance checks:
-  - CI green on a PR: `gh pr checks <pr>` shows `CI gate` passing with rust jobs on Windows, macOS and Linux.
+  - CI green on a PR: `gh pr checks <pr>` shows `CI gate` passing, with rust jobs on Windows, macOS and Linux.
   - Source-branch rule: a PR from a feature branch into `main` fails `source branch` (observed once, then closed).
-  - Experimental release: a push to `experimental` produces a pre-release `vX.Y.N-experimental` with Windows, macOS and Linux installers, portable zips and `SHA256SUMS`: `gh release view vX.Y.N-experimental --json assets`.
-  - Stable release: pushing tag `v0.1.0` produces a release marked latest with the same asset set: `gh release view v0.1.0`.
+  - Ancestry rule: pushing tag `v0.0.0-ancestry-test` on a commit not on `main` makes `release.yml`'s `prepare` fail (`gh run view <id>` shows prepare failed); the tag is then deleted.
+  - Experimental release: a push to `experimental` produces pre-release `vX.Y.N-experimental` with installers, portable zips and `SHA256SUMS` for all five matrix targets (`gh release view vX.Y.N-experimental --json assets`).
+  - Stable release: tag `v0.1.0` on `main` produces a release marked latest with the same asset set.
+  - Ad-hoc signature: in the macOS build job, `codesign -dv "OpenWave Studio.app"` reports `Signature=adhoc`.
+  - G1 launch procedure: download the `v0.1.0` NSIS installer, the `.dmg` and the AppImage through a browser on machines without dev tools, launch (on macOS using the documented right-click › Open workaround); window visible within 10 s and test tone audible on each. Record per OS in Outcome.
   - `actionlint` and `cargo deny check licenses` pass in CI.
 - Status: pending
 - Outcome:
-- Handoff notes: until stage 3 adds signing, `createUpdaterArtifacts` is false and no `latest.json` is written (the manifest script warns and exits 0, as in Imperium). `docs/releasing.md` documents tag format, channels and required secrets.
+- Handoff notes: no signing key yet, so `createUpdaterArtifacts` is false and no feed is written. `docs/releasing.md` documents tag format, channels, ancestry rule and required secrets.
 
-## Stage 3: Auto-updater with main and experimental channels
+## Stage 3: Auto-updater for installed builds (main and experimental)
 
-- Objective: `tauri-plugin-updater` with the public key in `tauri.conf.json`; signing secrets wired into `build.yml`; `scripts/ci/updater-manifest.sh` writing `latest.json` (installer and portable keys); publish scripts uploading it with `--clobber` to the fixed `updater-main` and `updater-experimental` releases; `src-tauri/src/update.rs` implementing channel selection (default from version, switchable in settings), scheduled checks (20 s after start, every 6 h), background download, install on quit or "restart now", downgrade-allowed comparator after a channel switch, and the Windows portable self-update path (`--apply-update` helper). UI: update status in settings and a non-modal "update ready" notice.
+- Objective: `tauri-plugin-updater` with the public key; signing secrets in `build.yml`; `scripts/ci/updater-manifest.sh` writing `latest.json` with every platform key from the architecture record (`windows-x86_64[-nsis]`, `windows-aarch64[-nsis]`, `darwin-x86_64`, `darwin-aarch64`, `linux-x86_64[-appimage]`, `linux-aarch64[-appimage]`); publish scripts doing release → feed upload (`gh release upload --clobber` to fixed releases `updater-main` / `updater-experimental`, created if absent) → prune, under `concurrency: updater-feed-<channel>` (`cancel-in-progress: false`), skipping the upload if the existing feed's version is greater, then checking every feed URL for HTTP 200. App side, `src-tauri/src/update.rs`: channel default from version, switch in settings, checks 20 s after start and every 6 h, background download, install on quit or "restart now"; after a channel switch exactly one check uses a "any different version" comparator, not persisted; Linux package-managed detection (`$APPIMAGE` unset) disables checks and shows "Update OpenWave Studio through your package manager".
 - Depends on: stage 2
-- Owned paths: `src-tauri/src/update.rs`, `src-tauri/src/portable_update.rs`, `src-tauri/tauri.conf.json` (updater section), `src-tauri/capabilities/`, `src/lib/update/`, `src/routes/settings/` (update panel), `scripts/ci/updater-manifest.sh`, `scripts/ci/publish-*.sh`, `.github/workflows/build.yml` (secrets), `docs/releasing.md`
+- Owned paths: `src-tauri/src/update.rs`, `src-tauri/tauri.conf.json` (updater section), `src-tauri/capabilities/updater.json`, `src/lib/update/`, `src/routes/settings/update/`, `scripts/ci/updater-manifest.sh`, `scripts/ci/publish-release.sh`, `scripts/ci/publish-experimental.sh`, `scripts/ci/check-feed.sh`, `.github/workflows/build.yml` (signing env), `.github/workflows/release.yml` and `experimental.yml` (publish concurrency), `docs/releasing.md` (feeds and keys)
 - Acceptance checks:
-  - Feeds exist: `gh release view updater-main --json assets` and `gh release view updater-experimental --json assets` list `latest.json`; `curl -sL https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-experimental/latest.json | jq .platforms` lists `windows-x86_64`, `windows-x86_64-portable`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`.
-  - Experimental installed update: install experimental build N, publish N+1, the app reports and installs N+1 (observed on Windows and one other OS).
-  - Portable update: Windows portable build N updates to N+1 in place and keeps its `OpenWave Studio Data/` folder (observed).
-  - Channel switch: switching an experimental install to `main` installs the current stable release (observed).
-  - Unit tests for channel derivation and feed URLs pass: `cargo test -p openwave-studio update` (in CI).
+  - Feed contents: `curl -sL https://github.com/Densetsu152637/OpenWave-Studio/releases/download/updater-experimental/latest.json | jq -r '.platforms | keys[]'` lists all ten installer keys above.
+  - Feed URLs live: the publish job's `check-feed.sh` step passes (every URL in `latest.json` returns HTTP 200) for one experimental and one stable publish.
+  - No rollback: re-running an older experimental publish job leaves the feed version unchanged (`jq .version` before and after).
+  - Installed update procedure (Windows NSIS and one of macOS/Linux AppImage): install experimental build N, publish N+1, press "Check now"; "update ready" appears within 2 minutes; after "restart now", Settings › About shows N+1. Record in Outcome.
+  - Channel switch: switching an experimental install to `main` installs the current stable once; the next check with no newer stable reports up to date. Record in Outcome.
+  - Package-managed: the deb install shows the package-manager message and makes no request to the feed (observed in app log).
+  - Unit tests for channel derivation, feed URLs, comparator scope and package-managed detection: `cargo test -p openwave-studio update` (CI).
 - Status: pending
 - Outcome:
-- Handoff notes: the owner generates the key pair with `pnpm tauri signer generate` and adds both secrets; the agent must not handle the private key. Create the two `updater-*` releases once (pre-release, `--latest=false`) from the publish script if absent.
+- Handoff notes: the owner generates keys with `pnpm tauri signer generate` and adds both secrets; the agent never handles the private key.
 
-## Stage 4: Engine graph core (single-threaded)
+## Stage 4: Portable self-update and macOS translocation
 
-- Objective: `ow-engine` audio graph: `Node` trait, buffer pool, `RenderPlan`, plan swap over `rtrb` with old-plan return, parameter messages, offline render driver, and the real-time safety harness (`assert_no_alloc` around the cycle in debug and test builds).
+- Objective: `collect-dist.sh` signs portable zips with `tauri signer sign` and fails if any updater artifact or portable zip lacks a `.sig`; feed gains `windows-x86_64-portable` and `windows-aarch64-portable`; `src-tauri/src/portable_update.rs` implements the Windows portable path (custom target check, verified `download()`, staging, `--apply-update` helper relaunched from temp, file swap preserving `OpenWave Studio Data/`, restart); macOS translocation detection with a blocking prompt to move the app or clear quarantine (every browser-downloaded copy is quarantined because builds are not notarized, so this path is the normal first-run experience on macOS); `docs/portable.md` with the Gatekeeper and quarantine workaround.
+- Depends on: stage 3
+- Owned paths: `src-tauri/src/portable_update.rs`, `src-tauri/src/translocation.rs`, `scripts/ci/collect-dist.sh` (signing section), `scripts/ci/updater-manifest.sh` (portable keys), `.github/workflows/build.yml` (portable signing env), `docs/portable.md`, `docs/releasing.md` (portable section)
+- Acceptance checks:
+  - Signatures complete: the `collect-dist.sh` check passes in the build job, and `gh release view <tag> --json assets` shows a `.sig` for every portable zip.
+  - Windows portable update procedure: unzip build N to a folder with the marker, create a setting, publish N+1, "Check now"; within 2 minutes "update ready"; after restart About shows N+1 and the setting persists. Record in Outcome.
+  - Linux AppImage and macOS `.app` portable updates: same procedure, marker beside the AppImage / `.app`. Record in Outcome.
+  - Translocation: download the macOS portable zip through a browser (quarantined), unzip, launch in place; the app shows the move prompt and does not enable portable mode; after moving the app with its marker to another folder (or `xattr -dr com.apple.quarantine`) and relaunching, portable mode is on and an update applies. Record in Outcome.
+  - Unit tests: `cargo test -p openwave-studio portable_update translocation` (staging, swap plan, translocated-path detection).
+- Status: pending
+- Outcome:
+- Handoff notes: the apply helper must tolerate the main process holding files for up to 30 s, then give up and keep the old version.
+
+## Stage 5: Engine graph core (single-threaded)
+
+- Objective: `ow-engine` audio graph: `Node` trait, buffer pool, `RenderPlan`, a control → audio SPSC ring (`rtrb`) carrying plans and parameter/transport messages, old-plan return ring, a generic `ProducerRing` API so later stages add one ring per producer, overflow counter, offline render driver, and the RT-safety harness (`assert_no_alloc` around each cycle in debug and test builds).
 - Depends on: stage 1
-- Owned paths: `crates/ow-engine/src/graph/`, `crates/ow-engine/src/plan.rs`, `crates/ow-engine/src/offline.rs`, `crates/ow-engine/tests/`
+- Owned paths: `crates/ow-engine/src/graph/`, `crates/ow-engine/src/plan.rs`, `crates/ow-engine/src/rings.rs`, `crates/ow-engine/src/offline.rs`, `crates/ow-engine/tests/render.rs`, `crates/ow-engine/tests/rt_safety.rs`, `crates/ow-engine/tests/fixtures/graphs/`
 - Acceptance checks:
-  - Offline render of a fixture graph (oscillator into gain into master) matches the reference within -90 dBFS: `cargo test -p ow-engine --test render` (CI).
-  - No allocation in the cycle, including across 1000 plan swaps: `cargo test -p ow-engine --test rt_safety` (CI).
+  - Offline render of oscillator → gain → master matches the reference within -90 dBFS: `cargo test -p ow-engine --test render`.
+  - No allocation in the cycle across 1000 plan swaps and with ring overflow: `cargo test -p ow-engine --test rt_safety`.
 - Status: pending
 - Outcome:
-- Handoff notes: interfaces defined here (`Node`, `ProcessContext`, `RenderPlan`) are consumed by every later engine stage; document them with rustdoc.
+- Handoff notes: document `Node`, `ProcessContext`, `RenderPlan` and `ProducerRing` with rustdoc; every later engine stage consumes them.
 
-## Stage 5: Multithreaded scheduler and delay compensation
+## Stage 6: Multithreaded scheduler and delay compensation
 
-- Objective: DAG scheduler with per-node atomic dependency counters, lock-free ready queue, real-time worker pool (`audio_thread_priority`), user-set worker count, plugin delay compensation in plan compilation, and `criterion` benchmarks including the track-count benchmark.
-- Depends on: stage 4
-- Owned paths: `crates/ow-engine/src/sched/`, `crates/ow-engine/src/pdc.rs`, `crates/ow-engine/benches/`
+- Objective: DAG scheduler (per-node atomic dependency counters, lock-free ready queue), real-time worker pool (`audio_thread_priority`), user-set worker count, macOS audio-workgroup join for workers, PDC in plan compilation, `criterion` benchmarks including the track-count benchmark.
+- Depends on: stage 5
+- Owned paths: `crates/ow-engine/src/sched/`, `crates/ow-engine/src/pdc.rs`, `crates/ow-engine/src/workgroup.rs`, `crates/ow-engine/benches/`, `crates/ow-engine/tests/determinism.rs`, `crates/ow-engine/tests/pdc.rs`
 - Acceptance checks:
-  - Renders are bit-identical for 1, 2 and 8 workers: `cargo test -p ow-engine --test determinism`.
+  - Bit-identical renders for 1, 2 and 8 workers: `cargo test -p ow-engine --test determinism`.
+  - RT safety with 8 workers: `OW_TEST_WORKERS=8 cargo test -p ow-engine --test rt_safety` passes (no allocation on any worker or the callback thread).
   - PDC aligns a 512-sample-latency branch with a zero-latency branch to the sample: `cargo test -p ow-engine --test pdc`.
-  - Benchmark runs and records results: `cargo bench -p ow-engine --bench tracks -- --quick` completes in CI (performance targets are estimates, tracked not gated).
+  - macOS workgroup: on the macOS CI runner, `cargo test -p ow-engine workgroup` asserts the join call succeeds for a workgroup obtained from the default device, or is skipped with a logged reason when the runner exposes no device.
+  - Benchmarks run: `cargo bench -p ow-engine --bench tracks -- --quick` completes in CI (tracked, not gated).
 - Status: pending
 - Outcome:
-- Handoff notes: coarse track-chain nodes; split only when a sidechain edge requires it.
+- Handoff notes: coarse track-chain nodes; split only where a sidechain edge requires it.
 
-## Stage 6: Transport, tempo map and timeline
+## Stage 7: Transport, tempo map and timeline
 
-- Objective: transport (play, stop, record arm, loop, seek, punch range), tempo map with ramps and time-signature map, beat/sample conversions, sample-accurate scheduling primitives for clip and event playback, metronome with count-in.
-- Depends on: stage 4
-- Owned paths: `crates/ow-engine/src/transport/`, `crates/ow-model/src/time/`
+- Objective: transport (play, stop, record arm, loop, seek, punch range), tempo map with ramps and time-signature map, beat/sample conversions, sample-accurate scheduling primitives, metronome with count-in.
+- Depends on: stage 5
+- Owned paths: `crates/ow-engine/src/transport/`, `crates/ow-engine/tests/transport.rs`, `crates/ow-model/Cargo.toml`, `crates/ow-model/src/lib.rs`, `crates/ow-model/src/time/`
 - Acceptance checks:
-  - Conversion round trips and ramp integrals hold: `cargo test -p ow-model time` (including `proptest` cases).
-  - Loop playback is seamless (no gap or duplicate sample at the loop point) in an offline render: `cargo test -p ow-engine --test transport`.
+  - Conversion round trips and ramp integrals hold: `cargo test -p ow-model time` (with `proptest`).
+  - Loop playback has no gap or duplicate sample at the loop point: `cargo test -p ow-engine --test transport`.
 - Status: pending
 - Outcome:
 - Handoff notes: positions as `f64` beats plus 64-bit sample counters; 960 PPQ.
 
-## Stage 7: Project model, edit commands, undo and serialization
+## Stage 8: Project model, edit commands, undo and serialization
 
-- Objective: `ow-model` project structure (tracks, buses, clips, patterns and instances, media pool, devices, automation, markers), `EditCommand` with inverses and transactions, undo/redo, `.owave` directory bundle with atomic save, autosave to `backups/`, `format_version` and migration chain, `.owz` archive import/export, and the model-to-plan compiler in `ow-engine::compile`.
-- Depends on: stage 6
-- Owned paths: `crates/ow-model/`, `crates/ow-engine/src/compile.rs`
-- Acceptance checks:
-  - Apply-then-undo restores the model for random command sequences: `cargo test -p ow-model undo` (proptest).
-  - Save/load round trip and golden v1 file load: `cargo test -p ow-model serde`.
-  - Killing the process during save leaves the previous `project.json` intact (test simulates interrupted write): `cargo test -p ow-model atomic_save`.
-- Status: pending
-- Outcome:
-- Handoff notes: the model has no engine dependency; the compiler lives in `ow-engine`.
-
-## Stage 8: Audio and MIDI device layer and preferences
-
-- Objective: `ow-io` device enumeration and selection for cpal hosts (WASAPI, CoreAudio, ALSA, PipeWire, JACK), sample-rate and buffer-size selection, WASAPI exclusive backend via `wasapi`, the off-by-default `asio` feature, MIDI input/output via `midir`, device-loss recovery, and a preferences window (audio, MIDI, paths, theme, shortcuts) persisted through the `paths` module.
-- Depends on: stage 5
-- Owned paths: `crates/ow-io/`, `src-tauri/src/prefs.rs`, `src/routes/settings/`
-- Acceptance checks:
-  - Default build has no ASIO code: `cargo tree -p ow-io -e features` shows no `asio` feature; `cargo deny check licenses` passes.
-  - `cargo build -p ow-io --features asio` succeeds on the Windows CI runner (build only; binary not published).
-  - Switching device and buffer size while playing recovers within one second without a crash (manual observation on Windows WASAPI shared and exclusive, macOS, Linux).
-  - Unit tests for configuration negotiation pass: `cargo test -p ow-io`.
-- Status: pending
-- Outcome:
-- Handoff notes: document in `docs/audio-devices.md` that ASIO-enabled self-builds carry GPLv3 obligations.
-
-## Stage 9: IPC bridge and state mirror
-
-- Objective: `ow-ipc` DTOs with `ts-rs` generation into `src/lib/ipc/generated/`, command handlers for edit commands, snapshot plus sequenced `ModelPatch` stream, UI stores mirroring the model, telemetry bank and 60 Hz raw-byte `ipc::Channel` for meters, transport position and CPU, and the peak-range command returning raw bytes.
+- Objective: `ow-model` project structure (tracks, buses, clips, patterns and instances, media pool, devices, automation, markers), `EditCommand` with inverses and transactions, undo/redo, `.owave` bundle with atomic save, autosave to `backups/`, `format_version` and migration chain, `.owz` import/export, and the model-to-plan compiler `ow-engine::compile`.
 - Depends on: stage 7
+- Owned paths: `crates/ow-model/src/` (except `time/`), `crates/ow-model/tests/`, `crates/ow-engine/src/compile.rs`
+- Acceptance checks:
+  - Apply-then-undo restores the model for random command sequences: `cargo test -p ow-model undo`.
+  - Save/load round trip and golden v1 file load: `cargo test -p ow-model serde`.
+  - Interrupted write leaves the previous `project.json` intact: `cargo test -p ow-model atomic_save`.
+- Status: pending
+- Outcome:
+- Handoff notes: the model never depends on the engine.
+
+## Stage 9: Audio and MIDI device layer, mock backend and preferences
+
+- Objective: `ow-io` `AudioBackend` trait; cpal hosts (WASAPI, CoreAudio, ALSA, PipeWire, JACK); WASAPI exclusive backend via `wasapi`; off-by-default `asio` feature; the **mock backend** (thread- or test-driven callback, fixed buffer size, injected input, timestamped MIDI, loopback with set latency); MIDI I/O via `midir` with one SPSC ring per MIDI input callback thread and one for control-surface input; device-loss recovery; preferences (audio, MIDI, paths, theme, shortcuts); `docs/audio-devices.md` (ASIO GPLv3 note for self-builds).
+- Depends on: stage 6
+- Owned paths: `crates/ow-io/src/` (incl. `mock.rs`), `crates/ow-io/tests/`, `src-tauri/src/prefs.rs`, `src/routes/settings/` (except `update/`), `docs/audio-devices.md`
+- Acceptance checks:
+  - Default build has no ASIO: `cargo tree -p ow-io -e features` shows no `asio`; `cargo deny check licenses` passes.
+  - `cargo build -p ow-io --features asio` succeeds on the Windows CI runner (build only, not published).
+  - Mock backend drives a plan through 10 000 callbacks at 64 frames with no allocation, and MIDI from two producer threads arrives with no loss: `cargo test -p ow-io mock`.
+  - Device switch (manual, Windows shared and exclusive, macOS, Linux): change device and buffer size while playing; audio resumes within 1 s with no crash. Record in Outcome.
+- Status: pending
+- Outcome:
+- Handoff notes: the mock backend is the realtime path for all later CI tests.
+
+## Stage 10: IPC bridge and state mirror
+
+- Objective: `ow-ipc` DTOs with `ts-rs` generation into `src/lib/ipc/generated/`, edit-command handlers, snapshot plus sequenced `ModelPatch` stream with resync on gap, UI stores mirroring the model, telemetry bank and 60 Hz raw-byte `ipc::Channel`, peak-range command returning raw bytes.
+- Depends on: stage 8
 - Owned paths: `crates/ow-ipc/`, `src-tauri/src/ipc/`, `src/lib/ipc/`, `src/lib/stores/`
 - Acceptance checks:
-  - Generated TypeScript is current: `cargo test -p ow-ipc export_bindings` then `git diff --exit-code src/lib/ipc/generated` (CI).
-  - Patch stream keeps the mirror equal to the model for random command sequences: `pnpm vitest run src/lib/stores` plus `cargo test -p ow-ipc mirror`.
-  - Telemetry for 128 meters costs under 1% CPU at 60 Hz (estimate checked with the in-app CPU display; recorded in Outcome).
+  - Generated TypeScript is current: `cargo test -p ow-ipc export_bindings && git diff --exit-code src/lib/ipc/generated` (CI).
+  - Mirror equals model for random command sequences, including a forced sequence gap: `cargo test -p ow-ipc mirror` and `pnpm vitest run src/lib/stores`.
+  - Telemetry budget: `cargo test -p ow-ipc --release telemetry_budget` asserts that sampling and packing 128 meters plus transport takes under 100 µs median over 1000 iterations (well under the 16.7 ms frame).
 - Status: pending
 - Outcome:
-- Handoff notes: the UI never mutates the mirror; all edits go through commands.
+- Handoff notes: the UI never mutates the mirror.
 
-## Stage 10: Media pool, decoding, peaks and disk streaming
+## Stage 11: Media pool, decoding, peaks and disk streaming
 
-- Objective: `ow-media` import (symphonia), resampling to project rate (rubato), content-hashed copy into `audio/`, peak pyramid files, disk-streaming reader with prefetch for long clips, in-memory playback for short clips, and the recording writer (hound) used by stage 12.
-- Depends on: stage 7
+- Objective: `ow-media` import (symphonia), resampling (rubato), content-hashed copy into `audio/`, peak pyramid files, disk-streaming reader with prefetch, in-memory playback for short clips, recording writer (hound).
+- Depends on: stage 8
 - Owned paths: `crates/ow-media/`
 - Acceptance checks:
-  - Decode and resample fixtures (WAV, AIFF, FLAC, MP3, Ogg) to within tolerance: `cargo test -p ow-media decode`.
-  - Streaming playback of a 30-minute file renders identically to in-memory playback: `cargo test -p ow-media stream`.
+  - Decode and resample fixtures (WAV, AIFF, FLAC, MP3, Ogg) within tolerance: `cargo test -p ow-media decode`.
+  - Streaming a 30-minute file renders identically to in-memory playback: `cargo test -p ow-media stream`.
 - Status: pending
 - Outcome:
 - Handoff notes: streaming threshold configurable (default 30 s).
 
-## Stage 11: Arrangement view and audio clip editing
+## Stage 12: Arrangement view and navigation
 
-- Objective: canvas arrangement view (track headers, ruler with bars/beats and time, zoom and scroll, snap grid, markers), audio tracks with clip move, trim, split, duplicate, fades, gain, mute; waveform rendering from peaks; drag-and-drop import; keyboard shortcuts; playback of the arrangement through the engine.
-- Depends on: stages 8, 9, 10
-- Owned paths: `src/lib/arrange/`, `src/lib/canvas/`, `src/routes/+page.svelte` (main layout), `crates/ow-engine/src/clips/audio.rs`
+- Objective: canvas arrangement view: track headers (add, rename, color, reorder), ruler (bars/beats and time), zoom and scroll, snap grid, markers, selection model, keyboard shortcuts, playhead following transport telemetry; a dev-only performance hook `window.__owPerf.scrollBenchmark()` that scrolls for 10 s and reports p95 frame time.
+- Depends on: stages 9, 10
+- Owned paths: `src/lib/arrange/` (view, headers, ruler), `src/lib/canvas/`, `src/lib/perf/`, `src/routes/+page.svelte`, `crates/ow-model/tests/fixtures/100_tracks.owave/`
 - Acceptance checks:
-  - Editing operations produce the expected model commands: `pnpm vitest run src/lib/arrange`.
-  - Scrolling a 100-track, 500-clip project holds 60 fps in the Linux build (WebKitGTK) and on Windows (observed with the webview performance tools; recorded in Outcome).
-  - An imported loop plays in time and an edited arrangement saves and reloads identically (manual journey).
+  - View-model tests (zoom, snap, selection): `pnpm vitest run src/lib/arrange`.
+  - Frame budget (manual): open the `100_tracks.owave` fixture (100 tracks, 500 clips), run the scroll benchmark; p95 frame time ≤ 16.7 ms on Windows, on Linux under an X11 session, and on Linux under a Wayland session (the configuration where plugin editors use XWayland). Record OS, GPU and p95 in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: profile on Linux first; it is the slowest webview.
+- Handoff notes: profile WebKitGTK first; it is the slowest webview.
 
-## Stage 12: Audio recording
+## Stage 13: Audio clip editing and arrangement playback
 
-- Objective: input routing per track, record arm, input monitoring (with latency-compensated placement), punch in/out, loop recording into takes, basic comping (choose take per region), count-in, and the disk writer path.
-- Depends on: stage 11
-- Owned paths: `crates/ow-engine/src/record/`, `crates/ow-media/src/record.rs`, `src/lib/record/`
+- Objective: audio tracks with clip move, trim, split, duplicate, fades, gain and mute; waveform rendering from peaks; drag-and-drop import; arrangement playback through the engine.
+- Depends on: stages 11, 12
+- Owned paths: `src/lib/arrange/clips/`, `src/lib/waveform/`, `crates/ow-engine/src/clips/audio.rs`, `crates/ow-engine/tests/audio_clips.rs`
 - Acceptance checks:
-  - A loopback test records a known signal and places it within 1 sample of the expected position after latency compensation: `cargo test -p ow-engine --test record_loopback` (uses a virtual device).
-  - Ten minutes of 16-track recording at 64-frame buffers shows no dropouts (manual observation with the xrun counter).
+  - Editing operations emit the expected commands: `pnpm vitest run src/lib/arrange/clips`.
+  - Clip playback with fades and trims matches the reference via the mock backend: `cargo test -p ow-engine --test audio_clips`.
+  - Save and reload of an edited arrangement is identical: covered by `cargo test -p ow-model serde` fixtures added here.
 - Status: pending
 - Outcome:
-- Handoff notes: report device latency as given by the backend; offer a manual offset in preferences.
+- Handoff notes: none.
 
-## Stage 13: MIDI clips, piano roll and MIDI recording
+## Stage 14: Audio recording
 
-- Objective: MIDI tracks and clips, piano roll (draw, select, move, resize, velocity lane, CC lanes, scale highlighting, quantize, legato, humanize), MIDI recording (replace, overdub, loop-merge), MIDI file import/export with `midly`.
-- Depends on: stage 11
-- Owned paths: `src/lib/pianoroll/`, `crates/ow-engine/src/clips/midi.rs`, `crates/ow-model/src/midi/`
-- Acceptance checks:
-  - Quantize and MIDI file round trip tests pass: `cargo test -p ow-model midi`.
-  - Piano roll command mapping tests pass: `pnpm vitest run src/lib/pianoroll`.
-  - Recording from a MIDI keyboard places notes within 1 ms of played timing (manual observation).
-- Status: pending
-- Outcome:
-- Handoff notes: until stage 14 exists, test MIDI playback with a sine test instrument.
-
-## Stage 14: Device framework and built-in instruments
-
-- Objective: `ow-dsp` `Device` trait (parameters with ranges, units, smoothing; note events; state; latency), parameter descriptors that drive both Svelte device panels and later plugin editors; instruments: subtractive synth (2 oscillators, sub, noise, filter, 2 envelopes, LFO, unison), FM synth (4 operators), and a sampler (one-shot and multisample zones, SFZ subset import, round-robin, velocity layers).
+- Objective: per-track input routing, record arm, latency-compensated input monitoring and placement, punch in/out, loop recording into takes, basic comping, count-in, disk-writer path.
 - Depends on: stage 13
-- Owned paths: `crates/ow-dsp/src/device.rs`, `crates/ow-dsp/src/instruments/`, `src/lib/devices/`
+- Owned paths: `crates/ow-engine/src/record/`, `crates/ow-engine/tests/record_loopback.rs`, `crates/ow-media/src/record.rs`, `src/lib/record/`
 - Acceptance checks:
-  - Each instrument renders its reference patch within tolerance and passes the real-time safety harness: `cargo test -p ow-dsp instruments`.
-  - SFZ subset fixture loads and maps zones correctly: `cargo test -p ow-dsp sfz`.
+  - Loopback through the mock backend (known latency) places a recorded impulse within 1 sample of its expected position: `cargo test -p ow-engine --test record_loopback`.
+  - Sustained recording: the mock backend runs 16 input tracks for 10 simulated minutes at 64 frames with the disk writer active and reports zero ring overruns: `cargo test -p ow-engine --test record_loopback sustained --release`.
 - Status: pending
 - Outcome:
-- Handoff notes: keep devices free of app types so stage 23 can export them unchanged.
+- Handoff notes: offer a manual latency offset in preferences.
 
-## Stage 15: Step sequencer, drum machine and pattern workflow
+## Stage 15: MIDI clips, piano roll and MIDI recording
 
-- Objective: drum machine device (16 pads of sampler voices, choke groups), step sequencer (per-row steps, velocity, probability, swing, per-step pitch), pattern editor and playlist (pattern instances on tracks, make unique, pattern length and color), and the channel rack style view.
-- Depends on: stage 14
+- Objective: MIDI tracks and clips; piano roll (draw, select, move, resize, velocity and CC lanes, scale highlighting, quantize, legato, humanize); MIDI recording (replace, overdub, loop-merge); MIDI file import/export with `midly`.
+- Depends on: stage 13
+- Owned paths: `src/lib/pianoroll/`, `crates/ow-engine/src/clips/midi.rs`, `crates/ow-engine/tests/midi_timing.rs`, `crates/ow-model/src/midi/`
+- Acceptance checks:
+  - Quantize and MIDI file round trip: `cargo test -p ow-model midi`.
+  - Piano roll command mapping: `pnpm vitest run src/lib/pianoroll`.
+  - Recording timing: timestamped synthetic MIDI events injected through the mock backend at random offsets land within 1 sample of their timestamps in the recorded clip: `cargo test -p ow-engine --test midi_timing`.
+- Status: pending
+- Outcome:
+- Handoff notes: use a sine test instrument until stage 16.
+
+## Stage 16: Device framework and synthesizers
+
+- Objective: `ow-dsp` `Device` trait (parameters with ranges, units, smoothing; note events; state; latency; sidechain inputs), parameter descriptors that drive Svelte device panels and later plugin editors; subtractive synth (2 oscillators, sub, noise, filter, 2 envelopes, LFO, unison) and FM synth (4 operators).
+- Depends on: stage 15
+- Owned paths: `crates/ow-dsp/Cargo.toml`, `crates/ow-dsp/src/lib.rs`, `crates/ow-dsp/src/device.rs`, `crates/ow-dsp/src/instruments/{synth,fm}.rs`, `src/lib/devices/` (panel framework)
+- Acceptance checks:
+  - Reference patches render within tolerance and pass the RT-safety harness: `cargo test -p ow-dsp instruments`.
+- Status: pending
+- Outcome:
+- Handoff notes: devices must not depend on app types so stage 27 can export them unchanged.
+
+## Stage 17: Sampler and SFZ import
+
+- Objective: sampler instrument (one-shot and multisample zones, round-robin, velocity layers, loop points, envelopes) and an SFZ subset importer.
+- Depends on: stage 16
+- Owned paths: `crates/ow-dsp/src/instruments/sampler/`, `src/lib/devices/sampler/`
+- Acceptance checks:
+  - Zone mapping, round-robin and velocity layers: `cargo test -p ow-dsp sampler`.
+  - SFZ subset fixture maps zones correctly: `cargo test -p ow-dsp sfz`.
+- Status: pending
+- Outcome:
+- Handoff notes: document the supported SFZ opcodes in rustdoc.
+
+## Stage 18: Step sequencer, drum machine and pattern workflow
+
+- Objective: drum machine device (16 sampler pads, choke groups); step sequencer (steps, velocity, probability, swing, per-step pitch); pattern editor and playlist (pattern instances, make unique, pattern length and color); channel-rack view.
+- Depends on: stage 17
 - Owned paths: `crates/ow-dsp/src/instruments/drum.rs`, `crates/ow-model/src/pattern/`, `src/lib/stepseq/`, `src/lib/playlist/`
 - Acceptance checks:
-  - Editing a pattern changes every instance and "make unique" detaches one: `cargo test -p ow-model pattern`.
-  - Swing and probability render deterministically with a fixed seed: `cargo test -p ow-dsp drum`.
+  - Editing a pattern changes every instance; "make unique" detaches one: `cargo test -p ow-model pattern`.
+  - Swing and probability are deterministic with a fixed seed: `cargo test -p ow-dsp drum`.
 - Status: pending
 - Outcome:
-- Handoff notes: patterns are ordinary clips to the engine compiler; no separate playback path.
+- Handoff notes: patterns are ordinary clips to the compiler.
 
-## Stage 16: Mixer and routing
+## Stage 19: Mixer and routing
 
-- Objective: mixer view with channel strips (insert slots, sends pre/post, pan with selectable pan law, fader, mute, solo, solo-safe, phase), buses and groups, sidechain inputs as graph edges, master chain, and meters fed by telemetry (peak, RMS, LUFS on master).
-- Depends on: stages 9, 14
-- Owned paths: `crates/ow-engine/src/mixer/`, `crates/ow-model/src/routing/`, `src/lib/mixer/`
+- Objective: mixer view (insert slots, pre/post sends, pan with selectable law, fader, mute, solo, solo-safe, phase), buses and groups, sidechain inputs as graph edges, master chain, meters (peak, RMS, LUFS on master).
+- Depends on: stages 10, 16
+- Owned paths: `crates/ow-engine/src/mixer/`, `crates/ow-engine/tests/routing.rs`, `crates/ow-model/src/routing/`, `src/lib/mixer/`
 - Acceptance checks:
-  - Routing compile rejects feedback cycles and handles sidechain edges with PDC: `cargo test -p ow-engine --test routing`.
+  - Feedback cycles rejected; sidechain edges compensated: `cargo test -p ow-engine --test routing`.
   - Pan laws and send levels match reference values: `cargo test -p ow-engine mixer`.
 - Status: pending
 - Outcome:
-- Handoff notes: sidechain is an extra input bus on a device, not a special case.
+- Handoff notes: sidechain is an extra input bus on a device.
 
-## Stage 17: Built-in effects suite
+## Stage 20: Built-in effects suite
 
-- Objective: parametric EQ (8 bands, analyzer), compressor (with sidechain input), gate, limiter, algorithmic reverb, delay (sync, ping-pong), chorus, flanger, phaser, saturation/distortion, filter, bitcrusher, utility (gain, pan, width), tuner, spectrum analyzer; each with a Svelte panel from descriptors.
-- Depends on: stage 16
+- Objective: parametric EQ (8 bands, analyzer), compressor (sidechain), gate, limiter, algorithmic reverb, delay (sync, ping-pong), chorus, flanger, phaser, saturation, filter, bitcrusher, utility, tuner, spectrum analyzer; panels from descriptors.
+- Depends on: stage 19
 - Owned paths: `crates/ow-dsp/src/effects/`, `src/lib/devices/effects/`
 - Acceptance checks:
-  - Each effect passes reference-render and real-time safety tests: `cargo test -p ow-dsp effects`.
-  - Latency-reporting effects (limiter lookahead) are compensated: covered by `cargo test -p ow-engine --test pdc`.
+  - Reference renders and RT safety per effect: `cargo test -p ow-dsp effects`.
+  - Limiter lookahead is compensated: `cargo test -p ow-engine --test pdc` (fixture added here).
 - Status: pending
 - Outcome:
-- Handoff notes: may be split across two sessions (dynamics and EQ first, then time-based and modulation).
+- Handoff notes: Minimum accepted slice: EQ, compressor, limiter, reverb, delay and utility with passing tests; remaining effects may follow in a second session under the same stage.
 
-## Stage 18: Automation
+## Stage 21: Automation
 
-- Objective: automation lanes for any device or mixer parameter, breakpoint envelopes with curves, sample-accurate application in the engine, write/touch/latch/read modes from UI controls and MIDI controllers, clip-level automation in patterns, and MIDI learn.
-- Depends on: stages 16, 17
-- Owned paths: `crates/ow-engine/src/automation/`, `crates/ow-model/src/automation/`, `src/lib/automation/`
+- Objective: automation lanes for any device or mixer parameter (addressed by device id and parameter id, so hosted plugins reuse it), breakpoint envelopes with curves, sample-accurate application, write/touch/latch/read modes from UI and MIDI controllers (control-surface ring from stage 9), clip automation in patterns, MIDI learn.
+- Depends on: stages 19, 20
+- Owned paths: `crates/ow-engine/src/automation/`, `crates/ow-engine/tests/automation.rs`, `crates/ow-model/src/automation/`, `src/lib/automation/`
 - Acceptance checks:
-  - A ramp automates gain sample-accurately in an offline render: `cargo test -p ow-engine --test automation`.
+  - A ramp automates gain sample-accurately: `cargo test -p ow-engine --test automation`.
   - Touch and latch recording produce the expected breakpoints: `cargo test -p ow-model automation`.
 - Status: pending
 - Outcome:
-- Handoff notes: thin recorded breakpoints with a tolerance to keep projects small.
+- Handoff notes: thin recorded breakpoints with a tolerance.
 
-## Stage 19: Smart tempo, time-stretch, loop browser and content packs
+## Stage 22: Smart tempo, time-stretch, loop browser and content packs
 
-- Objective: warp markers and time-stretch with `signalsmith-stretch` (real-time and cached render), tempo and beat detection on import, follow-project-tempo for loops, key detection and transpose, a loop and sample browser with preview in tempo and key, tagging and search, and content-pack download and install into the data directory.
-- Depends on: stages 10, 11
+- Objective: warp markers and time-stretch with `signalsmith-stretch` (real-time and cached), tempo and beat detection on import, follow-project-tempo loops, key detection and transpose, loop/sample browser with in-tempo preview, tags and search, content-pack download and install.
+- Depends on: stages 11, 13
 - Owned paths: `crates/ow-dsp/src/stretch/`, `crates/ow-dsp/src/analysis/`, `crates/ow-media/src/library/`, `src/lib/browser/`
 - Acceptance checks:
-  - Tempo detection is within 1 BPM on the fixture set: `cargo test -p ow-dsp analysis`.
-  - Stretched loop length matches the target within 1 sample: `cargo test -p ow-dsp stretch`.
-  - A loop dragged from the browser plays in project tempo and key (manual journey).
+  - Tempo detection within 1 BPM on the fixture set: `cargo test -p ow-dsp analysis`.
+  - Stretched loop length within 1 sample of target: `cargo test -p ow-dsp stretch`.
+  - Browser preview (manual): a 120 BPM fixture loop previewed in a 90 BPM project plays in time (no drift over 8 bars by ear against the metronome). Record in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: content source and licensing is an open owner question; ship the browser with a small CC0 starter pack if none is settled.
+- Handoff notes: Minimum accepted slice: stretch, tempo detection and the browser with local folders; content-pack download may follow in a second session. Content source is open question 3.
 
-## Stage 20: Templates, export and project management
+## Stage 23: Templates, export, project management and demo song (G4)
 
-- Objective: start screen with recent projects and templates (genre templates, empty, "beat" pattern template), save-as-template, offline export (mix, stems per track or bus, selection or loop range, WAV 16/24/32f, FLAC, MIDI), loudness normalization option, and project consolidation (collect external media).
-- Depends on: stages 15, 18
-- Owned paths: `crates/ow-media/src/export/`, `crates/ow-engine/src/offline.rs` (export driver), `src/lib/start/`, `src/lib/export/`, `src-tauri/resources/templates/`
+- Objective: start screen with recent projects and templates, save-as-template, offline export (mix, stems, selection or loop range, WAV 16/24/32f, FLAC, MIDI), loudness normalization, project consolidation; the `demo_song.owave` fixture (built-in synth, sampler drums pattern, recorded audio clip, two effects, a bus with sidechain compression, automation) and `--test demo_song` comparing the realtime path (mock backend callback, 128-frame buffers) with offline export.
+- Depends on: stages 14, 18, 21
+- Owned paths: `crates/ow-media/src/export/`, `crates/ow-engine/src/export.rs`, `crates/ow-engine/tests/demo_song.rs`, `crates/ow-engine/tests/fixtures/demo_song.owave/`, `src/lib/start/`, `src/lib/export/`, `src-tauri/resources/templates/`
 - Acceptance checks:
-  - Exported WAV of the demo fixture matches the realtime-path render: `cargo test -p ow-engine --test render` (G4 fixture).
+  - Realtime path equals export: `cargo test -p ow-engine --test demo_song` (difference below -90 dBFS).
   - Stems sum to the mix within -90 dBFS: `cargo test -p ow-media export_stems`.
   - FLAC encoder dependency passes `cargo deny check licenses`.
+  - G4 journey (manual): from the empty template, record 8 bars of audio, program a drum pattern and a synth part, add EQ and reverb, automate a filter, export WAV; the exported file plays in a system media player and matches what was heard. Record in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: choose the FLAC encoder crate here after verifying its license.
+- Handoff notes: choose the FLAC encoder after verifying its license.
 
-## Stage 21: Plugin hosting I: CLAP, scanner and plugin browser
+## Stage 24: Plugin hosting I: CLAP processing core
 
-- Objective: `ow-plugin-host` with the `HostedPlugin` trait, CLAP hosting via `clack-host` (audio, notes, parameters, state, latency, threading extensions, GUI), the out-of-process scanner (`--scan-plugin`), plugin cache and blacklist, plugin browser in the UI, native editor windows, and main-thread marshalling.
-- Depends on: stages 14, 16
-- Owned paths: `crates/ow-plugin-host/src/lib.rs`, `crates/ow-plugin-host/src/clap/`, `crates/ow-plugin-host/src/scan/`, `src-tauri/src/plugin_windows.rs`, `src/lib/plugins/`
+- Objective: `ow-plugin-host` `HostedPlugin` trait; CLAP hosting via `clack-host` (audio, note ports, parameters, state, latency, thread-check and thread-pool extensions); hosted parameters exposed to automation; plugin latency fed into PDC; main-thread marshalling; macOS entitlements file with `com.apple.security.cs.disable-library-validation`.
+- Depends on: stages 16, 19, 21
+- Owned paths: `crates/ow-plugin-host/Cargo.toml`, `crates/ow-plugin-host/src/lib.rs`, `crates/ow-plugin-host/src/clap/`, `crates/ow-plugin-host/tests/clap.rs`, `crates/ow-plugin-host/tests/fixtures/`, `src-tauri/entitlements.plist`, `src-tauri/tauri.conf.json` (`bundle.macOS.entitlements`)
 - Acceptance checks:
-  - Hosting tests load a test CLAP, process audio, round-trip state and parameters: `cargo test -p ow-plugin-host clap` on all three OSes in CI.
-  - A deliberately crashing test plugin is blacklisted by the scanner without crashing the app: `cargo test -p ow-plugin-host scan_crash`.
-  - A third-party CLAP (for example Surge XT) opens its editor and plays (manual, per OS).
+  - Load, process, parameter and state round trip on all three OSes: `cargo test -p ow-plugin-host clap` (CI).
+  - Hosted PDC: a test CLAP reporting 256 samples of latency is aligned to the sample with a dry track: `cargo test -p ow-plugin-host clap_pdc`.
+  - Hosted automation: an automation ramp on a hosted parameter arrives as sample-accurate parameter events: `cargo test -p ow-plugin-host clap_automation`.
+  - Entitlement present: in the macOS build job, `codesign -d --entitlements - "OpenWave Studio.app"` on the ad-hoc signed bundle shows `com.apple.security.cs.disable-library-validation`.
 - Status: pending
 - Outcome:
-- Handoff notes: until stage 23 produces OpenWave's own CLAPs, use clack's example plugins as test fixtures.
+- Handoff notes: use clack's example plugins as fixtures until stage 27.
 
-## Stage 22: Plugin hosting II: VST3
+## Stage 25: Plugin hosting II: scanner, browser and editor windows
 
-- Objective: VST3 hosting through the `vst3` crate: module loading and factory, component and controller (single and split), parameter changes and event lists, state (component and controller), latency and bus arrangements, `IPlugFrame` editors, VST3 bundle scanning paths per OS. Also the full G4 manual journey (record, arrange, mix, automate, export with built-in devices).
-- Depends on: stage 21
-- Owned paths: `crates/ow-plugin-host/src/vst3/`
+- Objective: out-of-process scanner (`--scan-plugin`, timeout, blacklist, `plugin-cache.json`); plugin browser; `ow-plugin-host::editor` creating plain platform windows (Win32, AppKit, X11 via `x11rb`) and passing raw handles; the Linux editor run loop servicing the X11 fd plus CLAP `posix-fd-support` and `timer-support`; `docs/plugins.md` (hosting section).
+- Depends on: stage 24
+- Owned paths: `crates/ow-plugin-host/src/scan/`, `crates/ow-plugin-host/src/editor/`, `crates/ow-plugin-host/tests/scan.rs`, `src-tauri/src/plugin_windows.rs`, `src/lib/plugins/`, `docs/plugins.md` (hosting section)
 - Acceptance checks:
-  - VST3 hosting tests pass on all three OSes: `cargo test -p ow-plugin-host vst3` (CI) against the SDK's example plugins built in CI.
-  - A third-party VST3 opens its editor, plays and restores state after project reload (manual, per OS).
-  - G4 journey completed and recorded in Outcome.
+  - A crashing test plugin is blacklisted without crashing the app: `cargo test -p ow-plugin-host scan_crash`.
+  - Run loop: a test CLAP registering an fd and a 10 ms timer receives callbacks on Linux: `cargo test -p ow-plugin-host clap_runloop` (Linux CI with Xvfb).
+  - Editors (manual, per OS, Linux under both X11 and Wayland sessions): a third-party CLAP (for example Surge XT) opens its editor within 3 s, responds to input and closes cleanly. Record in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: after stage 23, switch fixtures to OpenWave's own VST3s.
+- Handoff notes: Tauri's `unstable` window feature is deliberately not used (architecture record section 8).
 
-## Stage 23: Plugin export: CLAP and VST3
+## Stage 26: Plugin hosting III: VST3
 
-- Objective: `plugins/ow-plugins` exporting every built-in instrument and effect through nice-plug (`vst3` feature uses the MIT `vst3` crate) as `.clap` and `.vst3`; `nice-plug-egui` editors generated from parameter descriptors; `xtask bundle-plugins`; CI runs `clap-validator` and the VST3 `validator`; `build.yml` packages `OpenWave-Plugins-<version>-<platform>.zip` and publish scripts attach it.
-- Depends on: stages 17, 22
-- Owned paths: `plugins/ow-plugins/`, `xtask/`, `.github/workflows/ci.yml` (validator job), `.github/workflows/build.yml` (plugin packaging), `scripts/ci/bundle-plugins.sh`, `docs/plugins.md`
+- Objective: VST3 hosting through the `vst3` crate: module loading and factory, single and split component/controller, parameter changes and event lists (automation), state, latency (PDC), bus arrangements, `IPlugFrame` editors in stage 25's windows, `IRunLoop` on Linux on stage 25's run loop, scan paths per OS.
+- Depends on: stage 25
+- Owned paths: `crates/ow-plugin-host/src/vst3/`, `crates/ow-plugin-host/tests/vst3.rs`
 - Acceptance checks:
-  - `cargo tree -p ow-plugins -i vst3-sys` finds nothing and `cargo deny check licenses` passes (MIT-compatible VST3 path).
-  - Validators pass for every exported plugin in CI on all three OSes.
+  - Processing, state, automation and PDC on all three OSes: `cargo test -p ow-plugin-host vst3` (CI, against the SDK's example plugins built in CI).
+  - Linux `IRunLoop` handlers fire: `cargo test -p ow-plugin-host vst3_runloop` (Xvfb).
+  - A third-party VST3 opens its editor within 3 s, plays, and restores state after reload (manual, per OS). Record in Outcome.
+- Status: pending
+- Outcome:
+- Handoff notes: Minimum accepted slice: processing, parameters, state and PDC with tests passing; editors and `IRunLoop` may follow in a second session. Switch fixtures to OpenWave's own VST3s after stage 27.
+
+## Stage 27: Plugin export: CLAP and VST3
+
+- Objective: `plugins/ow-plugins` exporting every built-in instrument and effect through nice-plug (`vst3` feature on the MIT `vst3` crate) as `.clap` and `.vst3`; `nice-plug-egui` editors generated from descriptors; `xtask bundle-plugins`; CI validator job (`clap-validator`, VST3 `validator`); `build.yml` packages `OpenWave-Plugins-<version>-<platform>.zip` (macOS bundles ad-hoc signed) and both `publish-release.sh` and `publish-experimental.sh` attach it; `docs/plugins.md` export section, including the note that unnotarized macOS plugin bundles may need `xattr -dr com.apple.quarantine` before a DAW loads them.
+- Depends on: stages 20, 26
+- Owned paths: `plugins/ow-plugins/`, `xtask/`, `.github/workflows/ci.yml` (validator job), `.github/workflows/build.yml` (plugin packaging), `scripts/ci/bundle-plugins.sh`, `scripts/ci/publish-release.sh` and `publish-experimental.sh` (plugin zip attach lines), `docs/plugins.md` (export section)
+- Acceptance checks:
+  - No GPL VST3 path: `cargo tree -p ow-plugins -i vst3-sys` finds nothing and `cargo deny check licenses` passes.
+  - Validators pass for every exported plugin on all three OSes (CI job green).
+  - Both channels carry plugins: `gh release view vX.Y.N-experimental --json assets` and `gh release view <stable tag> --json assets` each list `OpenWave-Plugins-*` zips for every platform.
   - In-app device and exported plugin render identically: `cargo test -p ow-plugins parity`.
-  - The exported synth loads and plays in OpenWave's own host and in one third-party DAW (for example REAPER or Bitwig) (manual).
+  - The exported synth loads and plays in OpenWave and in one third-party DAW (for example REAPER) (manual). Record in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: describe the format as "VST3" in text only; do not use the VST logo; check Steinberg's trademark guidelines before the first release that contains plugins.
+- Handoff notes: Minimum accepted slice: synth, sampler, EQ, compressor and reverb exported and validated; the rest follow under the same stage. Use "VST3" as text only; no VST logo; check Steinberg's trademark guidelines before the first release with plugins.
 
-## Stage 24: Plugin export: AUv2 on macOS
+## Stage 28: Plugin export: AUv2 on macOS
 
-- Objective: `plugins/au-wrapper` CMake project using clap-wrapper to build `.component` bundles from the exported `.clap` files on the macOS runner, included in the macOS plugin zip; `auval` run in CI.
-- Depends on: stage 23
-- Owned paths: `plugins/au-wrapper/`, `scripts/ci/bundle-au.sh`, `.github/workflows/build.yml` (macOS AU step)
+- Objective: `plugins/au-wrapper` CMake project using clap-wrapper to build `.component` bundles from the exported `.clap` files on the macOS runner, included in the macOS plugin zip; bundles ad-hoc signed; `auval` CI job; license notes for clap-wrapper (MIT) and AudioUnitSDK (Apache-2.0) shipped in the zip and recorded in `docs/plugins.md`.
+- Depends on: stage 27
+- Owned paths: `plugins/au-wrapper/`, `scripts/ci/bundle-au.sh`, `.github/workflows/build.yml` (macOS AU step), `.github/workflows/ci.yml` (auval job), `docs/plugins.md` (AU and license section)
 - Acceptance checks:
-  - `auval -a` lists the OpenWave components and `auval -v` passes for each in the macOS CI job.
-  - The exported synth loads in GarageBand or Logic (manual).
+  - `auval -a` lists the OpenWave components and `auval -v` passes for each (macOS CI).
+  - License notices present in the macOS plugin zip (manual check of the zip listing, recorded in Outcome).
+  - The exported synth loads in GarageBand or Logic (manual). Record in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: if clap-wrapper cannot build on the runner within one session, mark blocked and record why; the architecture record's revisit condition applies (macOS keeps CLAP and VST3).
+- Handoff notes: if clap-wrapper cannot build on the runner within one session, mark blocked with the reason; macOS keeps CLAP and VST3 (architecture revisit condition).
 
-## Stage 25: Plugin hosting III: AU on macOS and LV2 on Linux
+## Stage 29: Plugin hosting IV: Audio Units on macOS
 
-- Objective: AU (v2 and v3) hosting through `objc2-audio-toolbox`/`objc2-avf-audio` with `AVAudioUnit` instantiation, parameters, state and view controllers; LV2 hosting through `livi` over system `lilv` (bundled into the AppImage), with atoms for MIDI, state, and UI via suil-free X11 embedding where supported (generic UI otherwise).
-- Depends on: stage 22
-- Owned paths: `crates/ow-plugin-host/src/au/`, `crates/ow-plugin-host/src/lv2/`, `scripts/ci/install-linux-deps.sh` (lilv), AppImage bundling config in `src-tauri/tauri.conf.json`
+- Objective: AU (v2 and v3) hosting with `objc2-audio-toolbox`/`objc2-avf-audio`: `AUAudioUnit` instantiation, processing through its render block with our pull-input block, parameter tree (automation), full state, latency (PDC), view controllers in stage 25's AppKit windows.
+- Depends on: stage 25
+- Owned paths: `crates/ow-plugin-host/src/au/`, `crates/ow-plugin-host/tests/au.rs`
 - Acceptance checks:
-  - `cargo test -p ow-plugin-host au` passes on the macOS CI runner using Apple's built-in AUs (for example AUDelay).
-  - `cargo test -p ow-plugin-host lv2` passes on the Linux CI runner using a packaged LV2 test plugin.
-  - Apple's AUSampler and a third-party LV2 load and play in the app (manual).
+  - Processing, parameters, state and latency with Apple's built-in AUs (for example AUDelay): `cargo test -p ow-plugin-host au` (macOS CI).
+  - Apple's AUSampler opens its view and plays (manual). Record in Outcome.
 - Status: pending
 - Outcome:
-- Handoff notes: may be split into two sessions (AU, LV2) if needed; LV2 GUI support may stay generic in this stage.
+- Handoff notes: AUv3 out-of-process units render through the same block API.
+
+## Stage 30: Plugin hosting V: LV2 on Linux
+
+- Objective: LV2 hosting through `livi` over `lilv` (bundled into the AppImage), atoms for MIDI, parameters (automation), state, latency (PDC), generic UI (native X11 UIs where available); license notes for lilv/serd/sord/sratom (ISC) in the AppImage and `docs/plugins.md`.
+- Depends on: stage 25
+- Owned paths: `crates/ow-plugin-host/src/lv2/`, `crates/ow-plugin-host/tests/lv2.rs`, `scripts/ci/install-linux-deps.sh` (lilv), `.github/workflows/build.yml` (AppImage libs), `src-tauri/tauri.conf.json` (`bundle.linux.appimage`), `docs/plugins.md` (LV2 and license section)
+- Acceptance checks:
+  - `cargo test -p ow-plugin-host lv2` passes on Linux CI with a packaged LV2 test plugin.
+  - The AppImage runs LV2 hosting on a machine without lilv installed (manual). Record in Outcome.
+  - License notices present in the AppImage (manual check, recorded in Outcome).
+- Status: pending
+- Outcome:
+- Handoff notes: LV2 GUI support may stay generic in this stage.
