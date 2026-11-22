@@ -7,6 +7,8 @@ export interface EngineStatus {
   sampleRate: number | null;
   channels: number | null;
   testTone: boolean;
+  /** A project plan is live: the engine plays the project, so the test tone is unavailable. */
+  projectPlan: boolean;
   /** Smoothed audio callback load, 0..1. */
   cpuLoad: number;
   /** Why audio is not running (also while reconnecting), or null. */
@@ -44,6 +46,7 @@ export const offlineStatus: EngineStatus = {
   sampleRate: null,
   channels: null,
   testTone: false,
+  projectPlan: false,
   cpuLoad: 0,
   error: "Not running inside OpenWave Studio",
   audioState: "failed",

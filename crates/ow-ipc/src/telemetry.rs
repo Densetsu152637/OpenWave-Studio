@@ -265,11 +265,16 @@ impl FramePacker {
         self.word(saturate(bank.overflow(Overflow::Ring)));
         self.word(saturate(bank.overflow(Overflow::Unrouted)));
         self.word(saturate(bank.overflow(Overflow::Midi)));
-        self.word(subscribed.len() as f32);
+        // The subscription set can change while the frame is built, so the record count is
+        // taken from what is actually written and patched into word 8 afterwards.
+        let count_at = self.bytes.len();
+        self.word(0.0);
+        let mut written = 0_u32;
         for slot in 0..METER_SLOTS {
             if !subscribed.contains(slot) {
                 continue;
             }
+            written += 1;
             let (peak, rms) = bank.take_meter(slot).unwrap_or_default();
             self.word(slot as f32);
             self.word(peak[0]);
@@ -277,6 +282,7 @@ impl FramePacker {
             self.word(rms[0]);
             self.word(rms[1]);
         }
+        self.bytes[count_at..count_at + 4].copy_from_slice(&(written as f32).to_le_bytes());
         &self.bytes
     }
 

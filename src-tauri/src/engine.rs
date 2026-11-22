@@ -49,6 +49,8 @@ pub struct EngineStatus {
     pub sample_rate: Option<u32>,
     pub channels: Option<u16>,
     pub test_tone: bool,
+    /// A project plan replaced the smoke-path test tone, so the test tone is unavailable.
+    pub project_plan: bool,
     pub cpu_load: f32,
     pub error: Option<String>,
     /// `running`, `recovering` or `failed`.
@@ -172,6 +174,7 @@ impl EngineState {
             sample_rate: info.map(|i| i.sample_rate),
             channels: info.map(|i| i.output_channels),
             test_tone: self.engine.test_tone(),
+            project_plan: self.engine.project_plan_live(),
             cpu_load: self.engine.cpu_load(),
             error,
             audio_state,

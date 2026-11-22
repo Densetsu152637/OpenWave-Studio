@@ -182,3 +182,33 @@ fn telemetry_frame_golden_bytes() {
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     assert_eq!(hex, GOLDEN_FRAME_HEX);
 }
+
+/// The subscription set changes while frames are packed: every frame must still be well-formed
+/// (its record count matches the records that follow).
+#[test]
+fn telemetry_frames_are_never_torn_by_concurrent_subscription_changes() {
+    let bank = Arc::new(busy_bank());
+    let subscribed = Arc::new(Subscriptions::new());
+    let flipper = {
+        let subscribed = Arc::clone(&subscribed);
+        std::thread::spawn(move || {
+            for round in 0..20_000_u32 {
+                if round % 2 == 0 {
+                    subscribed.set(&(0..200).collect::<Vec<u16>>());
+                } else {
+                    subscribed.set(&[1]);
+                }
+            }
+        })
+    };
+    let mut packer = FramePacker::new();
+    for _ in 0..5_000 {
+        let bytes = packer.pack(&bank, &subscribed).to_vec();
+        let frame = Frame::decode(&bytes).expect("a frame is never torn");
+        assert_eq!(
+            bytes.len(),
+            (HEADER_WORDS + STRIP_WORDS * frame.strips.len()) * 4
+        );
+    }
+    flipper.join().unwrap();
+}

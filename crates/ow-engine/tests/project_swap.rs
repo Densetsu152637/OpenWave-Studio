@@ -132,3 +132,38 @@ fn a_reopened_stream_starts_on_the_projects_plan() {
     assert!(!engine.set_test_tone(true));
     assert!(engine.set_project(Project::new("p2")).unwrap().applied);
 }
+
+#[test]
+fn project_swap_busy_queue_leaves_engine_and_remembered_project_consistent() {
+    let (engine, backend) = engine(MockDrive::Manual);
+    assert!(!engine.project_plan_live());
+    // The audio thread is not running, so the plan ring fills up.
+    let mut last_ok = None;
+    let mut busy = false;
+    for i in 0..40 {
+        let name = format!("p{i}");
+        match engine.set_project(Project::new(name.clone())) {
+            Ok(swap) => {
+                assert!(swap.applied);
+                last_ok = Some(name);
+            }
+            Err(ow_engine::ProjectError::Busy) => {
+                busy = true;
+                break;
+            }
+            Err(other) => panic!("unexpected {other}"),
+        }
+    }
+    assert!(busy, "the queue never filled");
+    assert!(engine.project_plan_live());
+    // The failed swap did not replace the remembered project.
+    assert_eq!(
+        engine.current_project().map(|p| p.name.clone()),
+        last_ok.clone()
+    );
+    // Once the audio thread drains the rings, swapping works again.
+    backend.handle().run_callbacks(20).unwrap();
+    let swap = engine.set_project(Project::new("after")).unwrap();
+    assert!(swap.applied);
+    assert_eq!(engine.current_project().unwrap().name, "after");
+}

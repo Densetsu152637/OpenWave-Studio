@@ -5,6 +5,10 @@
 </script>
 
 <div class="transport" role="toolbar" aria-label="Transport">
+  {#if status.projectPlan}
+    <!-- The engine plays the project now; the settings test tone no longer exists. -->
+    <span class="readout">Playing the project</span>
+  {:else}
   <button
     type="button"
     class="play"
@@ -22,6 +26,7 @@
     Stop
   </button>
   <span class="readout" aria-live="polite">{status.testTone ? "Playing 440 Hz" : "Stopped"}</span>
+  {/if}
 </div>
 
 <style>

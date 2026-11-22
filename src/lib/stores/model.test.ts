@@ -77,7 +77,19 @@ describe("fixture", () => {
     expect(seqs).toEqual(seqs.map((_, i) => i + 1));
     expect(seqs.length).toBeGreaterThanOrEqual(40);
     const kinds = new Set(fixture.patches.flatMap((p) => p.ops.map((o) => o.op)));
-    expect(kinds.size).toBeGreaterThanOrEqual(8);
+    expect(kinds.size).toBeGreaterThanOrEqual(14);
+    for (const op of [
+      "upsert_device",
+      "remove_device",
+      "upsert_media",
+      "remove_media",
+      "set_settings",
+      "set_time_signature_map",
+      "upsert_lane",
+      "order_tracks",
+    ]) {
+      expect(kinds.has(op as never), op).toBe(true);
+    }
     expect(fixture.patches.some((p) => p.history.canRedo)).toBe(true);
     expect(fixture.checkpoints.length).toBeGreaterThanOrEqual(4);
     expect(fixture.last.seq).toBe(seqs.length);

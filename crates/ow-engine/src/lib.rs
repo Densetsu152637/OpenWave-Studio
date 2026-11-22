@@ -141,6 +141,9 @@ struct Live {
     /// The project the live plan was compiled from.
     project: Option<Arc<Project>>,
     sample_rate: u32,
+    /// A timeline that did not fit its ring when its plan was swapped in; retried first at the
+    /// next swap, so tempo never stays behind the plan for longer than one edit.
+    pending_timeline: Option<Box<Timeline>>,
 }
 
 /// The project the engine plays: the latest one handed to [`Engine::set_project`].
@@ -152,6 +155,9 @@ pub struct ProjectSwap {
     /// The plan was sent to the audio thread. False when no stream is open: the project is
     /// kept and compiled as soon as one opens.
     pub applied: bool,
+    /// The plan is live but its tempo and time-signature maps did not fit the audio thread's
+    /// ring yet; they are retried at the next swap.
+    pub timeline_pending: bool,
     /// Which node keys survived the swap (their state carries over by key), appeared or went
     /// away, compared with the previous live plan. Empty when `applied` is false.
     pub diff: NodeDiff,
@@ -340,14 +346,36 @@ impl Engine {
     /// Replaces the smoke-path test tone ([`set_test_tone`](Self::set_test_tone) then returns
     /// false), so the app only calls this once a project is being edited. Runs on the caller's
     /// (control) thread and allocates.
+    ///
+    /// The project is remembered only once its plan is live (or when no stream is open), so a
+    /// failed swap leaves the engine and [`current_project`](Self::current_project) on the
+    /// previous project, consistently.
     pub fn set_project(&self, project: Project) -> Result<ProjectSwap, ProjectError> {
         let project = Arc::new(project);
         let mut guard = lock(&self.live);
-        *lock(&self.project) = Some(Arc::clone(&project));
         match guard.as_mut() {
-            Some(live) => install_project(live, project, &self.bank),
-            None => Ok(ProjectSwap::default()),
+            Some(live) => {
+                let swap = install_project(live, Arc::clone(&project), &self.bank)?;
+                *lock(&self.project) = Some(project);
+                Ok(swap)
+            }
+            None => {
+                *lock(&self.project) = Some(project);
+                Ok(ProjectSwap::default())
+            }
         }
+    }
+
+    /// The project the engine plays (or will play once a stream opens).
+    pub fn current_project(&self) -> Option<Arc<Project>> {
+        lock(&self.project).clone()
+    }
+
+    /// True once a project plan replaced the smoke-path test tone on the live stream.
+    pub fn project_plan_live(&self) -> bool {
+        lock(&self.live)
+            .as_ref()
+            .is_some_and(|live| live.project.is_some())
     }
 
     /// State of the audio device: running, recovering after a failure, or failed, with the
@@ -432,34 +460,62 @@ impl Engine {
 }
 
 /// Compiles `project` for the live stream and sends plan and timeline to the audio thread.
+/// Nothing changes when compiling fails or the plan queue stays full; once the plan is queued
+/// the live bookkeeping (nodes, project) is updated with it, and a timeline that does not fit
+/// is kept for the next swap.
 fn install_project(
     live: &mut Live,
     project: Arc<Project>,
     bank: &Arc<TelemetryBank>,
 ) -> Result<ProjectSwap, ProjectError> {
+    if let Some(pending) = live.pending_timeline.take() {
+        live.pending_timeline = send_timeline(&mut live.control, pending);
+    }
     let compiled = compile_project_metered(&project, live.sample_rate, MAX_BLOCK, Some(bank))
         .map_err(ProjectError::Compile)?;
     let Compiled {
-        plan,
+        mut plan,
         timeline,
         nodes,
     } = compiled;
-    live.control
-        .swap_plan(plan)
-        .map_err(|_| ProjectError::Busy)?;
-    // A full timeline ring after the plan went through leaves the old tempo until the next
-    // edit, which sends a fresh timeline.
-    live.control
-        .swap_timeline(timeline)
-        .map_err(|_| ProjectError::Busy)?;
+    for attempt in 0..SEND_ATTEMPTS {
+        match live.control.swap_plan(plan) {
+            Ok(()) => break,
+            Err(SwapError(returned)) => {
+                if attempt + 1 == SEND_ATTEMPTS {
+                    return Err(ProjectError::Busy);
+                }
+                plan = *returned;
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
     let diff = live.nodes.diff(&nodes);
     live.nodes = nodes;
     live.tone_node = None;
     live.project = Some(project);
+    live.pending_timeline = send_timeline(&mut live.control, Box::new(timeline));
     Ok(ProjectSwap {
         applied: true,
+        timeline_pending: live.pending_timeline.is_some(),
         diff,
     })
+}
+
+/// Sends a timeline with a few short retries; hands it back when the ring stays full.
+fn send_timeline(control: &mut ControlLink, mut timeline: Box<Timeline>) -> Option<Box<Timeline>> {
+    for attempt in 0..SEND_ATTEMPTS {
+        match control.swap_timeline(*timeline) {
+            Ok(()) => return None,
+            Err(TimelineSwapError(returned)) => {
+                timeline = returned;
+                if attempt + 1 < SEND_ATTEMPTS {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+    }
+    Some(timeline)
 }
 
 /// The first plan of a stream: the project's when one is set, else the smoke plan. Returns the
@@ -523,6 +579,7 @@ fn make_callback(
                     nodes,
                     project: project.clone(),
                     sample_rate: info.sample_rate,
+                    pending_timeline: None,
                 },
                 MidiRings {
                     pool,

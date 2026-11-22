@@ -112,6 +112,8 @@ jobs:
         run: |
           cargo test -p ow-ipc --locked export_bindings
           git diff --exit-code src/lib/ipc/generated src/lib/stores/fixtures
+          # New files (an uncommitted generated type) do not show in `git diff`.
+          test -z "$(git status --porcelain -- src/lib/ipc/generated src/lib/stores/fixtures)"
       # IPC stage 10: sampling and packing 128 meters plus the transport, median under 100 us.
       - name: Telemetry budget (release)
         timeout-minutes: 10

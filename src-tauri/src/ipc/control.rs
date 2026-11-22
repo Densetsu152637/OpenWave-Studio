@@ -32,6 +32,9 @@ impl PlanTarget for Engine {
 pub struct Control {
     session: Session,
     sink: Option<Box<dyn PatchSink>>,
+    /// The engine does not play the current project (the last swap failed); retried by the next
+    /// command, whatever it is.
+    engine_error: Option<String>,
 }
 
 /// True when an operation changes what the engine plays; renaming the project or reserving ids
@@ -51,6 +54,7 @@ impl Control {
         Self {
             session: Session::new(project),
             sink: None,
+            engine_error: None,
         }
     }
 
@@ -81,21 +85,39 @@ impl Control {
         target: &dyn PlanTarget,
     ) -> Result<CommandReply, String> {
         let outcome = self.session.handle(command);
+        let changed = outcome
+            .patch
+            .as_ref()
+            .is_some_and(|patch| patch.ops.iter().any(affects_audio));
         if let Some(patch) = &outcome.patch {
             self.deliver(patch);
-            if patch.ops.iter().any(affects_audio)
-                && let Err(error) = target.apply_project(self.session.project())
-            {
-                eprintln!("[openwave] could not apply the project to the engine: {error}");
-            }
+        }
+        if changed || self.engine_error.is_some() {
+            self.apply_to_engine(target);
         }
         match outcome.error {
             Some(error) => Err(error.to_string()),
             None => Ok(CommandReply {
                 seq: self.session.seq(),
                 ids: outcome.ids,
+                engine_error: self.engine_error.clone(),
             }),
         }
+    }
+
+    /// Why the engine is not playing the current project, if it is not.
+    pub fn engine_error(&self) -> Option<&str> {
+        self.engine_error.as_deref()
+    }
+
+    fn apply_to_engine(&mut self, target: &dyn PlanTarget) {
+        self.engine_error = match target.apply_project(self.session.project()) {
+            Ok(()) => None,
+            Err(error) => {
+                eprintln!("[openwave] could not apply the project to the engine: {error}");
+                Some(error)
+            }
+        };
     }
 
     /// Swaps in another project (a project was opened): one `Reset` patch to the UI and a fresh
@@ -103,9 +125,7 @@ impl Control {
     pub fn replace_project(&mut self, project: Project, target: &dyn PlanTarget) {
         let patch = self.session.replace_project(project);
         self.deliver(&patch);
-        if let Err(error) = target.apply_project(self.session.project()) {
-            eprintln!("[openwave] could not apply the project to the engine: {error}");
-        }
+        self.apply_to_engine(target);
     }
 
     fn deliver(&mut self, patch: &ModelPatch) {
@@ -147,11 +167,17 @@ mod tests {
     struct Engineish {
         applied: RefCell<Vec<String>>,
         fail: bool,
+        fail_next: std::cell::Cell<u32>,
     }
 
     impl PlanTarget for Engineish {
         fn apply_project(&self, project: &Project) -> Result<(), String> {
             self.applied.borrow_mut().push(project.name.clone());
+            let transient = self.fail_next.get();
+            if transient > 0 {
+                self.fail_next.set(transient - 1);
+                return Err("busy".into());
+            }
             if self.fail { Err("no".into()) } else { Ok(()) }
         }
     }
@@ -262,5 +288,20 @@ mod tests {
         assert_eq!(patches.len(), 1);
         assert!(matches!(patches[0].ops[0], PatchOp::Reset { .. }));
         assert_eq!(target.applied.borrow().as_slice(), ["Opened"]);
+    }
+
+    #[test]
+    fn a_failed_swap_is_reported_and_retried_by_the_next_command() {
+        let mut control = Control::new();
+        let target = Engineish::default();
+        target.fail_next.set(1);
+        let reply = control.command(set_tempo(95.0), &target).unwrap();
+        assert_eq!(reply.engine_error.as_deref(), Some("busy"));
+        assert_eq!(control.engine_error(), Some("busy"));
+        // A rename does not affect the sound, but the pending failure is retried anyway.
+        let reply = control.command(rename("x"), &target).unwrap();
+        assert_eq!(reply.engine_error, None);
+        assert_eq!(target.applied.borrow().len(), 2);
+        assert_eq!(control.engine_error(), None);
     }
 }

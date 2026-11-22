@@ -210,3 +210,123 @@ fn mirror_random_sequences_really_change_things() {
     assert_eq!(session.project().tracks.len(), 2);
     assert_same(&session, &mirror);
 }
+
+/// Every command variant the random generator can produce is also driven directly: it must change
+/// the model (or be refused, for the one that must be), the mirror must equal the model after it,
+/// after undoing it and after redoing it.
+#[test]
+fn mirror_every_command_variant_through_undo_and_redo() {
+    use Action::*;
+    let script: Vec<(Action, bool)> = vec![
+        (
+            AddTrackBundle {
+                audio: false,
+                at: 0,
+            },
+            true,
+        ),
+        (AddTrackBundle { audio: true, at: 1 }, true),
+        (AddBus, true),
+        (AddBus, true),
+        (AddDevice { pick: 0, index: 0 }, true),
+        (
+            SetDeviceParam {
+                pick: 0,
+                param: 2,
+                value: Some(5),
+            },
+            true,
+        ),
+        (SetDeviceState { pick: 0, n: 7 }, true),
+        (
+            SetDeviceEnabled {
+                pick: 0,
+                enabled: false,
+            },
+            true,
+        ),
+        (
+            SetDeviceSidechain {
+                pick: 0,
+                source: Some(1),
+            },
+            true,
+        ),
+        (RemoveDevice(0), true),
+        (AddMedia, true),
+        (ReplaceMedia(0), true),
+        (AddAudioClip { track: 1, media: 0 }, true),
+        (RemoveMedia(0), false), // a clip still uses it
+        (
+            SetSettings {
+                loop_range: Some((1, 9)),
+                count_in: 2,
+            },
+            true,
+        ),
+        (
+            SetTimeSignature {
+                numerator: 3,
+                shift: 1,
+            },
+            true,
+        ),
+        (
+            SetSends {
+                pick: 0,
+                bus: 0,
+                level: -6,
+            },
+            true,
+        ),
+        (MoveBus(0, 1), true),
+        (AddPattern, true),
+        (ReplacePattern { pick: 0, length: 8 }, true),
+        (
+            AddPatternClip {
+                track: 0,
+                pattern: 0,
+            },
+            true,
+        ),
+        (MakeUnique(0), true),
+        (AddLane(0), true),
+        (ReplaceLane { pick: 0, value: 3 }, true),
+        (AddMarker(4), true),
+        (ReplaceMarker { pick: 0, beat: 9 }, true),
+        (Batch, true),
+        (FailingBatch, false),
+        (RemoveTrack(0), true),
+    ];
+    let (mut session, mut mirror) = fresh();
+    fn step(session: &mut Session, mirror: &mut Mirror, action: &Action) -> usize {
+        let mut produced = 0;
+        run(session, action, |_, patch| {
+            produced += 1;
+            mirror.apply(&patch).unwrap();
+        });
+        assert_same(session, mirror);
+        produced
+    }
+    for (action, changes) in &script {
+        let produced = step(&mut session, &mut mirror, action);
+        // One id reservation patch comes with every run; a real change adds at least one more.
+        assert_eq!(
+            produced > 1,
+            *changes,
+            "{action:?} produced {produced} patches"
+        );
+        if *changes {
+            let after = session.project().clone();
+            step(&mut session, &mut mirror, &Action::Undo);
+            assert_ne!(*session.project(), after, "{action:?} was not undone");
+            step(&mut session, &mut mirror, &Action::Redo);
+            assert!(
+                session.project().same_content(&after),
+                "{action:?} did not redo"
+            );
+        }
+    }
+    // The devices, lanes and clips a removed track owned came back and left again consistently.
+    assert_same(&session, &mirror);
+}

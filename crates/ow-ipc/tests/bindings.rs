@@ -26,6 +26,16 @@ const GENERATED: &str = "../../src/lib/ipc/generated";
 #[test]
 fn export_bindings() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(GENERATED);
+    // Start from an empty directory so a type that was renamed or removed cannot leave a stale
+    // file behind (CI then sees the deletion in `git diff`).
+    if dir.is_dir() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|ext| ext == "ts") {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
     let cfg = Config::from_env().with_out_dir(dir);
     UiCommand::export_all(&cfg).unwrap();
     PatchOp::export_all(&cfg).unwrap();
@@ -51,7 +61,7 @@ struct Fixture {
 #[test]
 fn export_bindings_stream_fixture() {
     let mut runner = TestRunner::deterministic();
-    let actions = proptest::collection::vec(action(), 90)
+    let actions = proptest::collection::vec(action(), 130)
         .new_tree(&mut runner)
         .unwrap()
         .current();

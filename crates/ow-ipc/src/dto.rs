@@ -241,4 +241,7 @@ pub struct CommandReply {
     /// Ids reserved by `alloc_ids` (empty for every other command).
     #[ts(type = "Array<number>")]
     pub ids: Vec<u64>,
+    /// Set when the edit was applied to the project but the audio engine could not take the new
+    /// plan (it keeps playing the previous one and the app retries on the next command).
+    pub engine_error: Option<String>,
 }

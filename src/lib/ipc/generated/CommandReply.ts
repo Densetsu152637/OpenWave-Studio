@@ -12,4 +12,9 @@ seq: number,
 /**
  * Ids reserved by `alloc_ids` (empty for every other command).
  */
-ids: Array<number>, };
+ids: Array<number>, 
+/**
+ * Set when the edit was applied to the project but the audio engine could not take the new
+ * plan (it keeps playing the previous one and the app retries on the next command).
+ */
+engine_error: string | null, };
