@@ -13,6 +13,7 @@ use assert_no_alloc::assert_no_alloc;
 use super::NodeId;
 use crate::plan::RenderPlan;
 use crate::rings::{ProducerRing, RingSender, producer_ring};
+use crate::sched::AbortOnPanic;
 use crate::sched::denormal::DenormalGuard;
 use crate::sched::pool::{Pool, PoolConfig, Shared};
 use crate::workgroup::AudioWorkgroup;
@@ -98,6 +99,7 @@ pub struct Telemetry {
     /// Nodes run per DSP thread: index 0 is the callback thread, `1..` the workers.
     nodes_run: Box<[AtomicU64]>,
     realtime_workers: AtomicU32,
+    unpromoted_workers: AtomicU32,
     workgroup_workers: AtomicU32,
 }
 
@@ -109,6 +111,7 @@ impl Telemetry {
             unrouted: AtomicU64::new(0),
             nodes_run: (0..threads).map(|_| AtomicU64::new(0)).collect(),
             realtime_workers: AtomicU32::new(0),
+            unpromoted_workers: AtomicU32::new(0),
             workgroup_workers: AtomicU32::new(0),
         }
     }
@@ -121,6 +124,10 @@ impl Telemetry {
 
     pub(crate) fn count_realtime_worker(&self) {
         self.realtime_workers.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn count_unpromoted_worker(&self) {
+        self.unpromoted_workers.fetch_add(1, Ordering::Relaxed);
     }
 
     pub(crate) fn count_workgroup_worker(&self) {
@@ -140,9 +147,16 @@ impl Telemetry {
             .map_or(0, |counter| counter.load(Ordering::Relaxed))
     }
 
-    /// Workers that obtained real-time priority from `audio_thread_priority`.
+    /// Workers that obtained real-time priority from `audio_thread_priority`. With
+    /// [`CoreBuilder::realtime_workers`] these are the workers that take part in cycles.
     pub fn realtime_workers(&self) -> u32 {
         self.realtime_workers.load(Ordering::Relaxed)
+    }
+
+    /// Workers that were asked to become real-time, failed, and exited without ever running a
+    /// node (the callback thread and the promoted workers do their share).
+    pub fn unpromoted_workers(&self) -> u32 {
+        self.unpromoted_workers.load(Ordering::Relaxed)
     }
 
     /// Workers that joined the macOS audio workgroup.
@@ -214,10 +228,19 @@ impl CoreBuilder {
 
     /// Promotes the workers to real-time priority with `audio_thread_priority`, sized for
     /// device blocks of `block_frames` (0 for a default) at `sample_rate`. Without this the
-    /// workers keep normal priority, which suits offline rendering. A failed promotion leaves
-    /// the worker at normal priority ([`Telemetry::realtime_workers`] counts successes).
+    /// workers keep normal priority, which suits offline rendering. A worker whose promotion
+    /// fails exits without taking part in any cycle, so a real-time cycle never waits on a
+    /// normal-priority thread ([`Telemetry::realtime_workers`] counts the participants,
+    /// [`Telemetry::unpromoted_workers`] the rest).
     pub fn realtime_workers(mut self, sample_rate: u32, block_frames: u32) -> Self {
         self.pool.realtime = Some((block_frames, sample_rate));
+        self
+    }
+
+    /// Replaces the real-time promotion (tests simulate failures with it).
+    #[cfg(test)]
+    pub(crate) fn promoter(mut self, promote: crate::sched::pool::Promote) -> Self {
+        self.pool.promote = promote;
         self
     }
 
@@ -402,6 +425,9 @@ impl AudioCore {
     /// stage 14 recording and is currently ignored.
     pub fn process(&mut self, out: &mut [f32], channels: usize, input: Option<&[f32]>) {
         let _ = input;
+        // A panicking node aborts the process rather than leaving workers and the device
+        // callback in an inconsistent cycle.
+        let _abort = AbortOnPanic;
         assert_no_alloc(|| {
             let _denormals = DenormalGuard::new();
             self.cycle(out, channels);
@@ -428,7 +454,7 @@ impl AudioCore {
             // SAFETY: this is the audio thread and the previous cycle of this plan finished.
             unsafe { data.begin_cycle(frames, self.transport) };
             self.pool.wake();
-            let ran = data.work();
+            let ran = data.work(|| false);
             data.finish();
             self.telemetry.count_nodes(0, ran);
             for channel in 0..channels {
@@ -518,5 +544,88 @@ impl Drop for AudioCore {
     fn drop(&mut self) {
         // Stop the workers before the plans they may reference are dropped with the fields.
         self.pool.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+    use crate::graph::Graph;
+    use crate::graph::nodes::{GainNode, MasterNode, OscillatorNode};
+    use crate::sched::pool::{promote_never, promote_noop};
+
+    /// 32 parallel chains of an oscillator and four gains.
+    fn wide_plan() -> RenderPlan {
+        let mut graph = Graph::new();
+        let master = graph.add_node(Box::new(MasterNode::new()));
+        for track in 0..32 {
+            let mut tail = graph.add_node(Box::new(OscillatorNode::new(100.0, 0.01)));
+            for _ in 0..4 {
+                let gain = graph.add_node(Box::new(GainNode::new(1, 0.99)));
+                graph.connect(tail, 0, gain, 0).unwrap();
+                tail = gain;
+            }
+            graph.connect(tail, 0, master, track % 2).unwrap();
+        }
+        graph.set_master(master).unwrap();
+        graph.compile(48_000, 512).unwrap()
+    }
+
+    fn worker_nodes(telemetry: &Telemetry) -> u64 {
+        (1..telemetry.threads())
+            .map(|thread| telemetry.nodes_run(thread))
+            .sum()
+    }
+
+    /// Builds a 4-worker real-time core with `promote`, waits until every worker has reported
+    /// its promotion, then runs cycles until `done` or 30 s.
+    fn run(
+        promote: crate::sched::pool::Promote,
+        done: impl Fn(&Telemetry) -> bool,
+    ) -> Arc<Telemetry> {
+        let (mut link, mut core) = CoreBuilder::new()
+            .workers(4)
+            .realtime_workers(48_000, 512)
+            .promoter(promote)
+            .build();
+        link.swap_plan(wide_plan()).unwrap();
+        let telemetry = Arc::clone(link.telemetry());
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while telemetry.realtime_workers() + telemetry.unpromoted_workers() < 4 {
+            assert!(Instant::now() < deadline, "workers never reported");
+            thread::yield_now();
+        }
+        let mut buffer = vec![0.0_f32; 512 * 2];
+        let mut cycles = 0;
+        while cycles < 500 || (!done(&telemetry) && Instant::now() < deadline) {
+            core.process(&mut buffer, 2, None);
+            cycles += 1;
+        }
+        telemetry
+    }
+
+    #[test]
+    fn workers_that_fail_real_time_promotion_never_run_nodes() {
+        let telemetry = run(promote_never, |_| true);
+        assert_eq!(telemetry.unpromoted_workers(), 4);
+        assert_eq!(telemetry.realtime_workers(), 0);
+        assert_eq!(worker_nodes(&telemetry), 0);
+        assert!(
+            telemetry.nodes_run(0) > 0,
+            "the callback thread ran everything"
+        );
+    }
+
+    #[test]
+    fn promoted_workers_take_part() {
+        let telemetry = run(promote_noop, |t| worker_nodes(t) > 0);
+        assert_eq!(telemetry.realtime_workers(), 4);
+        assert_eq!(telemetry.unpromoted_workers(), 0);
+        assert!(
+            worker_nodes(&telemetry) > 0,
+            "no promoted worker ran a node"
+        );
     }
 }

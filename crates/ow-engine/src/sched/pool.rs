@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use assert_no_alloc::assert_no_alloc;
 
+use super::AbortOnPanic;
 use super::denormal::DenormalGuard;
 use crate::graph::Telemetry;
 use crate::plan::PlanData;
@@ -54,8 +55,37 @@ impl Shared {
     }
 }
 
+/// A real-time priority grant, held by the worker for its lifetime.
+pub(crate) struct PriorityHandle {
+    _handle: Option<audio_thread_priority::RtPriorityHandle>,
+}
+
+/// Promotes the calling thread for `(block frames, sample rate)`; `None` on failure.
+pub(crate) type Promote = fn(u32, u32) -> Option<PriorityHandle>;
+
+/// The real promotion, through `audio_thread_priority`.
+fn promote_with_audio_thread_priority(frames: u32, rate: u32) -> Option<PriorityHandle> {
+    audio_thread_priority::promote_current_thread_to_real_time(frames, rate)
+        .ok()
+        .map(|handle| PriorityHandle {
+            _handle: Some(handle),
+        })
+}
+
+/// A promotion that always succeeds without changing the thread (tests).
+#[cfg(test)]
+pub(crate) fn promote_noop(_: u32, _: u32) -> Option<PriorityHandle> {
+    Some(PriorityHandle { _handle: None })
+}
+
+/// A promotion that always fails (tests).
+#[cfg(test)]
+pub(crate) fn promote_never(_: u32, _: u32) -> Option<PriorityHandle> {
+    None
+}
+
 /// How to start the workers.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct PoolConfig {
     /// Number of worker threads (the callback thread is not counted).
     pub(crate) workers: usize,
@@ -64,6 +94,19 @@ pub(crate) struct PoolConfig {
     pub(crate) realtime: Option<(u32, u32)>,
     /// macOS audio workgroup every worker joins.
     pub(crate) workgroup: Option<Arc<AudioWorkgroup>>,
+    /// How workers promote themselves when `realtime` is set (replaceable in tests).
+    pub(crate) promote: Promote,
+}
+
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            workers: 0,
+            realtime: None,
+            workgroup: None,
+            promote: promote_with_audio_thread_priority,
+        }
+    }
 }
 
 /// Owns the worker threads; dropping it stops and joins them.
@@ -93,6 +136,7 @@ impl Pool {
             let worker_shared = Arc::clone(&shared);
             let worker_telemetry = Arc::clone(telemetry);
             let realtime = config.realtime;
+            let promote = config.promote;
             let workgroup = config.workgroup.clone();
             let spawned = thread::Builder::new()
                 .name(format!("ow-dsp-{}", index + 1))
@@ -102,6 +146,7 @@ impl Pool {
                         index,
                         &worker_telemetry,
                         realtime,
+                        promote,
                         workgroup.as_deref(),
                     );
                 });
@@ -172,16 +217,27 @@ fn worker_main(
     index: usize,
     telemetry: &Telemetry,
     realtime: Option<(u32, u32)>,
+    promote: Promote,
     workgroup: Option<&AudioWorkgroup>,
 ) {
+    // A panic anywhere below (in practice: in a node) aborts instead of stalling the cycle.
+    let _abort = AbortOnPanic;
     let _denormals = DenormalGuard::new();
-    // Failure (no permission, unsupported platform) leaves the worker at normal priority.
-    let priority = realtime.and_then(|(frames, rate)| {
-        audio_thread_priority::promote_current_thread_to_real_time(frames, rate).ok()
-    });
-    if priority.is_some() {
-        telemetry.count_realtime_worker();
-    }
+    // A worker that cannot get real-time priority would make real-time cycles wait on a
+    // normal-priority thread whenever it claims a node, so it does not take part at all.
+    let _priority = match realtime {
+        Some((frames, rate)) => match promote(frames, rate) {
+            Some(handle) => {
+                telemetry.count_realtime_worker();
+                Some(handle)
+            }
+            None => {
+                telemetry.count_unpromoted_worker();
+                return;
+            }
+        },
+        None => None,
+    };
     let membership = workgroup.and_then(|workgroup| workgroup.join().ok());
     if membership.is_some() {
         telemetry.count_workgroup_worker();
@@ -205,7 +261,7 @@ fn run(shared: &Shared, index: usize, telemetry: &Telemetry) {
             // SAFETY: the plan was still published after our hazard became visible, so the
             // control thread's `in_use` check sees the hazard and does not free the plan until
             // we clear it below; the audio thread never frees plans.
-            let ran = unsafe { &*plan }.work();
+            let ran = unsafe { &*plan }.work(|| shared.shutdown.load(Ordering::Relaxed));
             if ran > 0 {
                 telemetry.count_nodes(index + 1, ran);
             }

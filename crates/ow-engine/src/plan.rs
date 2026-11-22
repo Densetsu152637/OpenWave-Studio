@@ -173,9 +173,11 @@ impl PlanData {
         unsafe { self.dag.begin() };
     }
 
-    /// Claims and runs ready nodes until every node of the current cycle is claimed. Any number
-    /// of threads may call this at once; returns how many nodes this call ran.
-    pub(crate) fn work(&self) -> u64 {
+    /// Claims and runs ready nodes until every node of the current cycle is claimed, or until
+    /// `stop` returns true while no node is ready (a worker passes its pool's shutdown flag; the
+    /// audio thread never stops early). Any number of threads may call this at once; returns how
+    /// many nodes this call ran.
+    pub(crate) fn work(&self, stop: impl Fn() -> bool) -> u64 {
         let mut ran = 0;
         loop {
             match self.dag.pop() {
@@ -184,6 +186,7 @@ impl PlanData {
                     self.dag.complete(node, epoch);
                     ran += 1;
                 }
+                Pop::Empty if stop() => return ran,
                 Pop::Empty => std::hint::spin_loop(),
                 Pop::Done => return ran,
             }

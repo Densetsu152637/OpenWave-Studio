@@ -1,9 +1,13 @@
 //! Parallel scheduling (plan stage 6): renders are bit-identical for any worker count, work
 //! really spreads across the workers, and the scheduler keeps its invariants under stress
-//! (every node once per cycle, after its predecessors, never on two threads at once).
+//! (every node once per cycle, after its predecessors, never on two threads at once, reading
+//! exactly what its predecessors wrote), and a node panicking on a worker aborts the process.
 
+use std::cell::Cell;
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use ow_engine::graph::nodes::{GAIN_PARAM, GainNode, MasterNode, OscillatorNode};
 use ow_engine::{
@@ -167,8 +171,13 @@ fn parallel_renders_are_also_independent_of_the_device_block_size() {
     );
 }
 
-/// Checks the scheduler's guarantees from inside the nodes. Never panics (a panic on a worker
-/// would stall the cycle); violations are counted instead.
+/// The value node `index` writes in the cycle with `stamp` (exact in `f32`).
+fn signature(index: usize, stamp: u64) -> f32 {
+    (index * 8 + (stamp % 8) as usize) as f32
+}
+
+/// Checks the scheduler's guarantees from inside the nodes. Never panics (a panicking node
+/// aborts the process); violations are counted instead.
 struct Checker {
     index: usize,
     predecessors: Vec<usize>,
@@ -209,12 +218,17 @@ impl Node for Checker {
             // Ran twice in one cycle.
             state.violations.fetch_add(1, Ordering::Relaxed);
         }
-        // Output depends on the inputs, so buffers flow along the edges.
-        let mut expected = 1.0_f32;
-        for channel in 0..ctx.inputs.len() {
-            expected += ctx.inputs.channel(channel)[0];
+        // Every input must hold exactly what its predecessor wrote this cycle: a buffer shared
+        // with a concurrently running node (aliasing) would show up here.
+        for (channel, &predecessor) in self.predecessors.iter().enumerate() {
+            let expected = signature(predecessor, stamp);
+            if ctx.inputs.channel(channel).iter().any(|&s| s != expected) {
+                state.violations.fetch_add(1, Ordering::Relaxed);
+            }
         }
-        ctx.outputs.channel_mut(0).fill(expected.min(1.0e6));
+        ctx.outputs
+            .channel_mut(0)
+            .fill(signature(self.index, stamp));
         state.runs[self.index].fetch_add(1, Ordering::Relaxed);
         state.last_run[self.index].store(stamp, Ordering::Release);
         state.busy[self.index].store(false, Ordering::Release);
@@ -278,27 +292,43 @@ fn random_dag(count: usize, seed: u64) -> (RenderPlan, Arc<CheckState>) {
 #[test]
 fn scheduler_invariants_hold_under_stress_and_plan_swaps() {
     const PLANS: u64 = 12;
-    const CYCLES_PER_PLAN: usize = 150;
-    let (first, mut state) = random_dag(300, 1);
+    const FRAMES: usize = 32 * 150;
+    let size = |plan: u64| {
+        if plan == 0 {
+            300
+        } else {
+            200 + 25 * plan as usize
+        }
+    };
+    // 8 workers, swapping to a new random DAG after each segment.
+    let (first, first_state) = random_dag(size(0), 1);
     let mut renderer = OfflineRenderer::with_workers(first, 2, 8);
     renderer.send(Message::Transport(TransportCommand::Play));
-    let mut checked = Vec::new();
-    for plan in 1..=PLANS {
-        renderer.render(32 * CYCLES_PER_PLAN, 32);
-        checked.push(Arc::clone(&state));
-        let (next, next_state) = random_dag(200 + 25 * plan as usize, plan + 1);
-        assert!(renderer.link().swap_plan(next).is_ok());
-        renderer.link().collect_retired();
-        state = next_state;
+    let mut segments = Vec::new();
+    let mut state = first_state;
+    for plan in 0..=PLANS {
+        let start = renderer.transport().position;
+        let out = renderer.render(FRAMES, 32);
+        segments.push((plan, start, out, Arc::clone(&state)));
+        if plan < PLANS {
+            let (next, next_state) = random_dag(size(plan + 1), plan + 2);
+            assert!(renderer.link().swap_plan(next).is_ok());
+            renderer.link().collect_retired();
+            state = next_state;
+        }
     }
-    renderer.render(32 * CYCLES_PER_PLAN, 32);
     renderer.link().collect_retired();
-    checked.push(state);
-    for (plan, state) in checked.iter().enumerate() {
+    let telemetry = renderer.link().telemetry();
+    let worker_nodes: u64 = (1..telemetry.threads())
+        .map(|t| telemetry.nodes_run(t))
+        .sum();
+    assert!(worker_nodes > 0, "the workers took part");
+
+    for (plan, start, parallel, state) in segments {
         assert_eq!(
             state.violations.load(Ordering::Relaxed),
             0,
-            "plan {plan}: scheduler invariant violated"
+            "plan {plan}: scheduler invariant violated (8 workers)"
         );
         let runs: Vec<u64> = state
             .runs
@@ -309,10 +339,114 @@ fn scheduler_invariants_hold_under_stress_and_plan_swaps() {
             runs.iter().all(|&r| r == runs[0] && r > 0),
             "plan {plan}: nodes ran unequal numbers of times"
         );
+        // The same DAG rendered serially from the same position must match bit for bit.
+        let (reference_plan, reference_state) = random_dag(size(plan), plan + 1);
+        let mut reference = OfflineRenderer::new(reference_plan, 2);
+        reference.send(Message::Transport(TransportCommand::Play));
+        reference.send(Message::Transport(TransportCommand::Locate(start)));
+        let serial = reference.render(FRAMES, 32);
+        assert_eq!(reference_state.violations.load(Ordering::Relaxed), 0);
+        assert_bit_identical(&serial, &parallel, &format!("plan {plan}: 0 vs 8 workers"));
     }
-    let telemetry = renderer.link().telemetry();
-    let worker_nodes: u64 = (1..telemetry.threads())
-        .map(|t| telemetry.nodes_run(t))
-        .sum();
-    assert!(worker_nodes > 0, "the workers took part");
+}
+
+thread_local! {
+    /// Set on the thread that drives the panic canary's cycles.
+    static ON_CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Panics, but only when run off the callback thread (on a DSP worker), if `panic` is set.
+struct PanicOnWorker {
+    panic: bool,
+}
+
+impl Node for PanicOnWorker {
+    fn name(&self) -> &'static str {
+        "panic-on-worker"
+    }
+    fn input_channels(&self) -> usize {
+        0
+    }
+    fn output_channels(&self) -> usize {
+        1
+    }
+    fn process(&mut self, ctx: &mut ProcessContext<'_>) {
+        let out = ctx.outputs.channel_mut(0);
+        let mut value = 0.0_f32;
+        for sample in out.iter_mut() {
+            for _ in 0..64 {
+                value = std::hint::black_box(value * 0.5 + 0.25);
+            }
+            *sample = value;
+        }
+        if self.panic && !ON_CALLBACK_THREAD.get() {
+            panic!("node panicked on a DSP worker");
+        }
+    }
+}
+
+/// Child half of the panic canary; does nothing unless `OW_PANIC_CANARY` is set. `panic`: nodes
+/// panic on workers (the process must abort); `clean`: same graph without panics, for 2 s
+/// (exit 0), proving the harness works.
+#[test]
+fn panic_canary_child() {
+    let Ok(mode) = std::env::var("OW_PANIC_CANARY") else {
+        return;
+    };
+    let mut graph = Graph::new();
+    let master = graph.add_node(Box::new(MasterNode::new()));
+    for index in 0..64 {
+        let node = graph.add_node(Box::new(PanicOnWorker {
+            panic: mode == "panic",
+        }));
+        graph.connect(node, 0, master, index % 2).unwrap();
+    }
+    graph.set_master(master).unwrap();
+    let mut renderer =
+        OfflineRenderer::with_workers(graph.compile(SAMPLE_RATE, 256).unwrap(), 2, 2);
+    ON_CALLBACK_THREAD.set(true);
+    let limit = if mode == "panic" { 20 } else { 2 };
+    let deadline = Instant::now() + Duration::from_secs(limit);
+    while Instant::now() < deadline {
+        renderer.render(256, 256);
+    }
+}
+
+/// Runs the canary child in `mode`; `None` when it had to be killed after 60 s.
+fn run_panic_canary(mode: &str) -> Option<ExitStatus> {
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "panic_canary_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("OW_PANIC_CANARY", mode)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the test binary");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait().expect("wait for the child") {
+            return Some(status);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    None
+}
+
+#[test]
+fn a_node_panicking_on_a_worker_aborts_the_process_instead_of_hanging() {
+    let clean = run_panic_canary("clean").expect("the clean child finished");
+    assert!(clean.success(), "control run failed: {clean:?}");
+    let panicked = run_panic_canary("panic").expect("the cycle hung instead of aborting");
+    assert!(!panicked.success(), "the worker never panicked within 20 s");
+    assert_ne!(
+        panicked.code(),
+        Some(101),
+        "expected an abort, not a test panic"
+    );
 }

@@ -6,7 +6,9 @@
 //! bit-identical whichever thread runs a node.
 //!
 //! x86_64 sets MXCSR bits FTZ (15) and DAZ (6); aarch64 sets FPCR.FZ (24), which flushes
-//! denormal inputs and outputs. Other targets are left unchanged.
+//! denormal inputs and outputs. Other targets are left unchanged. The register accesses are
+//! not marked `nomem`/`readonly`, so the compiler treats each mode switch as a memory barrier
+//! and cannot move floating-point work across it.
 
 // Reading and writing the floating-point control register needs inline assembly.
 #![allow(unsafe_code)]
@@ -51,7 +53,7 @@ mod arch {
         // SAFETY: `ldmxcsr` loads MXCSR from the valid `csr`; only rounding/exception-mask and
         // flush bits read back from MXCSR (plus FTZ/DAZ) are written, so no reserved bit is set.
         unsafe {
-            asm!("ldmxcsr [{ptr}]", ptr = in(reg) &csr as *const Word, options(nostack, preserves_flags, readonly));
+            asm!("ldmxcsr [{ptr}]", ptr = in(reg) &csr as *const Word, options(nostack, preserves_flags));
         }
     }
 }
@@ -68,7 +70,7 @@ mod arch {
         let fpcr: Word;
         // SAFETY: reading FPCR has no side effects.
         unsafe {
-            asm!("mrs {}, fpcr", out(reg) fpcr, options(nomem, nostack, preserves_flags));
+            asm!("mrs {}, fpcr", out(reg) fpcr, options(nostack, preserves_flags));
         }
         fpcr
     }
@@ -76,7 +78,7 @@ mod arch {
     pub(super) fn write(fpcr: Word) {
         // SAFETY: writes back a value read from FPCR with only the FZ bit possibly added.
         unsafe {
-            asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack, preserves_flags));
+            asm!("msr fpcr, {}", in(reg) fpcr, options(nostack, preserves_flags));
         }
     }
 }

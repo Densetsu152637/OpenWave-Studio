@@ -110,11 +110,13 @@ struct Shared {
 /// Handle to the running engine. `Send + Sync`; dropping it stops audio.
 ///
 /// The device callback runs an [`AudioCore`] whose graph is the test tone feeding a stereo
-/// master, with [`default_worker_count`] real-time DSP workers (joined to the output device's
-/// audio workgroup on macOS). Later stages replace that plan through the same [`ControlLink`].
+/// master, with up to [`default_worker_count`] real-time DSP workers (joined to the output
+/// device's audio workgroup on macOS); only workers that obtain real-time priority take part
+/// ([`dsp_workers`](Self::dsp_workers)). Later stages replace that plan through the same [`ControlLink`].
 pub struct Engine {
     shared: Arc<Shared>,
     control: Mutex<ControlLink>,
+    telemetry: Arc<Telemetry>,
     tone_node: NodeId,
     stream: OutputStream,
 }
@@ -174,6 +176,7 @@ impl Engine {
             .map_err(EngineError)?;
         Ok(Self {
             shared,
+            telemetry: Arc::clone(control.telemetry()),
             control: Mutex::new(control),
             tone_node,
             stream,
@@ -216,6 +219,14 @@ impl Engine {
 
     pub fn test_tone(&self) -> bool {
         self.shared.tone.load(Ordering::Relaxed)
+    }
+
+    /// DSP workers taking part in the callback's cycles: those that obtained real-time
+    /// priority. Workers that could not be promoted exit, and the callback thread covers their
+    /// share, so the engine's parallelism is sized by this count (it settles shortly after
+    /// [`start`](Self::start), as workers promote themselves).
+    pub fn dsp_workers(&self) -> u32 {
+        self.telemetry.realtime_workers()
     }
 
     /// Smoothed audio callback load, 0.0 (idle) to 1.0 (the whole buffer period).

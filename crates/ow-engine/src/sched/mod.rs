@@ -14,7 +14,16 @@
 //!
 //! The callback thread never waits for a worker to *wake*: if no worker shows up it runs every
 //! node itself, so the worst case is the single-threaded cost plus one wake call per sleeping
-//! worker. It only waits for nodes a worker has already claimed.
+//! worker. It does wait in two places: for nodes a worker has already claimed, and, while
+//! claiming, for a thread that pushed a ready node between its `head.fetch_add` and the store
+//! into the reserved slot (a few instructions, unless that thread is preempted there).
+//!
+//! # Panics and promotion
+//!
+//! A node that panics would leave its successors waiting forever, so every DSP thread runs
+//! under [`AbortOnPanic`]: a panic while processing aborts the process instead of hanging the
+//! audio callback. When the core asks for real-time workers, a worker whose promotion fails
+//! exits instead of joining real-time cycles ([`Telemetry::unpromoted_workers`](crate::Telemetry::unpromoted_workers)).
 //!
 //! # Wake and park
 //!
@@ -43,3 +52,15 @@
 pub(crate) mod dag;
 pub(crate) mod denormal;
 pub(crate) mod pool;
+
+/// Aborts the process if dropped during a panic, so a panicking node never stalls a cycle (its
+/// successors would wait for it forever). Hold one for the duration of graph processing.
+pub(crate) struct AbortOnPanic;
+
+impl Drop for AbortOnPanic {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            std::process::abort();
+        }
+    }
+}
