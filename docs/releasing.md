@@ -46,6 +46,10 @@ Because the app is not notarized, Gatekeeper blocks the first launch of a downlo
 
 Ad-hoc signing binds the macOS privacy (TCC) microphone grant to the code-directory hash, so each new build may ask for microphone access again.
 
+## Verifying a download
+
+Every release lists `SHA256SUMS`. Download it next to the files you want and check them (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS, or compare `Get-FileHash <file>` with the matching line on Windows).
+
 ## Forcing the update feed
 
 The update feed (stage 3) normally refuses to move backwards: a publish whose version is lower than the current feed's is skipped. For an intentional version reset, such as after a mistakenly high version, dispatch the workflow manually with `force_feed` set to `true`: `experimental.yml` from the `experimental` branch, or `release.yml` on an existing tag ref. The override applies to that run only and never bypasses the branch-ancestry check. The input and the `FORCE_FEED` variable are already wired through the publish scripts; the feed itself arrives with the updater stage.
