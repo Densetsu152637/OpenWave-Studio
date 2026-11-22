@@ -21,4 +21,4 @@ Issues and pull requests are welcome.
 
 ## License
 
-[GPL-3.0-or-later](LICENSE)
+[MIT](LICENSE)
