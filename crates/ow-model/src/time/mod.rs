@@ -31,11 +31,16 @@ pub fn ticks_to_beats(ticks: i64) -> f64 {
     ticks as f64 / f64::from(PPQ)
 }
 
+/// Largest sample position the engine uses (2^62, about 3 million years at 48 kHz): positions
+/// and bounds beyond it are clamped here so position arithmetic cannot overflow.
+pub const MAX_SAMPLE: u64 = 1 << 62;
+
 /// The frame an event at fractional sample position `sample` falls on: the nearest whole
-/// sample, never negative.
+/// sample. One rule for every input: NaN and anything below 0.5 give 0, and large values
+/// (including `+inf`) clamp to [`MAX_SAMPLE`].
 pub fn sample_index(sample: f64) -> u64 {
-    if sample.is_finite() && sample > 0.0 {
-        sample.round() as u64
+    if sample > 0.0 {
+        (sample.round() as u64).min(MAX_SAMPLE)
     } else {
         0
     }

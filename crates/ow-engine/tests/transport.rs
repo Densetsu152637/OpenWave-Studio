@@ -133,13 +133,21 @@ impl Node for BeatProbe {
 
 /// A one-node plan: `node` into both master inputs.
 fn plan_of(node: Box<dyn Node>) -> (RenderPlan, NodeId) {
+    plan_at(node, RATE)
+}
+
+fn plan_at(node: Box<dyn Node>, rate: u32) -> (RenderPlan, NodeId) {
     let mut graph = Graph::new();
     let id = graph.add_node(node);
     let master = graph.add_node(Box::new(MasterNode::new()));
     graph.connect(id, 0, master, 0).unwrap();
     graph.connect(id, 0, master, 1).unwrap();
     graph.set_master(master).unwrap();
-    (graph.compile(RATE, MAX_BLOCK).unwrap(), id)
+    (graph.compile(rate, MAX_BLOCK).unwrap(), id)
+}
+
+fn renderer_at(node: Box<dyn Node>, workers: usize, rate: u32) -> OfflineRenderer {
+    OfflineRenderer::with_workers(plan_at(node, rate).0, 2, workers)
 }
 
 fn renderer(node: Box<dyn Node>, workers: usize) -> OfflineRenderer {
@@ -394,12 +402,12 @@ fn beat_events_land_on_the_frame_the_tempo_map_says_across_blocks_and_loops() {
 // --- metronome and count-in -------------------------------------------------------------------
 
 /// The click `MetronomeNode` should have produced at `onset`, written into `expected`.
-fn add_click(expected: &mut [f32], onset: usize, accent: bool) {
-    let len = MetronomeNode::click_len(RATE);
+fn add_click(expected: &mut [f32], onset: usize, accent: bool, rate: u32) {
+    let len = MetronomeNode::click_len(rate);
     let (level, hz) = if accent { (1.0, 1600.0) } else { (0.6, 1000.0) };
     for age in 0..len {
         let envelope = 1.0 - age as f64 / len as f64;
-        let wave = (TAU * hz * age as f64 / f64::from(RATE)).cos();
+        let wave = (TAU * hz * age as f64 / f64::from(rate)).cos();
         let sample = 0.5 * level * envelope * wave;
         if let Some(slot) = expected.get_mut(onset + age) {
             *slot = sample as f32;
@@ -408,9 +416,13 @@ fn add_click(expected: &mut [f32], onset: usize, accent: bool) {
 }
 
 fn assert_clicks(got: &[f32], clicks: &[(usize, bool)], what: &str) {
+    assert_clicks_at(got, clicks, what, RATE);
+}
+
+fn assert_clicks_at(got: &[f32], clicks: &[(usize, bool)], what: &str, rate: u32) {
     let mut expected = vec![0.0_f32; got.len()];
     for &(onset, accent) in clicks {
-        add_click(&mut expected, onset, accent);
+        add_click(&mut expected, onset, accent, rate);
     }
     for (frame, (a, b)) in got.iter().zip(&expected).enumerate() {
         assert!(
@@ -455,7 +467,13 @@ fn count_in_and_metronome_clicks_sit_on_the_exact_frames() {
 
 #[test]
 fn count_in_holds_the_position_and_only_runs_when_armed() {
-    let mut renderer = renderer(Box::new(SampleProbe), 0);
+    for workers in WORKERS {
+        count_in_holds_case(workers);
+    }
+}
+
+fn count_in_holds_case(workers: usize) {
+    let mut renderer = renderer(Box::new(SampleProbe), workers);
     renderer.send(transport(TransportCommand::SetMetronome {
         enabled: false,
         count_in_bars: 2,
@@ -605,6 +623,265 @@ fn default_timeline_is_120_bpm_in_4_4_and_the_position_is_mirrored_in_telemetry(
     core.process(&mut buffer, 2, None);
     assert_eq!(core.transport().position, 24_100);
     assert_eq!(link.telemetry().transport_position(), 24_100);
+}
+
+// --- extreme values -----------------------------------------------------------------------------
+
+#[test]
+fn huge_and_non_finite_positions_clamp_without_panicking() {
+    let ceiling = ow_model::time::MAX_SAMPLE;
+    let cases: [(TransportCommand, u64); 6] = [
+        (TransportCommand::Locate(u64::MAX), ceiling),
+        (TransportCommand::LocateBeats(1e300), ceiling),
+        (TransportCommand::LocateBeats(f64::INFINITY), ceiling),
+        (TransportCommand::LocateBeats(f64::NAN), 0),
+        (TransportCommand::LocateBeats(f64::NEG_INFINITY), 0),
+        (TransportCommand::LocateBeats(-3.0), 0),
+    ];
+    for workers in WORKERS {
+        for (command, expected) in cases {
+            for node in [
+                Box::new(SampleProbe) as Box<dyn Node>,
+                Box::new(MetronomeNode::new()),
+            ] {
+                let mut renderer = renderer(node, workers);
+                renderer.send(transport(TransportCommand::SetMetronome {
+                    enabled: true,
+                    count_in_bars: 0,
+                }));
+                renderer.send(transport(command));
+                renderer.send(transport(TransportCommand::Play));
+                renderer.render(10_000, 4096);
+                let position = renderer.transport().position;
+                if expected == ceiling {
+                    assert_eq!(position, ceiling, "{command:?}");
+                } else {
+                    assert_eq!(position, 10_000, "{command:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn huge_loop_and_punch_bounds_are_clamped_or_ignored() {
+    let inf = f64::INFINITY;
+    // Both bounds clamp to the same sample, NaN is ignored: no loop, playback runs on.
+    for (start, end) in [(1e300, inf), (f64::NAN, 4.0), (inf, 0.0), (2.0, 1.0)] {
+        let mut renderer = renderer(Box::new(SampleProbe), 0);
+        renderer.send(transport(TransportCommand::SetLoop {
+            enabled: true,
+            start_beats: start,
+            end_beats: end,
+        }));
+        renderer.send(transport(TransportCommand::SetPunch {
+            enabled: true,
+            in_beats: start,
+            out_beats: end,
+        }));
+        renderer.send(transport(TransportCommand::Play));
+        let got = left(&renderer.render(9_000, 4096));
+        assert!(got.iter().enumerate().all(|(i, s)| *s == i as f32));
+    }
+    // A loop up to the ceiling is a valid loop that never wraps in practice.
+    let mut renderer = renderer(Box::new(SampleProbe), 0);
+    renderer.send(transport(TransportCommand::SetLoop {
+        enabled: true,
+        start_beats: 0.0,
+        end_beats: 1e300,
+    }));
+    renderer.send(transport(TransportCommand::Play));
+    let got = left(&renderer.render(100, 100));
+    assert_eq!(got[99], 99.0);
+}
+
+#[test]
+fn count_in_longer_than_the_cap_is_clamped_to_16_bars() {
+    let mut renderer = renderer(Box::new(SampleProbe), 0);
+    renderer.send(transport(TransportCommand::SetMetronome {
+        enabled: false,
+        count_in_bars: u32::MAX,
+    }));
+    renderer.send(transport(TransportCommand::SetRecordArm(true)));
+    renderer.send(transport(TransportCommand::Play));
+    // 16 bars of 4 beats at 24000 samples.
+    let total = 16 * 4 * 24_000;
+    renderer.render(total - 1, 4096);
+    assert!(renderer.transport().counting_in);
+    renderer.render(1, 1);
+    assert!(!renderer.transport().counting_in);
+    assert!(renderer.transport().playing);
+}
+
+// --- count-in across timeline and rate changes -----------------------------------------------
+
+#[test]
+fn tempo_swap_mid_count_in_follows_the_new_tempo_from_the_held_beat() {
+    // 120 bpm count-in of one bar; after 30000 samples (clicks 0 and 1 sounded) the tempo
+    // becomes 60 bpm: the remaining clicks are the new tempo's clicks 2 and 3 (96000, 144000
+    // from the start) and the count-in ends at 192000, where playback starts.
+    let slow = Timeline::new(
+        TempoMap::constant(60.0).unwrap(),
+        TimeSignatureMap::default(),
+    );
+    for workers in WORKERS {
+        for block in [100, 1_000, 3_000] {
+            let mut renderer = renderer(Box::new(MetronomeNode::new()), workers);
+            renderer.send(transport(TransportCommand::SetMetronome {
+                enabled: false,
+                count_in_bars: 1,
+            }));
+            renderer.send(transport(TransportCommand::SetRecordArm(true)));
+            renderer.send(transport(TransportCommand::Play));
+            let mut got = left(&renderer.render(30_000, block));
+            renderer.link().swap_timeline(slow.clone()).unwrap();
+            got.extend(left(&renderer.render(163_000, block)));
+            let clicks = [
+                (0, true),
+                (24_000, false),
+                (96_000, false),
+                (144_000, false),
+            ];
+            assert_clicks(&got, &clicks, &format!("workers {workers}, block {block}"));
+            let state = renderer.transport();
+            assert!(state.playing && !state.counting_in);
+            assert_eq!(state.position, 1_000);
+        }
+    }
+}
+
+#[test]
+fn sample_rate_change_mid_count_in_rescales_the_count_in() {
+    for workers in WORKERS {
+        let mut renderer = renderer(Box::new(MetronomeNode::new()), workers);
+        renderer.send(transport(TransportCommand::SetMetronome {
+            enabled: false,
+            count_in_bars: 1,
+        }));
+        renderer.send(transport(TransportCommand::SetRecordArm(true)));
+        renderer.send(transport(TransportCommand::Play));
+        // 24010 frames at 48 kHz: clicks 0 and 1 have sounded.
+        let first = left(&renderer.render(24_010, 10));
+        assert_clicks(&first, &[(0, true), (24_000, false)], "before the swap");
+        // The plan changes to 96 kHz: the played part doubles (48020 of 192000 samples), the
+        // remaining clicks are the new rate's clicks 2 and 3.
+        renderer
+            .link()
+            .swap_plan(plan_at(Box::new(MetronomeNode::new()), 96_000).0)
+            .unwrap();
+        let after = left(&renderer.render(143_980 + 1_000, 10));
+        let clicks = [(47_980, false), (95_980, false)];
+        assert_clicks_at(&after, &clicks, "after the swap", 96_000);
+        let state = renderer.transport();
+        assert!(state.playing && !state.counting_in, "{state:?}");
+        assert_eq!(state.position, 1_000);
+    }
+}
+
+// --- other rates, fractional samples per beat, span edges ---------------------------------------
+
+#[test]
+fn loops_at_other_rates_and_tempos_with_fractional_samples_per_beat() {
+    for rate in [44_100_u32, 96_000] {
+        for bpm in [10.0, 133.3, 999.0] {
+            let tempo = TempoMap::constant(bpm).unwrap();
+            let ls = tempo
+                .beats_to_samples(tempo.seconds_to_beats(0.37), rate)
+                .round() as u64;
+            let le = tempo
+                .beats_to_samples(tempo.seconds_to_beats(0.79), rate)
+                .round() as u64;
+            let frames = rate as usize * 3 / 2;
+            let expected: Vec<f32> = model_positions(ls - 50, frames, Some((ls, le)))
+                .into_iter()
+                .map(|p| p as f32)
+                .collect();
+            let timeline = Timeline::new(tempo.clone(), TimeSignatureMap::default());
+            for workers in WORKERS {
+                for block in [64, 1_000, 5_000] {
+                    let mut renderer = renderer_at(Box::new(SampleProbe), workers, rate);
+                    renderer.link().swap_timeline(timeline.clone()).unwrap();
+                    renderer.send(transport(TransportCommand::SetLoop {
+                        enabled: true,
+                        start_beats: tempo.seconds_to_beats(0.37),
+                        end_beats: tempo.seconds_to_beats(0.79),
+                    }));
+                    renderer.send(transport(TransportCommand::Locate(ls - 50)));
+                    renderer.send(transport(TransportCommand::Play));
+                    let got = left(&renderer.render(frames, block));
+                    assert!(
+                        got == expected,
+                        "rate {rate}, {bpm} bpm, workers {workers}, block {block}: first \
+                         difference at {:?}",
+                        got.iter().zip(&expected).position(|(a, b)| a != b)
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Writes 1.0 on every frame when each span's edge beats obey the round-to-nearest membership
+/// rule, -1.0 on the frames of a span that breaks it.
+struct EdgeProbe;
+
+impl Node for EdgeProbe {
+    fn name(&self) -> &'static str {
+        "edge-probe"
+    }
+    fn input_channels(&self) -> usize {
+        0
+    }
+    fn output_channels(&self) -> usize {
+        1
+    }
+    fn process(&mut self, ctx: &mut ProcessContext<'_>) {
+        let timing = ctx.timing;
+        let rate = ctx.sample_rate;
+        let out = ctx.outputs.channel_mut(0);
+        out.fill(0.0);
+        for span in timing.spans() {
+            let tempo = timing.timeline().tempo();
+            let at = |sample: f64| tempo.samples_to_beats(sample, rate);
+            let start = span.start_sample() as f64;
+            let end = start + span.frames() as f64;
+            // A beat 0.4 sample inside either edge belongs to the span; 0.6 outside does not.
+            let ok = span.contains_beat(at(start - 0.4))
+                && !span.contains_beat(at(start - 0.6))
+                && span.contains_beat(at(end - 0.6))
+                && !span.contains_beat(at(end - 0.4))
+                && span.beat_range().start < span.beat_range().end;
+            out[span.frame_range()].fill(if ok { 1.0 } else { -1.0 });
+        }
+    }
+}
+
+#[test]
+fn span_membership_follows_round_to_nearest_at_the_edges() {
+    let tempo = TempoMap::new(vec![
+        TempoPoint::ramp(0.0, 133.3),
+        TempoPoint::constant(6.0, 91.7),
+    ])
+    .unwrap();
+    let timeline = Timeline::new(tempo.clone(), TimeSignatureMap::default());
+    for workers in WORKERS {
+        for block in [1, 7, 100, 4096] {
+            let mut renderer = renderer_at(Box::new(EdgeProbe), workers, 44_100);
+            renderer.link().swap_timeline(timeline.clone()).unwrap();
+            renderer.send(transport(TransportCommand::SetLoop {
+                enabled: true,
+                start_beats: tempo.samples_to_beats(1_001.0, 44_100),
+                end_beats: tempo.samples_to_beats(1_377.0, 44_100),
+            }));
+            renderer.send(transport(TransportCommand::Locate(900)));
+            renderer.send(transport(TransportCommand::Play));
+            let got = left(&renderer.render(3_000, block));
+            assert!(
+                got.iter().all(|s| *s == 1.0),
+                "workers {workers}, block {block}"
+            );
+        }
+    }
 }
 
 // --- real-time safety ---------------------------------------------------------------------------

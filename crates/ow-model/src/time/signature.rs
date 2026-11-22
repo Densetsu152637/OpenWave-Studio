@@ -17,10 +17,8 @@ const GRID_SLACK: f64 = 1e-9;
 /// value that gets one beat; a *beat* elsewhere in the model is always a quarter note.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeSignature {
-    /// Beats per bar, `1..=64`.
-    pub numerator: u32,
-    /// Note value per beat: 1, 2, 4, 8, 16, 32 or 64.
-    pub denominator: u32,
+    numerator: u32,
+    denominator: u32,
 }
 
 impl TimeSignature {
@@ -30,7 +28,18 @@ impl TimeSignature {
         denominator: 4,
     };
 
-    /// A validated signature.
+    /// Beats per bar, `1..=64`.
+    pub fn numerator(&self) -> u32 {
+        self.numerator
+    }
+
+    /// Note value per beat: 1, 2, 4, 8, 16, 32 or 64.
+    pub fn denominator(&self) -> u32 {
+        self.denominator
+    }
+
+    /// A validated signature: the fields are private, so a value of this type always passes
+    /// these checks (also for values built by deserialization, which must go through `new`).
     pub fn new(numerator: u32, denominator: u32) -> Result<Self, SignatureError> {
         if !(1..=MAX_NUMERATOR).contains(&numerator) {
             return Err(SignatureError::BadNumerator);
@@ -237,7 +246,9 @@ impl TimeSignatureMap {
         let bars = ticks / signature.ticks_per_bar();
         let within_bar = ticks % signature.ticks_per_bar();
         BarBeatTick {
-            bar: entry.bar + bars as u32,
+            bar: entry
+                .bar
+                .saturating_add(u32::try_from(bars).unwrap_or(u32::MAX)),
             beat: (within_bar / signature.ticks_per_beat()) as u32,
             tick: (within_bar % signature.ticks_per_beat()) as u32,
         }
@@ -272,11 +283,15 @@ impl TimeSignatureMap {
                 index: 0,
             };
         }
-        let steps = steps as u32;
+        // Float to integer casts saturate, so absurdly large beats give a huge (clamped) bar.
+        let steps = steps as u64;
+        let numerator = u64::from(entry.signature.numerator);
         Grid {
             beat: candidate,
-            bar: entry.bar + steps / entry.signature.numerator,
-            index: steps % entry.signature.numerator,
+            bar: entry
+                .bar
+                .saturating_add(u32::try_from(steps / numerator).unwrap_or(u32::MAX)),
+            index: (steps % numerator) as u32,
         }
     }
 

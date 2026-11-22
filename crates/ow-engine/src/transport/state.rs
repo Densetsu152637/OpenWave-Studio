@@ -6,8 +6,14 @@
 //! depends only on the position and the frame count, never on how the device buffer was split,
 //! which is what makes loop playback gap-free and renders independent of the block size.
 
+use ow_model::time::{MAX_SAMPLE, sample_index};
+
 use super::block::BlockCore;
 use super::timeline::Timeline;
+
+/// Longest count-in accepted, in bars; longer requests are clamped. With at most 64 beats per
+/// bar this also bounds every per-click loop at 1024 iterations.
+pub const MAX_COUNT_IN_BARS: u32 = 16;
 
 /// Transport state handed to nodes each block (the state at the start of the block).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -36,8 +42,11 @@ pub enum TransportCommand {
     /// Stop advancing the position and cancel any count-in.
     Stop,
     /// Jump to a sample position (during playback too; takes effect at the next cycle).
+    /// Positions above [`MAX_SAMPLE`](ow_model::time::MAX_SAMPLE) clamp to it.
     Locate(u64),
-    /// Jump to a position in beats.
+    /// Jump to a position in beats. Uses the one rounding rule of
+    /// [`sample_index`](ow_model::time::sample_index): NaN and negative beats go to sample 0,
+    /// huge and infinite beats clamp to [`MAX_SAMPLE`](ow_model::time::MAX_SAMPLE).
     LocateBeats(f64),
     /// Arm or disarm recording.
     SetRecordArm(bool),
@@ -97,45 +106,64 @@ impl CountIn {
         let start_beat = timeline.sample_to_beat(position, sample_rate);
         let signature = timeline.signatures().signature_at_beat(start_beat);
         let unit = signature.beat_length();
-        let beats = bars.saturating_mul(signature.numerator);
-        let base = timeline.beat_to_sample(start_beat, sample_rate);
-        let end = timeline.beat_to_sample(start_beat + f64::from(beats) * unit, sample_rate);
-        Self {
+        let beats = bars.min(MAX_COUNT_IN_BARS) * signature.numerator();
+        let mut count_in = Self {
             start_beat,
             unit,
             beats,
-            per_bar: signature.numerator,
-            base,
-            total: ow_model::time::sample_index(end - base).max(1),
+            per_bar: signature.numerator(),
+            base: 0.0,
+            total: 1,
             elapsed: 0,
             next_click: 0,
+        };
+        count_in.retarget(timeline, sample_rate, sample_rate);
+        count_in
+    }
+
+    /// Recomputes base, length and the next click for a new timeline or sample rate, keeping
+    /// the held beat, the part already played (`elapsed` is rescaled by the rate ratio) and the
+    /// clicks already sounded (`next_click`). A click the new timeline places before `elapsed`
+    /// sounds on the first frame of the next block.
+    pub(crate) fn retarget(&mut self, timeline: &Timeline, old_rate: u32, new_rate: u32) {
+        if old_rate != new_rate {
+            self.elapsed = (u128::from(self.elapsed) * u128::from(new_rate)
+                / u128::from(old_rate.max(1))) as u64;
         }
+        self.base = timeline.beat_to_sample(self.start_beat, new_rate);
+        let end = timeline.beat_to_sample(
+            self.start_beat + f64::from(self.beats) * self.unit,
+            new_rate,
+        );
+        self.total = sample_index(end - self.base).max(1);
     }
 
     /// Sample offset from the start of the count-in at which click `index` sounds.
     pub(crate) fn click_offset(&self, index: u32, timeline: &Timeline, sample_rate: u32) -> u64 {
         let at =
             timeline.beat_to_sample(self.start_beat + f64::from(index) * self.unit, sample_rate);
-        ow_model::time::sample_index(at - self.base)
+        sample_index(at - self.base)
     }
 }
 
 /// The position after `frames` more frames of playback from `position`, wrapping at the loop end.
+/// Saturates at [`MAX_SAMPLE`].
 ///
 /// With a loop `[start, end)` and `position < end`, playback runs to `end` and continues from
 /// `start`, repeating as often as `frames` requires (a loop shorter than the block wraps several
 /// times). From a position at or past the loop end playback just continues.
 pub(crate) fn advance_position(position: u64, frames: u64, looped: Option<(u64, u64)>) -> u64 {
+    let plain = |target: u64| target.min(MAX_SAMPLE);
     match looped {
         Some((start, end)) if position < end => {
-            let target = position + frames;
+            let target = position.saturating_add(frames);
             if target < end {
-                target
+                plain(target)
             } else {
                 start + (target - end) % (end - start)
             }
         }
-        _ => position + frames,
+        _ => plain(position.saturating_add(frames)),
     }
 }
 
@@ -207,7 +235,7 @@ impl TransportState {
                 self.running = false;
                 self.count_in = None;
             }
-            TransportCommand::Locate(position) => self.position = position,
+            TransportCommand::Locate(position) => self.position = position.min(MAX_SAMPLE),
             TransportCommand::LocateBeats(beats) => {
                 self.position = timeline.beat_to_sample_index(beats, self.sample_rate);
             }
@@ -238,7 +266,7 @@ impl TransportState {
                 count_in_bars,
             } => {
                 self.metronome = enabled;
-                self.count_in_bars = count_in_bars;
+                self.count_in_bars = count_in_bars.min(MAX_COUNT_IN_BARS);
             }
         }
     }
@@ -267,11 +295,12 @@ impl TransportState {
             return;
         }
         let beat = timeline.sample_to_beat(self.position, self.sample_rate);
+        let old_rate = self.sample_rate;
         self.sample_rate = sample_rate;
         self.position = timeline.beat_to_sample_index(beat, sample_rate);
-        // A count-in in flight keeps its length in the old rate's samples; drop it.
-        self.count_in = None;
         self.refresh_bounds(timeline);
+        // A count-in in flight is rescaled to the new rate, not dropped.
+        self.retarget_count_in(timeline, old_rate, sample_rate);
     }
 
     /// The timeline changed: keep the musical position (the beat), move the sample position
@@ -280,6 +309,17 @@ impl TransportState {
         let beat = old.sample_to_beat(self.position, self.sample_rate);
         self.position = new.beat_to_sample_index(beat, self.sample_rate);
         self.refresh_bounds(new);
+        self.retarget_count_in(new, self.sample_rate, self.sample_rate);
+    }
+
+    /// Re-derives a running count-in; it ends if the new timeline puts it past its end.
+    fn retarget_count_in(&mut self, timeline: &Timeline, old_rate: u32, new_rate: u32) {
+        if let Some(count_in) = &mut self.count_in {
+            count_in.retarget(timeline, old_rate, new_rate);
+            if count_in.elapsed >= count_in.total {
+                self.count_in = None;
+            }
+        }
     }
 
     /// Describes the next `frames` frames for the nodes.
@@ -310,6 +350,7 @@ impl TransportState {
     pub(crate) fn end_block(&mut self, block: &BlockCore, timeline: &Timeline) {
         if let Some(count_in) = &mut self.count_in {
             count_in.elapsed += block.count_in_frames as u64;
+            // At most `beats` (at most 1024) iterations over the whole count-in.
             while count_in.next_click < count_in.beats
                 && count_in.click_offset(count_in.next_click, timeline, self.sample_rate)
                     < count_in.elapsed

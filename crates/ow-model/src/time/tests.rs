@@ -155,7 +155,7 @@ proptest! {
         let signature = map.signature_at_bar(bar);
         let position = BarBeatTick {
             bar,
-            beat: beat_pick % signature.numerator,
+            beat: beat_pick % signature.numerator(),
             tick: tick_pick % signature.ticks_per_beat() as u32,
         };
         let beats = map.beats_of(position);
@@ -295,4 +295,96 @@ fn time_signature_rejects_bad_input() {
         TimeSignatureMap::new(vec![(0, TimeSignature::COMMON), (0, TimeSignature::COMMON)]),
         Err(SignatureError::NotIncreasing(1))
     );
+}
+
+proptest! {
+    /// Ramps across the whole accepted tempo range, including the extremes.
+    #[test]
+    fn time_full_bpm_range_round_trips(
+        start in prop_oneof![Just(BPM_MIN), Just(BPM_MAX), BPM_MIN..BPM_MAX],
+        end in prop_oneof![Just(BPM_MIN), Just(BPM_MAX), BPM_MIN..BPM_MAX],
+        len in 0.01_f64..200.0,
+        fraction in 0.0_f64..2.0,
+    ) {
+        let map = TempoMap::new(vec![
+            TempoPoint::ramp(0.0, start),
+            TempoPoint::constant(len, end),
+        ]).unwrap();
+        let beat = len * fraction;
+        let seconds = map.beats_to_seconds(beat);
+        prop_assert!(seconds.is_finite() && seconds >= 0.0);
+        let back = map.seconds_to_beats(seconds);
+        prop_assert!((back - beat).abs() <= 1e-9 * beat.max(1.0), "{beat} -> {back}");
+    }
+
+    /// A ramp whose end tempo differs from the start by a hair is the constant tempo to within
+    /// the size of that difference, and never produces NaN.
+    #[test]
+    fn time_tiny_delta_ramps_are_stable(
+        bpm in 20.0_f64..400.0,
+        exponent in 1_i32..16,
+        len in 0.25_f64..64.0,
+        fraction in 0.0_f64..1.0,
+    ) {
+        let delta = bpm * 10f64.powi(-exponent);
+        let ramp = TempoMap::new(vec![
+            TempoPoint::ramp(0.0, bpm),
+            TempoPoint::constant(len, bpm + delta),
+        ]).unwrap();
+        let beat = len * fraction;
+        let seconds = ramp.beats_to_seconds(beat);
+        let constant = beat * 60.0 / bpm;
+        prop_assert!(seconds.is_finite());
+        prop_assert!((seconds - constant).abs() <= constant * 10f64.powi(-exponent) + 1e-12);
+        let back = ramp.seconds_to_beats(seconds);
+        prop_assert!((back - beat).abs() <= 1e-9 * beat.max(1.0));
+    }
+}
+
+#[test]
+fn time_equal_bpm_ramp_is_the_constant_tempo() {
+    let ramp = TempoMap::new(vec![
+        TempoPoint::ramp(0.0, 100.0),
+        TempoPoint::constant(8.0, 100.0),
+    ])
+    .unwrap();
+    for beat in [0.0, 1.5, 7.999, 8.0, 12.0] {
+        assert!((ramp.beats_to_seconds(beat) - beat * 60.0 / 100.0).abs() < 1e-12);
+        assert!((ramp.seconds_to_beats(beat * 0.6) - beat).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn time_signature_fields_are_validated_by_construction() {
+    let sig = TimeSignature::new(7, 8).unwrap();
+    assert_eq!((sig.numerator(), sig.denominator()), (7, 8));
+    assert_eq!(TimeSignature::default(), TimeSignature::COMMON);
+    // The only ways to get a signature (or a map) go through the checks.
+    assert!(TimeSignature::new(0, 4).is_err());
+    assert!(TimeSignature::new(65, 4).is_err());
+    assert!(TimeSignature::new(4, 0).is_err());
+    assert!(TimeSignature::new(4, 6).is_err());
+}
+
+#[test]
+fn time_extreme_inputs_are_clamped_and_never_overflow() {
+    assert_eq!(sample_index(f64::INFINITY), MAX_SAMPLE);
+    assert_eq!(sample_index(1e300), MAX_SAMPLE);
+    assert_eq!(sample_index(f64::NAN), 0);
+    assert_eq!(sample_index(f64::NEG_INFINITY), 0);
+    assert_eq!(sample_index(-1.0), 0);
+    let map = TempoMap::default();
+    assert_eq!(
+        beats_to_sample_index(&map, f64::INFINITY, 48_000),
+        MAX_SAMPLE
+    );
+    assert_eq!(beats_to_sample_index(&map, 1e300, 48_000), MAX_SAMPLE);
+    assert_eq!(beats_to_sample_index(&map, f64::NAN, 48_000), 0);
+    let signatures = TimeSignatureMap::default();
+    for beat in [1e300, f64::INFINITY, f64::NAN, 1e15, -1.0] {
+        let grid = signatures.grid_at_or_after(beat);
+        assert!(grid.beat >= 0.0 || grid.beat.is_nan());
+        let _ = signatures.bar_beat_tick(beat);
+        let _ = signatures.next_grid(grid);
+    }
 }

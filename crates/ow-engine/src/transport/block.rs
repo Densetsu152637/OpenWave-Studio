@@ -144,7 +144,7 @@ impl<'a> BlockTiming<'a> {
         let signatures = self.timeline.signatures();
         for span in self.spans() {
             let start = span.start_sample();
-            let end = start + span.frames() as u64;
+            let end = start.saturating_add(span.frames() as u64);
             // Any beat whose frame is `start` or later lies after the previous sample's beat.
             let lower = self
                 .timeline
@@ -154,7 +154,8 @@ impl<'a> BlockTiming<'a> {
                 let sample = self
                     .timeline
                     .beat_to_sample_index(grid.beat, self.sample_rate);
-                if sample >= end {
+                // At the position ceiling every later beat clamps to the same sample.
+                if sample >= end || sample >= ow_model::time::MAX_SAMPLE {
                     break;
                 }
                 if sample >= start {
@@ -164,7 +165,12 @@ impl<'a> BlockTiming<'a> {
                         count_in: false,
                     });
                 }
-                grid = signatures.next_grid(grid);
+                let next = signatures.next_grid(grid);
+                if next.beat <= grid.beat {
+                    // Beats so large that f64 cannot step them: stop rather than spin.
+                    break;
+                }
+                grid = next;
             }
         }
     }
@@ -245,6 +251,21 @@ impl<'a> Span<'a> {
     /// (and across blocks) an event is placed exactly once.
     pub fn frame_of_beat(&self, beat: f64) -> Option<usize> {
         self.frame_of_sample(self.timeline.beat_to_sample_index(beat, self.sample_rate))
+    }
+
+    /// Beats `start_beat()..end_beat()` this span covers. Events must not be placed by comparing
+    /// against this range: a beat belongs to the span whose frames contain its *rounded* sample
+    /// ([`frame_of_beat`](Self::frame_of_beat)), which differs from the plain range by up to half
+    /// a sample at each edge. Use [`contains_beat`](Self::contains_beat).
+    pub fn beat_range(&self) -> Range<f64> {
+        self.start_beat()..self.end_beat()
+    }
+
+    /// Whether an event at `beat` belongs to this span: exactly when
+    /// [`frame_of_beat`](Self::frame_of_beat) is `Some`. Across the spans of all blocks every beat
+    /// is contained in exactly one span (or none if the position never plays it).
+    pub fn contains_beat(&self, beat: f64) -> bool {
+        self.frame_of_beat(beat).is_some()
     }
 
     /// Block frames of this span during which recording is active: the span when recording is
