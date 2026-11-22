@@ -12,7 +12,9 @@ How builds are produced and published. Design rationale lives in the [architectu
 
 Workflows: `ci.yml` checks pull requests and pushes; `release.yml` and `experimental.yml` run `prepare`, then `build.yml` (a reusable workflow with the inputs `channel` and `version`), then `publish`. Tags matching `v*-experimental*` never start `release.yml`.
 
-Each channel keeps one release: after publishing, the previous release of that channel is deleted together with its tag. Stable releases replace the previous stable or pre-release main release; main pre-releases replace only older main pre-releases.
+Each channel keeps one release: after publishing, the channel's older releases are deleted together with their tags. Stable releases replace older stable and pre-release main releases; main pre-releases replace only older main pre-releases. Only older releases are ever deleted.
+
+Re-running an old workflow cannot roll a channel back: before creating a release, the publish script exits successfully with a notice if the channel already has that tag or a newer version (experimental: the run-number patch; main: semantic version, where a release beats its own pre-releases; releases of the other channel are ignored). Release workflows share one concurrency group, `release` for tags and `experimental` for the branch, and never cancel a running build.
 
 ## Branch rules
 
@@ -30,11 +32,11 @@ Every release carries, per target, the installers plus a portable package, and o
 - macOS: `OpenWave-Studio_<version>_universal.dmg` and `OpenWave-Studio_<version>_universal_portable.zip` (the `.app` bundle, a `portable` marker beside it and the license).
 - Linux: the `.AppImage` is the portable artifact (place a `portable` marker beside it), plus `.deb` and `.rpm`.
 
-`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. Updater artifacts are off (`createUpdaterArtifacts` is `false`) until the updater stage adds a signing key, so no `latest.json` feed is written yet.
+`scripts/ci/collect-dist.sh` gathers these into `release-dist/` (asset names contain hyphens, not spaces), checks that each portable zip holds the program, `LICENSE` and the `portable` marker at its top level, and requires the `.rpm` files for versions without a hyphen, and `scripts/ci/smoke.sh` runs each built target's `--version` before anything is published. Updater artifacts are off (`createUpdaterArtifacts` is `false`) until the updater stage adds a signing key, so no `latest.json` feed is written yet.
 
 ## Required secrets
 
-None today. The updater stage adds `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Apple secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`) are optional: when present, `build.yml` signs with that Developer ID and notarizes; when absent, nothing else changes. The publish jobs use only the workflow's `GITHUB_TOKEN` (`contents: write`).
+None today. The updater stage adds `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Apple secrets (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`) are optional: when present, `build.yml` signs with that Developer ID and notarizes; when absent, nothing else changes. `release.yml` and `experimental.yml` pass these secrets to `build.yml` explicitly (no `secrets: inherit`), and `build.yml` hands them only to the tauri-action step, through `scripts/ci/tauri.sh`, which drops the empty ones. The publish jobs use only the workflow's `GITHUB_TOKEN` (`contents: write`).
 
 ## macOS signing and Gatekeeper
 
@@ -48,11 +50,11 @@ Ad-hoc signing binds the macOS privacy (TCC) microphone grant to the code-direct
 
 ## Verifying a download
 
-Every release lists `SHA256SUMS`. Download it next to the files you want and check them (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS, or compare `Get-FileHash <file>` with the matching line on Windows).
+Every release lists `SHA256SUMS`, which covers the installers, portable packages and signatures published with that release. The update feed `latest.json` (from the updater stage) lives in the `updater-<channel>` releases and is not in `SHA256SUMS`. Download it next to the files you want and check them (`sha256sum -c --ignore-missing SHA256SUMS` on Linux, `shasum -a 256 -c --ignore-missing SHA256SUMS` on macOS, or compare `Get-FileHash <file>` with the matching line on Windows).
 
 ## Forcing the update feed
 
-The update feed (stage 3) normally refuses to move backwards: a publish whose version is lower than the current feed's is skipped. For an intentional version reset, such as after a mistakenly high version, dispatch the workflow manually with `force_feed` set to `true`: `experimental.yml` from the `experimental` branch, or `release.yml` on an existing tag ref. The override applies to that run only and never bypasses the branch-ancestry check. The input and the `FORCE_FEED` variable are already wired through the publish scripts; the feed itself arrives with the updater stage.
+The update feed (stage 3) normally refuses to move backwards: a publish whose version is lower than the current feed's is skipped. For an intentional version reset, such as after a mistakenly high version, dispatch the workflow manually with `force_feed` set to `true`: `experimental.yml` from the `experimental` branch, or `release.yml` on an existing tag ref. The input counts only when it is exactly `true`. The override applies to that run only: it skips the newer-feed check and also the newer-release check above (so a lower version can be published; the newer release is not deleted and must be removed by hand), and it never bypasses the branch-ancestry check. The input and the `FORCE_FEED` variable are already wired through the publish scripts; the feed itself arrives with the updater stage.
 
 ## Local checks
 

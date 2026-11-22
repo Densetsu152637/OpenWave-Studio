@@ -71,6 +71,30 @@ if [ "$updater" = true ]; then
   done
 fi
 
+# The portable zips must hold the program, the license and the marker at the top level.
+list_zip() {
+  if py="$(command -v python3 || command -v python)"; then
+    "$py" -I -c 'import sys, zipfile; print(chr(10).join(zipfile.ZipFile(sys.argv[1]).namelist()))' "$1"
+  else
+    powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::OpenRead('$(cygpath -w "$1")').Entries | Select-Object -ExpandProperty FullName"
+  fi
+}
+check_zip() {
+  local zip="$1" program="$2" entries
+  entries="$(list_zip "$zip" | sed 's/[[:cntrl:]]$//')"
+  for want in portable LICENSE "$program"; do
+    if ! grep -qxF -- "$want" <<< "$entries" && ! grep -qF -- "$want/" <<< "$entries"; then
+      echo "::error::$zip is missing top-level $want. Contents:"
+      echo "$entries"
+      exit 1
+    fi
+  done
+}
+case "$id" in
+  windows-*) check_zip "release-dist/$portable" "OpenWave Studio.exe" ;;
+  macos-*) check_zip "release-dist/$portable" "OpenWave Studio.app" ;;
+esac
+
 # The expected files must exist.
 need=()
 case "$id" in
@@ -78,6 +102,8 @@ case "$id" in
   macos-*) need=("release-dist/*.dmg" "release-dist/$portable") ;;
   linux-*) need=("release-dist/*.AppImage" "release-dist/*.deb") ;;
 esac
+# RPM is built for stable versions only (it rejects the hyphen).
+if [ "$id" != "${id#linux-}" ] && [[ "$version" != *-* ]]; then need+=("release-dist/*.rpm"); fi
 for pattern in "${need[@]}"; do
   # shellcheck disable=SC2086
   if ! ls $pattern > /dev/null 2>&1; then

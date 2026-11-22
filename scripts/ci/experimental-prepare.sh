@@ -7,8 +7,8 @@ set -euo pipefail
 out="${GITHUB_OUTPUT:-/dev/stdout}"
 conf=src-tauri/tauri.conf.json
 
-if [ "${GITHUB_REF_NAME:-}" != experimental ]; then
-  echo "::error::Experimental releases are built from the experimental branch, not ${GITHUB_REF_NAME:-this ref}."
+if [ "${GITHUB_REF:-}" != refs/heads/experimental ]; then
+  echo "::error::Experimental releases are built from the experimental branch, not ${GITHUB_REF:-this ref}."
   exit 1
 fi
 
