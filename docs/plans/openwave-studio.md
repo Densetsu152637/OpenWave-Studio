@@ -115,9 +115,9 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
   - Channel switch: switching an experimental install to `main` installs the current stable once; the next check with no newer stable reports up to date. Record in Outcome.
   - Package-managed: the deb install shows the package-manager message and makes no request to the feed (observed in app log).
   - Unit tests for channel derivation, feed URLs, comparator scope and package-managed detection: `cargo test -p openwave-studio update` (CI).
-- Status: pending
-- Outcome:
-- Handoff notes: the owner generates keys with `pnpm tauri signer generate` and adds both secrets; the agent never handles the private key.
+- Status: done (owner checks pending: installed N→N+1 update on NSIS + AppImage/macOS, channel switch, deb message, first `updater-main` publish after PR #3 merge + stable tag, forced dispatch on a non-main tag)
+- Outcome: `experimental` `7d7e44f` (impl `570cd21`, fix `6582b19`). `tauri-plugin-updater` 2.14, committed minisign pubkey; `createUpdaterArtifacts` on; `updater-manifest.sh`, `check-feed.sh`, `publish-feed.sh` (release → feed → prune, `concurrency: updater-feed-<channel>`). `updater-experimental` feed live at 0.1.12-experimental with 10 platform keys, every URL HTTP 200 (runs 45012188643, 45012800911, 45014383613). No-rollback verified (re-run of 45011415058); `force_feed` verified (feed 0.1.11→0.1.10, restored by 45014383613); `release.yml` branch-ref dispatch fails (45013113316). CI green on `7d7e44f`. Implementation gate: independent critic not run (usage gate closed); root self-check done — not an independent review.
+- Handoff notes: owner procedures A–D for the pending checks are in the stage 3 result (install N, push to experimental, wait ~3 min for GitHub's asset cache, Check now, restart, About shows N+1). Main pre-releases do not write `updater-main`. Windows portable folders are disabled in the Updates panel (`update::disabled_reason`, reason `portable`) until stage 4 lands `portable_update.rs`. Install-on-quit via `RunEvent::Exit`. `tauri-plugin-process` not added (restart via `app.restart()`). Settings is a modal (`src/routes/settings/SettingsDialog.svelte`) that stage 9 can absorb. Feed URLs serve stale `latest.json` for ~3 min after upload. Original note: the owner generates keys with `pnpm tauri signer generate` and adds both secrets; the agent never handles the private key.
 
 ## Stage 4: Portable self-update and macOS translocation
 
