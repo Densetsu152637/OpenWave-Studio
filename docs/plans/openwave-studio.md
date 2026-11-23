@@ -281,7 +281,7 @@ Extension goals:
 - M-G8. Built-in EQ, compressor and reverb process as track inserts: `cargo test -p ow-dsp effects` (EQ band gain at centre frequency within 0.1 dB, compressor static curve within 0.5 dB, reverb finite and decaying; RT-safe) and `cargo test -p ow-engine --test inserts` (insert order and bypass) pass.
 - M-G9. Piano-roll and device-panel view-model logic is tested: `pnpm vitest run src/lib/pianoroll src/lib/devices` passes.
 - M-G10. CI is green on the commit that records M5: `gh run list --workflow ci.yml --branch experimental --commit <sha> --json conclusion` reports `success`.
-- M-G11 (owner manual check). Record 4 bars from a microphone, draw a melody for the synth, add reverb to a track, export; listening to the exported file, the recorded audio, the synth melody and the reverb tail are each audible, and its duration equals the last clip end plus 1 s within one frame. Record in M5's Outcome.
+- M-G11 (owner manual check; open). Record 4 bars from a microphone, draw a melody for the synth, add reverb to a track, export; listening to the exported file, the recorded audio, the synth melody and the reverb tail are each audible, and its duration equals the last clip end plus 1 s within one frame. Record in M5's Outcome.
 
 #### Slice M3: Minimal audio recording
 
@@ -309,9 +309,10 @@ Extension goals:
 - Depends on: M4
 - Owned paths: `crates/ow-dsp/src/effects/`, `crates/ow-engine/src/compile.rs`, `crates/ow-engine/tests/inserts.rs`, `src-tauri/src/ipc/` (descriptor list only), `src/lib/devices/`, `src/lib/components/`
 - Acceptance checks: M-G8; M-G9 (devices part); M-G10; `cargo test --workspace`, clippy, `pnpm typecheck`, `pnpm test`.
-- Status: pending
-- Outcome:
-- Handoff notes: none.
+- Status: done (M-G11 owner manual check open)
+- Outcome: `experimental` `2c49452`, gate fixes `2afdb8a`; CI push runs 45146027475 and 45149244667 success (M-G10). `ow-dsp` effects `builtin.eq` (RBJ low shelf, peak, high shelf), `builtin.compressor` (feed-forward, hard knee, stereo-linked peak detector), `builtin.reverb` (Freeverb-style, buffers sized in `prepare`, mix 0 bit-exact dry) registered in `registry::ALL`; the existing `compile` insert path needed no change. UI: per-track FX list in the dock (instrument first on MIDI tracks, then inserts; add, select, bypass, remove; each one undo step) with the generic panel for the selected entry. Tests: `ow-dsp effects` 13, `inserts` 6, workspace 373+, `pnpm test` 143, rt_safety with all three effects.
+- Implementation gate (M3–M5 together): 2 rounds, 4 findings accepted and fixed in `2afdb8a`, 0 rejected, 0 open: F1 New/Open refused while recording (takes were discarded); F2 `Recording::finish` returns successful takes plus failures, each take imported independently, the transaction always ends, and the temp folder is kept with its path in the error; F3 `DeviceNode` replaces non-finite input with 0 so effects cannot be poisoned; F4 skipped capture frames are counted as dropped. Improvement declined: delete the kept temp folder when only frames were dropped (rare, outside the project, owner asked for the minimum). Process note: two implementers ran in parallel in one checkout and `2afdb8a` carries both fix sets; history was not rewritten.
+- Handoff notes: every edit recompiles, so reverb tails and sounding synth notes are cut on any parameter edit during playback (a `set_param` fast path is future work).
 
 ## Stage 12: Arrangement view and navigation
 
