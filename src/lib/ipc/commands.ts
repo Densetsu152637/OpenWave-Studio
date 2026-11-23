@@ -2,6 +2,7 @@ import type { IpcTransport } from "./transport";
 import { tauriTransport } from "./transport";
 import type {
   CommandReply,
+  DeviceDescriptor,
   EditCommand,
   MediaImportReply,
   ModelPatch,
@@ -150,4 +151,14 @@ export function recordSetArm(
  */
 export function recordStart(transport: IpcTransport = tauriTransport): Promise<void> {
   return queued(transport, () => transport.invoke<void>("record_start"));
+}
+
+/**
+ * Every built-in device kind with its parameter descriptors (id, name, range, default, unit,
+ * scale, choice labels): what the generic device panel is built from. Static for a given build.
+ */
+export function deviceDescriptors(
+  transport: IpcTransport = tauriTransport,
+): Promise<DeviceDescriptor[]> {
+  return transport.invoke<DeviceDescriptor[]>("device_descriptors");
 }

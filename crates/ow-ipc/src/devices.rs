@@ -1,0 +1,143 @@
+//! Descriptions of the built-in devices, for the UI's generic device panel.
+//!
+//! The data comes from the `ow-dsp` registry; this module only gives it a wire shape.
+//! [`device_descriptors`] answers the `device_descriptors` query: every built-in kind with its
+//! parameters (id, name, range, default, unit, scale, choice labels). The UI builds each
+//! device's knobs and selectors from it, so a new built-in device needs no UI code. Parameter
+//! values themselves live in the project (`Device::params`, edited with `SetDeviceParam`), never
+//! in this list.
+
+use ow_dsp::{DeviceInfo, ParamDescriptor, ParamKind, Scale, Unit};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+/// What a parameter's number means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum ParamUnit {
+    /// A plain number.
+    None,
+    /// Decibels.
+    Decibels,
+    /// Hertz.
+    Hertz,
+    /// Seconds.
+    Seconds,
+    /// A percentage, 0 to 100.
+    Percent,
+}
+
+/// How a control maps its travel to the value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum ParamScale {
+    /// Evenly between `min` and `max`.
+    Linear,
+    /// Evenly in the logarithm (`min` is positive).
+    Log,
+}
+
+/// One parameter of a device.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ParamDescriptorDto {
+    /// Stable id: the key of `Device::params`.
+    pub id: u32,
+    /// Name shown next to the control.
+    pub name: String,
+    /// Smallest value.
+    pub min: f64,
+    /// Largest value.
+    pub max: f64,
+    /// Value used when the project does not set the parameter.
+    pub default: f64,
+    /// What the number means.
+    pub unit: ParamUnit,
+    /// How a control maps its travel to the value.
+    pub scale: ParamScale,
+    /// Option labels when the parameter is a choice (the value is the option's index, 0 up);
+    /// empty for a continuous parameter.
+    pub choices: Vec<String>,
+}
+
+/// One built-in device kind.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct DeviceDescriptor {
+    /// The `Device::kind` string, for example `builtin.synth`.
+    pub kind: String,
+    /// Name shown in menus and panels.
+    pub name: String,
+    /// True for an instrument (note events in), false for an effect.
+    pub instrument: bool,
+    /// The parameters, in display order.
+    pub params: Vec<ParamDescriptorDto>,
+}
+
+impl From<&ParamDescriptor> for ParamDescriptorDto {
+    fn from(param: &ParamDescriptor) -> Self {
+        Self {
+            id: param.id,
+            name: param.name.to_string(),
+            min: param.min,
+            max: param.max,
+            default: param.default,
+            unit: match param.unit {
+                Unit::None => ParamUnit::None,
+                Unit::Decibels => ParamUnit::Decibels,
+                Unit::Hertz => ParamUnit::Hertz,
+                Unit::Seconds => ParamUnit::Seconds,
+                Unit::Percent => ParamUnit::Percent,
+            },
+            scale: match param.scale {
+                Scale::Linear => ParamScale::Linear,
+                Scale::Log => ParamScale::Log,
+            },
+            choices: match param.kind {
+                ParamKind::Continuous => Vec::new(),
+                ParamKind::Choice(options) => options.iter().map(|o| (*o).to_string()).collect(),
+            },
+        }
+    }
+}
+
+impl From<&DeviceInfo> for DeviceDescriptor {
+    fn from(info: &DeviceInfo) -> Self {
+        Self {
+            kind: info.kind.to_string(),
+            name: info.name.to_string(),
+            instrument: info.instrument,
+            params: info.params.iter().map(ParamDescriptorDto::from).collect(),
+        }
+    }
+}
+
+/// Every built-in device kind, in registry order.
+pub fn device_descriptors() -> Vec<DeviceDescriptor> {
+    ow_dsp::all().iter().map(DeviceDescriptor::from).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_synth_is_described_with_its_choices_and_scales() {
+        let all = device_descriptors();
+        let synth = all.iter().find(|d| d.kind == "builtin.synth").unwrap();
+        assert!(synth.instrument);
+        let waveform = synth.params.iter().find(|p| p.name == "Waveform").unwrap();
+        assert_eq!(waveform.choices, ["Saw", "Square", "Sine"]);
+        assert_eq!(waveform.max, 2.0);
+        let cutoff = synth.params.iter().find(|p| p.name == "Cutoff").unwrap();
+        assert_eq!(
+            (cutoff.scale, cutoff.unit),
+            (ParamScale::Log, ParamUnit::Hertz)
+        );
+        assert!(cutoff.choices.is_empty());
+    }
+}

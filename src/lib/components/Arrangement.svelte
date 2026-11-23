@@ -1,6 +1,12 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Lane from "./Lane.svelte";
+  import PianoRoll from "./PianoRoll.svelte";
   import TrackHeader from "./TrackHeader.svelte";
+  import DevicePanel from "../devices/DevicePanel.svelte";
+  import { loadDescriptors } from "../devices/descriptors";
+  import { descriptorFor, setParamCommand } from "../devices/params";
+  import { replaceNotesCommand } from "../pianoroll/notes";
   import { nativeDialogs } from "../arrange/dialogs";
   import {
     addTrack,
@@ -12,6 +18,7 @@
     renameTrack,
     setTrackStrip,
   } from "../arrange/edits";
+  import { addMidiTrack, createMidiClip } from "../arrange/midi";
   import { armedSet, recordApi, toggleArm } from "../arrange/record";
   import { SignatureMap, TempoMap } from "../arrange/time";
   import {
@@ -24,7 +31,7 @@
     type View,
   } from "../arrange/view";
   import type { MirrorState } from "../stores";
-  import type { Clip, Track } from "../ipc/types";
+  import type { Clip, DeviceDescriptor, Note, ParamDescriptorDto, Track } from "../ipc/types";
 
   let {
     mirror,
@@ -52,6 +59,9 @@
   let width = $state(800);
   let selectedTrack = $state<number | null>(null);
   let selectedClip = $state<number | null>(null);
+  /** The MIDI clip open in the piano roll. */
+  let openClip = $state<number | null>(null);
+  let descriptors = $state.raw<readonly DeviceDescriptor[]>([]);
 
   const project = $derived(mirror.project);
   const tracks = $derived(project?.tracks ?? []);
@@ -74,6 +84,23 @@
   const trackSelected = (id: number) => selectedTrack === id && tracks.some((t) => t.id === id);
   const clipSelected = $derived(
     selectedClip !== null && (project?.clips.has(selectedClip) ?? false) ? selectedClip : null,
+  );
+  // The piano roll follows the project too: it closes when its clip is gone (undo, delete, open).
+  const rollClip = $derived.by(() => {
+    const clip = openClip === null ? undefined : project?.clips.get(openClip);
+    return clip?.content.type === "midi" ? clip : undefined;
+  });
+  const rollTrack = $derived(rollClip ? tracks.find((t) => t.id === rollClip.track) : undefined);
+  /** The MIDI track whose instrument the device panel shows: the open clip's, else the selected one. */
+  const dockTrack = $derived(
+    rollTrack ?? tracks.find((t) => t.id === selectedTrack && t.kind === "midi"),
+  );
+  const dockDevice = $derived(
+    dockTrack?.instrument == null ? undefined : project?.devices.get(dockTrack.instrument),
+  );
+  const dockDescriptor = $derived(dockDevice ? descriptorFor(descriptors, dockDevice) : undefined);
+  const selectedMidiTrack = $derived(
+    tracks.find((t) => t.id === selectedTrack && t.kind === "midi"),
   );
 
   /** Runs an async action, reporting a failure instead of leaving it unhandled. */
@@ -134,6 +161,39 @@
       selectedClip = result.clipId;
     });
 
+  const addInstrumentTrack = () =>
+    run(async () => {
+      selectedTrack = await addMidiTrack(commandsApi, tracks.length, descriptors);
+      selectedClip = null;
+    });
+
+  const newMidiClip = () =>
+    run(async () => {
+      const track = selectedMidiTrack;
+      if (!track) return;
+      const count = clipsByTrack.get(track.id)?.length ?? 0;
+      selectedClip = await createMidiClip(commandsApi, signatures, track, playheadBeat, count);
+    });
+
+  const editNotes = (clip: Clip, notes: Note[]) =>
+    run(() => commandsApi.edit(replaceNotesCommand(clip, notes)));
+
+  const setParam = (device: { id: number }, param: ParamDescriptorDto, value: number) =>
+    run(() => commandsApi.edit(setParamCommand(device, param, value)));
+
+  function openRoll(clip: Clip) {
+    if (clip.content.type !== "midi") return;
+    selectedTrack = clip.track;
+    selectedClip = clip.id;
+    openClip = clip.id;
+  }
+
+  onMount(() => {
+    loadDescriptors()
+      .then((loaded) => (descriptors = loaded))
+      .catch(() => {});
+  });
+
   function selectClip(track: Track, id: number) {
     selectedTrack = track.id;
     selectedClip = id;
@@ -150,6 +210,10 @@
 <main class="arrangement" aria-label="Arrangement">
   <div class="toolbar">
     <button type="button" onclick={addAudioTrack} disabled={!project}>Add audio track</button>
+    <button type="button" onclick={addInstrumentTrack} disabled={!project || descriptors.length === 0}>
+      Add MIDI track
+    </button>
+    <button type="button" onclick={newMidiClip} disabled={!selectedMidiTrack}>New MIDI clip</button>
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>
     <span class="spacer"></span>
     <button type="button" aria-label="Zoom out" title="Zoom out" onclick={() => zoomBy(1 / ZOOM_STEP)}>&minus;</button>
@@ -206,13 +270,14 @@
                 onSelectTrack={() => selectTrack(track.id)}
                 onSelectClip={(id) => selectClip(track, id)}
                 onMoveClip={(clip, start) => run(() => moveClip(commandsApi, clip, start))}
+                onOpenClip={openRoll}
               />
             </div>
           </div>
         {/each}
 
         {#if tracks.length === 0}
-          <p class="empty">Add an audio track or import an audio file to begin.</p>
+          <p class="empty">Add an audio or MIDI track, or import an audio file, to begin.</p>
         {/if}
 
         {#if playheadX >= 0 && playheadX <= width}
@@ -220,6 +285,28 @@
         {/if}
       </div>
     </div>
+    {#if dockTrack}
+      <section class="dock" aria-label="Instrument and piano roll">
+        {#if rollClip && rollTrack}
+          <PianoRoll
+            clip={rollClip}
+            color={rollTrack.color}
+            {signatures}
+            onEdit={(notes) => editNotes(rollClip, notes)}
+            onClose={() => (openClip = null)}
+          />
+        {:else}
+          <p class="dock-hint">Double-click a MIDI clip to edit its notes.</p>
+        {/if}
+        {#if dockDevice && dockDescriptor}
+          <DevicePanel
+            device={dockDevice}
+            descriptor={dockDescriptor}
+            onParam={(param, value) => setParam(dockDevice, param, value)}
+          />
+        {/if}
+      </section>
+    {/if}
   {/if}
 </main>
 
@@ -304,6 +391,18 @@
     border-left: 1px solid var(--accent);
     z-index: 3;
     pointer-events: none;
+  }
+  .dock {
+    display: flex;
+    height: 280px;
+    flex: none;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .dock-hint {
+    flex: 1;
+    margin: 16px;
+    color: var(--muted);
   }
   .empty {
     margin: 24px;

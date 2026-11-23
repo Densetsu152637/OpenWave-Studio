@@ -3096,6 +3096,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ow-dsp"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+]
+
+[[package]]
 name = "ow-engine"
 version = "0.1.0"
 dependencies = [
@@ -3104,6 +3111,7 @@ dependencies = [
  "criterion",
  "hound",
  "num_cpus",
+ "ow-dsp",
  "ow-io",
  "ow-ipc",
  "ow-media",
@@ -3130,6 +3138,7 @@ name = "ow-ipc"
 version = "0.1.0"
 dependencies = [
  "assert_no_alloc",
+ "ow-dsp",
  "ow-model",
  "proptest",
  "serde",

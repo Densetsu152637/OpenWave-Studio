@@ -11,6 +11,7 @@
 
 pub mod clips;
 pub mod compile;
+pub mod device;
 pub mod export;
 pub mod graph;
 pub mod midi_hub;
@@ -44,6 +45,7 @@ pub use compile::{
     Carry, CompileContext, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
     compile_project_metered, fader_gain,
 };
+pub use device::{DeviceNode, MAX_EVENTS_PER_BLOCK};
 pub use graph::clip::{ClipPlacement, ClipSourceNode};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{

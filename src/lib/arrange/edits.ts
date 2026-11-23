@@ -78,7 +78,7 @@ export const deleteClip = (api: ArrangeApi, clip: Pick<Clip, "id">) =>
   api.edit({ command: "remove_clip", id: clip.id });
 
 /** Colors new tracks cycle through (0xRRGGBB). */
-const TRACK_COLORS = [0x4aa3ff, 0xff9f43, 0x5fd38d, 0xe56bd1, 0xf2cf4b, 0x8f7bff];
+export const TRACK_COLORS = [0x4aa3ff, 0xff9f43, 0x5fd38d, 0xe56bd1, 0xf2cf4b, 0x8f7bff];
 
 /** A new empty audio track as the `InsertTrack` bundle. */
 export function newAudioTrack(id: number, name: string, color: number): Owned<Track> {

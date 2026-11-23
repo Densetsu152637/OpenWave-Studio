@@ -1,6 +1,6 @@
 //! The IPC contract between the OpenWave Studio engine and its UI (architecture section 7).
 //!
-//! This crate depends only on `ow-model`; the Tauri glue lives in `src-tauri/src/ipc/` and the UI
+//! This crate depends only on `ow-model` (and `ow-dsp`, for the device descriptors); the Tauri glue lives in `src-tauri/src/ipc/` and the UI
 //! side in `src/lib/ipc/` and `src/lib/stores/`.
 //!
 //! * [`dto`]: the commands the UI sends ([`UiCommand`], wrapping `ow-model`'s `EditCommand`), the
@@ -16,6 +16,8 @@
 //! * [`telemetry`]: the [`TelemetryBank`] of atomics the audio thread writes, and the packed
 //!   little-endian `f32` frame the bridge thread sends over a Tauri `ipc::Channel` (layout in
 //!   that module's docs).
+//! * [`devices`]: the built-in device descriptors ([`device_descriptors`]) the UI builds its
+//!   generic device panels from.
 //! * [`peaks`]: the raw-byte waveform range response (format only; the data comes from the `ow-media` peak cache).
 //!
 //! # Threads
@@ -32,12 +34,16 @@
 //!    `seq`) is ignored; anything beyond the next number is a gap.
 //! 3. On a gap it discards what it holds, asks for a fresh snapshot and continues from there.
 
+pub mod devices;
 pub mod dto;
 pub mod mirror;
 pub mod peaks;
 pub mod session;
 pub mod telemetry;
 
+pub use devices::{
+    DeviceDescriptor, ParamDescriptorDto, ParamScale, ParamUnit, device_descriptors,
+};
 pub use dto::{
     CommandReply, HistoryState, MAX_ALLOC_IDS, MediaImportReply, ModelPatch, PatchOp, Snapshot,
     UiCommand,

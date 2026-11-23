@@ -565,3 +565,98 @@ fn the_record_tap_is_allocation_free() {
     assert_eq!(stats.frames, shared.captured());
     assert_eq!(stats.dropped_frames, 0);
 }
+
+/// The MIDI-clip player and the synth run under the allocation guard: note events from a dense
+/// clip, a loop wrap every pass, locates and stop/play (each of which releases sounding notes)
+/// and more simultaneous notes than the synth has voices (so voice stealing runs too).
+#[test]
+fn the_midi_clip_player_and_synth_are_allocation_free() {
+    let mut editor = Editor::new(Project::new("midi"));
+    let track = editor.alloc_id().unwrap();
+    let synth = editor.alloc_id().unwrap();
+    let clip = editor.alloc_id().unwrap();
+    let notes: Vec<ow_model::Note> = (0..400)
+        .map(|i| ow_model::Note {
+            start: f64::from(i) * 0.01,
+            length: 0.5,
+            key: 36 + (i % 48) as u8,
+            velocity: 100,
+        })
+        .collect();
+    editor
+        .apply(EditCommand::InsertTrack {
+            index: 0,
+            bundle: Box::new(Owned {
+                item: Track {
+                    id: track,
+                    name: "Keys".into(),
+                    color: 0,
+                    kind: TrackKind::Midi,
+                    strip: Strip::default(),
+                    instrument: Some(synth),
+                },
+                clips: vec![Clip {
+                    id: clip,
+                    track,
+                    name: "notes".into(),
+                    start: 0.0,
+                    length: 8.0,
+                    muted: false,
+                    content: ClipContent::Midi {
+                        notes,
+                        controllers: vec![],
+                    },
+                }],
+                devices: vec![ow_model::Device {
+                    id: synth,
+                    kind: "builtin.synth".into(),
+                    name: "Synth".into(),
+                    enabled: true,
+                    params: Default::default(),
+                    state: vec![],
+                    sidechain: None,
+                }],
+                lanes: vec![],
+            }),
+        })
+        .unwrap();
+    let compiled = compile_project_metered(
+        editor.project(),
+        &CompileContext::default(),
+        SAMPLE_RATE,
+        MAX_BLOCK,
+        None,
+    )
+    .unwrap();
+    assert!(compiled.nodes.get(NodeKey::Device(synth)).is_some());
+    let (mut link, mut core) = builder().build();
+    link.swap_timeline(compiled.timeline).unwrap();
+    link.swap_plan(compiled.plan).unwrap();
+    assert!(link.send(Message::Transport(TransportCommand::SetLoop {
+        enabled: true,
+        start_beats: 0.0,
+        end_beats: 3.0,
+    })));
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+
+    let mut buffer = vec![0.0_f32; 64 * 2];
+    let mut heard = 0.0_f32;
+    for cycle in 0..3000_u32 {
+        match cycle {
+            700 => {
+                assert!(link.send(Message::Transport(TransportCommand::Locate(5_000))));
+            }
+            1400 => {
+                assert!(link.send(Message::Transport(TransportCommand::Stop)));
+            }
+            1500 => {
+                assert!(link.send(Message::Transport(TransportCommand::Play)));
+            }
+            _ => {}
+        }
+        core.process(&mut buffer, 2, None);
+        heard = buffer.iter().fold(heard, |m, s| m.max(s.abs()));
+        assert!(buffer.iter().all(|s| s.is_finite()));
+    }
+    assert!(heard > 0.05, "the synth sounded: {heard}");
+}

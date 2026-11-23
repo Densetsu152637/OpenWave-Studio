@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { noteBars } from "../arrange/midi";
   import { peakRequest, waveformColumns } from "../arrange/waveform";
   import { beatToX, clipVisibleSpan, type View } from "../arrange/view";
   import type { TempoMap } from "../arrange/time";
@@ -17,6 +18,7 @@
     missing,
     displayStart,
     onpointerdown,
+    ondblclick,
   }: {
     clip: Clip;
     media: MediaItem | undefined;
@@ -31,6 +33,8 @@
     /** Where the clip is shown while it is dragged, in beats. */
     displayStart: number;
     onpointerdown: (event: PointerEvent) => void;
+    /** Double-click: opens a MIDI clip in the piano roll. */
+    ondblclick?: (event: MouseEvent) => void;
   } = $props();
 
   /** Pause between asking again for peaks that are still being built. */
@@ -94,6 +98,21 @@
     const context = target.getContext("2d");
     if (!context) return;
     context.clearRect(0, 0, target.width, target.height);
+    if (clip.content.type === "midi") {
+      // A MIDI clip shows its notes as plain bars; the part of the clip left of the window is
+      // not drawn, so bars shift by the window's left edge.
+      context.fillStyle = getComputedStyle(target).color;
+      const left = span?.left ?? 0;
+      for (const bar of noteBars(clip.content.notes, view.pxPerBeat, height)) {
+        context.fillRect(
+          (bar.x - left) * ratio,
+          bar.y * ratio,
+          bar.width * ratio,
+          bar.height * ratio,
+        );
+      }
+      return;
+    }
     if (!peaks || peaks.bins === 0) return;
     const columns = waveformColumns(peaks.data, target.width);
     context.fillStyle = getComputedStyle(target).color;
@@ -119,6 +138,7 @@
   aria-label="Clip {clip.name}"
   aria-pressed={selected}
   {onpointerdown}
+  {ondblclick}
 >
   {#if span}
     <canvas

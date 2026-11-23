@@ -11,6 +11,8 @@
 //! Entries stay until [`SourceCache::retain_under`] drops those outside the current media root
 //! (the app calls it when the root changes); media that left the project stays cached until then.
 
+pub mod midi;
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -23,10 +23,15 @@
 //!   offset and gain (see [`CompileContext`]); mono media feeds both sides. Muted clips and
 //!   clips whose media cannot be loaded get no node (silence), and the latter are listed in
 //!   [`Compiled::missing_media`]. Fades are not applied yet;
-//! * instruments and devices are placeholders until their stages exist: an instrument device
-//!   is a silent [`TestToneNode`] source (key [`NodeKey::Device`]; set its
-//!   [`TONE_PARAM_ON`](crate::graph::nodes::TONE_PARAM_ON) parameter to hear it) and an insert
-//!   device is a unity [`GainNode`] pass-through.
+//! * a MIDI track's instrument is a stereo [`DeviceNode`] (key [`NodeKey::Device`]) built from
+//!   the `ow-dsp` registry entry for the device's `kind` and the device's parameters. It plays
+//!   the track's unmuted MIDI clips: the node holds a
+//!   [`MidiClipPlayer`](crate::clips::midi::MidiClipPlayer) that turns the clips' notes into
+//!   sample-accurate events inside `process`. An instrument of an unknown kind, or one that is
+//!   disabled, is silent;
+//! * inserts are stereo-in, stereo-out [`DeviceNode`]s in chain order after the source, created
+//!   from the registry the same way. A disabled insert, or one whose kind the registry does not
+//!   know (no effect is built in yet), is a unity [`GainNode`] pass-through under the same key;
 //!
 //! # Stable identity and state carry-over
 //!
@@ -46,17 +51,20 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use ow_dsp::DeviceInfo;
 use ow_media::MemorySource;
 use ow_model::{
-    AuxSend, BusId, Clip, ClipContent, ClipId, DeviceId, MediaId, MixerRef, Output, Project, Strip,
-    TrackId, ValidationError,
+    AuxSend, BusId, Clip, ClipContent, ClipId, Device, DeviceId, MediaId, MixerRef, Output,
+    Project, Strip, Track, TrackId, ValidationError,
 };
 
 use ow_ipc::TelemetryBank;
 
 use crate::clips::SourceCache;
+use crate::clips::midi::{MidiClipPlayer, schedule};
+use crate::device::DeviceNode;
 use crate::graph::clip::{ClipPlacement, ClipSourceNode};
-use crate::graph::nodes::{GainNode, TestToneNode};
+use crate::graph::nodes::GainNode;
 use crate::{Graph, GraphError, NodeId, RenderPlan, Timeline};
 
 /// What the compiler needs besides the project to play its audio clips.
@@ -87,7 +95,7 @@ pub enum NodeKey {
     Clips(TrackId),
     /// One audio clip's player (absent for a muted clip or one whose media is missing).
     Clip(ClipId),
-    /// A device (an instrument source or an insert effect).
+    /// A device: a MIDI track's instrument or an insert effect.
     Device(DeviceId),
     /// A strip's fader; the master's is the output gain.
     Fader(MixerRef),
@@ -268,29 +276,23 @@ fn db_to_linear(db: f64) -> f32 {
     10.0_f64.powf(db / 20.0) as f32
 }
 
-/// Where a signal can be tapped: a node and whether it has one output channel (mono sources) or
-/// two.
-#[derive(Clone, Copy)]
-struct Tap {
-    node: NodeId,
-    mono: bool,
-}
-
 /// What `build_strip` leaves for wiring.
 struct StripNodes {
     /// First node of the strip's chain, which incoming signals connect to (stereo input).
     entry: NodeId,
-    /// The signal before the fader (pre-fader sends tap here); `None` when the strip has no
-    /// source and no inserts, in which case pre-fader sends tap the fader instead (a bus
+    /// The stereo signal before the fader (pre-fader sends tap here); `None` when the strip has
+    /// no source and no inserts, in which case pre-fader sends tap the fader instead (a bus
     /// without inserts has no node before its fader until the mixer stage adds an input stage).
-    pre: Option<Tap>,
+    pre: Option<NodeId>,
     /// The fader.
     fader: NodeId,
 }
 
-fn connect_stereo(graph: &mut Graph, from: Tap, to: NodeId) -> Result<(), GraphError> {
-    graph.connect(from.node, 0, to, 0)?;
-    graph.connect(from.node, if from.mono { 0 } else { 1 }, to, 1)
+/// Connects both channels of the stereo node `from` to those of `to`. Every compiled strip node
+/// is stereo (mono media is widened inside the clip sum), so this is the only wiring there is.
+fn connect_stereo(graph: &mut Graph, from: NodeId, to: NodeId) -> Result<(), GraphError> {
+    graph.connect(from, 0, to, 0)?;
+    graph.connect(from, 1, to, 1)
 }
 
 /// Compiles `project` for `sample_rate` and blocks of up to `max_block` frames.
@@ -327,9 +329,15 @@ pub fn compile_project_metered(
         ctx,
         timeline: &timeline,
         sample_rate,
+        max_block,
         missing: &mut missing,
     };
 
+    let shared = Shared {
+        meters,
+        sample_rate,
+        max_block,
+    };
     let mut graph = Graph::new();
     let mut nodes = NodeMap::default();
     let mut add = |graph: &mut Graph, key: NodeKey, node: Box<dyn crate::Node>| {
@@ -346,7 +354,7 @@ pub fn compile_project_metered(
         project,
         MixerRef::Master,
         &project.master,
-        meters,
+        shared,
         None,
     );
     let mut strips: Vec<(u64, MixerRef)> = project
@@ -365,7 +373,7 @@ pub fn compile_project_metered(
                 project,
                 *target,
                 strip,
-                meters,
+                shared,
                 Some(&mut clips),
             );
             built.insert(*target, nodes);
@@ -405,10 +413,7 @@ pub fn compile_project_metered(
                 key,
                 Box::new(GainNode::new(2, send_gain(project, *target, send))),
             );
-            let post = Tap {
-                node: nodes_of.fader,
-                mono: false,
-            };
+            let post = nodes_of.fader;
             let tap = if send.pre_fader {
                 nodes_of.pre.unwrap_or(post)
             } else {
@@ -430,11 +435,20 @@ pub fn compile_project_metered(
     })
 }
 
+/// What every strip build shares.
+#[derive(Clone, Copy)]
+struct Shared<'a> {
+    meters: Option<&'a Arc<TelemetryBank>>,
+    sample_rate: u32,
+    max_block: usize,
+}
+
 /// What `build_strip` needs to compile a track's audio clips.
 struct ClipEnv<'a> {
     ctx: &'a CompileContext,
     timeline: &'a Timeline,
     sample_rate: u32,
+    max_block: usize,
     /// Media that could not be loaded, collected across tracks.
     missing: &'a mut BTreeSet<MediaId>,
 }
@@ -514,6 +528,74 @@ fn add_audio_clip(
 
 type AddNode<'a> = dyn FnMut(&mut Graph, NodeKey, Box<dyn crate::Node>) -> NodeId + 'a;
 
+/// The device `device` of the model as an `ow-dsp` instance: every parameter at the value the
+/// model holds (clamped to the descriptor's range) or the default.
+fn make_device(
+    info: &'static DeviceInfo,
+    device: &Device,
+    sample_rate: u32,
+    max_block: usize,
+) -> Box<dyn ow_dsp::Device> {
+    let mut made = info.create(sample_rate as f32, max_block);
+    for param in info.params {
+        if let Some(value) = device.params.get(&param.id) {
+            made.set_param(param.id, param.clamp(*value));
+        }
+    }
+    made
+}
+
+/// Adds the instrument node of a MIDI track: the registry's instrument for the device's kind
+/// with the track's MIDI clips as its note source. `None` (a silent track) when the device is
+/// disabled, missing or of a kind that is not a built-in instrument.
+fn add_instrument(
+    graph: &mut Graph,
+    add: &mut AddNode<'_>,
+    env: &ClipEnv<'_>,
+    project: &Project,
+    track: &Track,
+    instrument: DeviceId,
+) -> Option<NodeId> {
+    let device = project.devices.get(&instrument).filter(|d| d.enabled)?;
+    let info = ow_dsp::find(&device.kind).filter(|info| info.instrument)?;
+    let events = schedule(
+        project.clips.values().filter(|c| c.track == track.id),
+        env.timeline,
+        env.sample_rate,
+    );
+    let node = DeviceNode::instrument(
+        info,
+        make_device(info, device, env.sample_rate, env.max_block),
+        MidiClipPlayer::new(events),
+    );
+    Some(add(graph, NodeKey::Device(instrument), Box::new(node)))
+}
+
+/// Adds the node of one insert: the built-in effect when there is one and it is enabled,
+/// otherwise a unity pass-through (bypass, or a kind this build does not have).
+fn add_insert(
+    graph: &mut Graph,
+    add: &mut AddNode<'_>,
+    project: &Project,
+    id: DeviceId,
+    sample_rate: u32,
+    max_block: usize,
+) -> NodeId {
+    let effect = project
+        .devices
+        .get(&id)
+        .filter(|d| d.enabled)
+        .and_then(|d| Some((d, ow_dsp::find(&d.kind).filter(|info| !info.instrument)?)));
+    let node: Box<dyn crate::Node> = match effect {
+        Some((device, info)) => Box::new(DeviceNode::effect(
+            info,
+            make_device(info, device, sample_rate, max_block),
+        )),
+        None => Box::new(GainNode::new(2, 1.0)),
+    };
+    add(graph, NodeKey::Device(id), node)
+}
+
 /// Adds the nodes of one strip and wires source, inserts and fader together.
 fn build_strip(
     graph: &mut Graph,
@@ -521,22 +603,24 @@ fn build_strip(
     project: &Project,
     target: MixerRef,
     strip: &Strip,
-    meters: Option<&Arc<TelemetryBank>>,
+    shared: Shared<'_>,
     clips: Option<&mut ClipEnv<'_>>,
 ) -> StripNodes {
-    // Source: the track's audio clips, or a placeholder for its instrument.
-    let mut source: Option<Tap> = None;
+    let Shared {
+        meters,
+        sample_rate,
+        max_block,
+    } = shared;
+    // Source: the track's audio clips, or its instrument playing its MIDI clips. Both are
+    // stereo nodes.
+    let mut source: Option<NodeId> = None;
     if let MixerRef::Track(id) = target
         && let Some(track) = project.track(id)
+        && let Some(env) = clips
     {
         if let Some(instrument) = track.instrument {
-            let node = add(
-                graph,
-                NodeKey::Device(instrument),
-                Box::<TestToneNode>::default(),
-            );
-            source = Some(Tap { node, mono: true });
-        } else if let Some(env) = clips {
+            source = add_instrument(graph, add, env, project, track, instrument);
+        } else {
             let own: Vec<&Clip> = project
                 .clips
                 .values()
@@ -547,29 +631,22 @@ fn build_strip(
                 for clip in own {
                     add_audio_clip(graph, add, env, project, clip, sum);
                 }
-                source = Some(Tap {
-                    node: sum,
-                    mono: false,
-                });
+                source = Some(sum);
             }
         }
     }
 
-    // Inserts: unity pass-through placeholders in chain order.
+    // Inserts in chain order, each fed by the node before it.
     let mut previous = source;
     let mut entry: Option<NodeId> = None;
-    let mut wire: Vec<(Tap, NodeId)> = Vec::new();
+    let mut wire: Vec<(NodeId, NodeId)> = Vec::new();
     for device in &strip.inserts {
-        let node = add(
-            graph,
-            NodeKey::Device(*device),
-            Box::new(GainNode::new(2, 1.0)),
-        );
+        let node = add_insert(graph, add, project, *device, sample_rate, max_block);
         entry.get_or_insert(node);
         if let Some(from) = previous {
             wire.push((from, node));
         }
-        previous = Some(Tap { node, mono: false });
+        previous = Some(node);
     }
 
     // The master's fader is a plain stereo gain too: its two outputs are the plan's output.
@@ -605,7 +682,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::graph::nodes::{GAIN_PARAM, TONE_PARAM_ON};
+    use crate::graph::nodes::GAIN_PARAM;
     use crate::{Message, OfflineRenderer};
 
     const RATE: u32 = 48_000;
@@ -715,34 +792,25 @@ mod tests {
         }
     }
 
-    /// Plays the project with the given placeholder tones switched on; returns the RMS of the
-    /// left channel over the last 4096 frames.
-    fn tone_level(project: &Project, ctx: &CompileContext, tones: &[NodeKey]) -> f32 {
+    /// Plays the project; returns the RMS of the left channel over the last 4096 frames.
+    fn project_level(project: &Project, ctx: &CompileContext) -> f32 {
         let compiled = compile_project(project, ctx, RATE, 256).unwrap();
         let mut renderer = OfflineRenderer::new(compiled.plan, 2);
         assert!(renderer.send(Message::Transport(crate::TransportCommand::Play)));
-        for key in tones {
-            let node = compiled.nodes.get(*key).expect("tone node");
-            assert!(renderer.send(Message::SetParam {
-                node,
-                param: TONE_PARAM_ON,
-                value: 1.0,
-            }));
-        }
         let out = renderer.render(FRAMES, 256);
         let tail = &out[(FRAMES - 4096) * 2..];
         let sum: f32 = tail.chunks(2).map(|f| f[0] * f[0]).sum();
         (sum / 4096.0).sqrt()
     }
 
-    /// Like [`tone_level`] with only the clips of the `audible` tracks playing (the others are
+    /// Like [`project_level`] with only the clips of the `audible` tracks playing (the others are
     /// muted), so one track's contribution can be measured.
     fn level(project: &Project, ctx: &CompileContext, audible: &[TrackId]) -> f32 {
         let mut project = project.clone();
         for clip in project.clips.values_mut() {
             clip.muted |= !audible.contains(&clip.track);
         }
-        tone_level(&project, ctx, &[])
+        project_level(&project, ctx)
     }
 
     /// RMS of the 0.2-amplitude sine source.
@@ -888,12 +956,14 @@ mod tests {
         assert_eq!(level(&soloed, &ctx, &[b]), 0.0);
     }
 
-    #[test]
-    fn compile_instrument_and_inserts_are_placeholders() {
+    /// A MIDI track with a one-bar clip holding a long note, the given instrument kind and one
+    /// insert of `insert_kind`; returns the project and the two device ids.
+    fn midi_project(instrument_kind: &str, insert_kind: &str) -> (Project, DeviceId, DeviceId) {
         let mut ed = Editor::new(Project::new("p"));
         let id: TrackId = ed.alloc_id().unwrap();
-        let synth: ow_model::DeviceId = ed.alloc_id().unwrap();
-        let fx: ow_model::DeviceId = ed.alloc_id().unwrap();
+        let synth: DeviceId = ed.alloc_id().unwrap();
+        let fx: DeviceId = ed.alloc_id().unwrap();
+        let clip = ed.alloc_id().unwrap();
         let device = |id, kind: &str| Device {
             id,
             kind: kind.into(),
@@ -917,22 +987,86 @@ mod tests {
                     },
                     instrument: Some(synth),
                 },
-                clips: vec![],
-                devices: vec![device(synth, "builtin.synth"), device(fx, "builtin.eq")],
+                clips: vec![Clip {
+                    id: clip,
+                    track: id,
+                    name: "notes".into(),
+                    start: 0.0,
+                    length: 8.0,
+                    muted: false,
+                    content: ClipContent::Midi {
+                        notes: vec![ow_model::Note {
+                            start: 0.0,
+                            length: 8.0,
+                            key: 69,
+                            velocity: 100,
+                        }],
+                        controllers: vec![],
+                    },
+                }],
+                devices: vec![device(synth, instrument_kind), device(fx, insert_kind)],
                 lanes: vec![],
             }),
         })
         .unwrap();
-        // Source tone -> insert -> fader -> master: unity.
-        let l = tone_level(
-            ed.project(),
-            &CompileContext::default(),
-            &[NodeKey::Device(synth)],
-        );
-        assert!((l - SOURCE_RMS).abs() < 1e-3, "{l}");
-        let compiled =
-            compile_project(ed.project(), &CompileContext::default(), RATE, 256).unwrap();
+        (ed.project().clone(), synth, fx)
+    }
+
+    #[test]
+    fn compile_midi_track_plays_its_clips_through_the_instrument_and_inserts() {
+        let ctx = CompileContext::default();
+        let (project, synth, fx) = midi_project("builtin.synth", "builtin.nothing");
+        let played = project_level(&project, &ctx);
+        assert!(played > 0.01, "the synth sounds: {played}");
+        let compiled = compile_project(&project, &ctx, RATE, 256).unwrap();
+        assert!(compiled.nodes.get(NodeKey::Device(synth)).is_some());
+        // An insert of a kind this build does not have is a unity pass-through under its key.
         assert!(compiled.nodes.get(NodeKey::Device(fx)).is_some());
+        let mut without = project.clone();
+        without.tracks[0].strip.inserts.clear();
+        without.devices.remove(&fx);
+        assert_eq!(project_level(&without, &ctx), played);
+
+        // A muted clip, a disabled instrument and an instrument of an unknown kind are silent.
+        let mut muted = project.clone();
+        muted.clips.values_mut().for_each(|c| c.muted = true);
+        assert_eq!(project_level(&muted, &ctx), 0.0);
+        let mut disabled = project.clone();
+        disabled.devices.get_mut(&synth).unwrap().enabled = false;
+        assert_eq!(project_level(&disabled, &ctx), 0.0);
+        let (unknown, ..) = midi_project("vst3:something", "builtin.nothing");
+        assert_eq!(project_level(&unknown, &ctx), 0.0);
+        let compiled = compile_project(&unknown, &ctx, RATE, 256).unwrap();
+        assert!(
+            compiled
+                .nodes
+                .get(NodeKey::Fader(MixerRef::Track(unknown.tracks[0].id)))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn compile_applies_the_models_device_parameters() {
+        let ctx = CompileContext::default();
+        let (mut project, synth, _) = midi_project("builtin.synth", "builtin.nothing");
+        let loud = project_level(&project, &ctx);
+        // Gain (parameter 7, default -9 dB) down another 6 dB halves the level; an out-of-range
+        // value is clamped to the descriptor's range.
+        project
+            .devices
+            .get_mut(&synth)
+            .unwrap()
+            .params
+            .insert(7, -15.0206);
+        let quiet = project_level(&project, &ctx);
+        assert!((quiet / loud - 0.5).abs() < 0.01, "{quiet} vs {loud}");
+        project
+            .devices
+            .get_mut(&synth)
+            .unwrap()
+            .params
+            .insert(7, -1000.0);
+        assert!(project_level(&project, &ctx) < 1e-3, "clamped to -60 dB");
     }
 
     #[test]

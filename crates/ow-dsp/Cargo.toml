@@ -1,0 +1,17 @@
+[package]
+name = "ow-dsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Built-in instruments and effects for OpenWave Studio: plain DSP with no application types"
+
+# No dependencies on purpose: stage 27 exports these devices as plugins, so nothing here may
+# know about the model, the engine or the UI.
+[dependencies]
+
+[dev-dependencies]
+assert_no_alloc = { version = "1.1.2" }
+
+[lints]
+workspace = true

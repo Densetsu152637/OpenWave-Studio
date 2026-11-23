@@ -70,6 +70,7 @@ pub fn run() {
             ipc::ipc_snapshot,
             ipc::ipc_command,
             ipc::ipc_alloc_ids,
+            ipc::device_descriptors,
             ipc::project_new,
             ipc::project_open,
             ipc::project_save,

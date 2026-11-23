@@ -17,6 +17,10 @@
 //!   are plain methods on [`IpcState`] (testable without a window); the commands below only
 //!   hand them the engine as the [`control::PlanTarget`].
 //!
+//! * `device_descriptors` (in this module): the built-in devices' parameter descriptors from
+//!   `ow-dsp`, for the generic device panel. MIDI tracks and their synth are plain model edits
+//!   (`insert_track` with an instrument device, `add_clip` with MIDI notes, `set_device_param`),
+//!   so they need no command of their own; the engine plays them after each recompile.
 //! * `record_set_arm` / `record_start` ([`record`]): arming audio tracks (session state shown in
 //!   the mirror) and recording on them; `transport_stop` ends a recording and adds the takes.
 //!
@@ -136,6 +140,13 @@ pub async fn ipc_alloc_ids(app: AppHandle, count: u32) -> Result<CommandReply, S
         lock(&state.control).command(UiCommand::AllocIds { count }, engine.engine())
     })
     .await
+}
+
+/// Every built-in device kind with its parameter descriptors: what the UI builds device panels
+/// (and the "Add MIDI track" instrument) from. Static data, so it needs no control lock.
+#[tauri::command]
+pub fn device_descriptors() -> Vec<ow_ipc::DeviceDescriptor> {
+    ow_ipc::device_descriptors()
 }
 
 /// Starts a new, empty project and returns it as a snapshot (the patch channel gets a reset).

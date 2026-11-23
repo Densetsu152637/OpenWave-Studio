@@ -18,6 +18,7 @@
     onSelectTrack,
     onSelectClip,
     onMoveClip,
+    onOpenClip,
   }: {
     track: Track;
     clips: readonly Clip[];
@@ -32,6 +33,8 @@
     onSelectTrack: () => void;
     onSelectClip: (id: number) => void;
     onMoveClip: (clip: Clip, start: number) => void;
+    /** Double-click on a clip. */
+    onOpenClip: (clip: Clip) => void;
   } = $props();
 
   /** Pointer travel below which a press is a click, not a drag. */
@@ -88,6 +91,7 @@
       missing={clip.content.type === "audio" && missing.has(clip.content.media)}
       displayStart={drag?.moved && drag.id === clip.id ? dragTo : clip.start}
       onpointerdown={(event) => press(event, clip)}
+      ondblclick={() => onOpenClip(clip)}
     />
   {/each}
 </div>
