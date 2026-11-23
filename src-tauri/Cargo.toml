@@ -23,6 +23,7 @@ ow-ipc = { path = "../crates/ow-ipc" }
 ow-mcp = { path = "../crates/ow-mcp" }
 ow-media = { path = "../crates/ow-media" }
 ow-model = { path = "../crates/ow-model" }
+ow-plugin-host = { path = "../crates/ow-plugin-host" }
 tauri-plugin-updater = "2"
 semver = "1"
 tokio = { version = "1", features = ["time", "sync", "io-util", "net", "rt"] }
@@ -38,6 +39,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [dev-dependencies]
 strum = "0.28.0"
+# Depending on the fixtures builds the plugin bundles the plugin_state test loads.
+ow-plugin-fixtures = { path = "../crates/ow-plugin-fixtures" }
 
 [lints]
 workspace = true

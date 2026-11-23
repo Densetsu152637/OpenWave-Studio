@@ -40,7 +40,7 @@ Every tool returns structured content (JSON) and a short text summary. Argument 
 | Tool | What it does |
 | --- | --- |
 | `get_project` | The whole project: settings, tempo and time-signature maps, tracks and buses with their strips (volume, pan, mute, solo, output, sends), the master, clips with MIDI notes, the media pool, devices with their parameter values, automation, markers; plus history (`can_undo`, `dirty`, armed tracks, missing media, engine error) and the saved path. |
-| `get_device_types` | The built-in device kinds (synth, EQ, compressor, reverb, limiter) with their parameters. Scanned plugins will be listed here. |
+| `get_device_types` | The built-in device kinds (synth, EQ, compressor, reverb, limiter) with their parameters (`builtin`), and the scanned third-party plugins with theirs (`plugins`, kinds `clap:<plugin id>`). |
 | `edit` | One or more `EditCommand`s, exactly the commands the UI sends. Several commands are one transaction and one undo step; if one is refused, none is applied. Answers a summary of the model changes. |
 | `alloc_ids` | Reserves entity ids. New tracks, buses, clips, devices and markers need ids that no other entity has; reserve them first. |
 | `undo`, `redo` | Step through history. |
@@ -51,9 +51,17 @@ Every tool returns structured content (JSON) and a short text summary. Argument 
 | `analyze` | Renders the project (the master, or one strip after its fader; whole project or a beat range) and measures integrated, short-term and momentary loudness, true peak, sample peak, RMS, crest factor, stereo correlation and eight band energies. |
 | `export_wav` | Renders to a 32-bit float WAV, optionally normalised to a target integrated loudness with a true-peak ceiling. |
 | `audio_settings` | List audio devices and MIDI inputs, get and set preferences, retry a failed device, toggle the test tone. |
-| `scan_plugins`, `list_plugins`, `plugin_editor` | Third-party plugin hosting. They answer "unavailable" until plugin hosting ships. |
+| `scan_plugins` | Scans for CLAP plugins: the standard folders of the OS, `CLAP_PATH` and the extra folders in the preferences (`audio_settings` `set` with `{"paths": {"pluginDirs": ["/absolute/folder"]}}`). Each file is loaded in a child process, so a plugin that crashes or hangs is skipped and reported. `force: true` scans unchanged files again. |
+| `list_plugins` | The plugins the last scan found and the files it skipped, without scanning again. |
+| `plugin_editor` | Opening a plugin's own window. Answers "unavailable" until editor windows ship; set parameters with `edit` instead. |
 
 The schema of every tool, including the full shape of each edit command, comes with `tools/list`.
+
+### Third-party plugins
+
+A scanned plugin is a device like any other (see [plugins.md](plugins.md)): `insert_device` with `kind` set to the plugin's `kind` (`clap:com.vendor.plugin`) adds it as an insert, or as a MIDI track's instrument when the plugin is an instrument; `set_device_param` sets a parameter by the plugin's own parameter id (the ids and ranges come with `get_device_types`). A parameter edit reaches the running plugin without rebuilding the audio graph. The plugin's state is saved in the project file with `project` `save` and restored when it is opened.
+
+A plugin that is not installed (or not scanned yet) stays in the project and stays silent (an effect passes the sound through) until a scan finds it.
 
 ### A typical mix-and-master loop
 
@@ -74,7 +82,7 @@ The schema of every tool, including the full shape of each edit command, comes w
 
 An agent must be able to do anything a user can do in OpenWave, except generate music. Three tests (`cargo test -p openwave-studio mcp_parity`) enforce it:
 
-- Every Tauri command registered in `src-tauri/src/lib.rs` is listed in `COMMANDS` there (the test checks the list against `generate_handler!` and against every `#[tauri::command]` in the crate) and has a tool route in `mcp::ROUTES`, or an entry in the test's exclusion list with a reason. The exclusions are the updater, the telemetry stream, the patch-channel attach and the waveform bytes.
+- Every Tauri command registered in `src-tauri/src/lib.rs` is listed in `COMMANDS` there (the test checks the list against `generate_handler!` and against every `#[tauri::command]` in the crate) and has a tool route in `mcp::ROUTES`, or an entry in the test's exclusion list with a reason. The exclusions are the updater, the telemetry stream, the patch-channel attach and the waveform bytes. The plugin commands (`plugins_scan`, `plugins_list`) route to `scan_plugins` and `list_plugins`.
 - Every `UiCommand` variant has a route in `mcp::UI_ROUTES`.
 - The `edit` tool's schema lists every `EditCommand` variant, so a new edit command is reachable (and described) without further work.
 

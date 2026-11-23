@@ -13,7 +13,8 @@ use std::path::Path;
 use common::{action, run};
 use ow_ipc::{
     AnalysisReport, AnalysisRequest, CommandReply, DeviceDescriptor, ExportOptions, ExportResult,
-    HistoryState, MediaImportReply, ModelPatch, PatchOp, Project, Session, Snapshot, UiCommand,
+    HistoryState, MediaImportReply, ModelPatch, PatchOp, PluginScanSummary, Project, Session,
+    Snapshot, UiCommand,
 };
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
@@ -46,6 +47,7 @@ fn export_bindings() {
     CommandReply::export_all(&cfg).unwrap();
     MediaImportReply::export_all(&cfg).unwrap();
     DeviceDescriptor::export_all(&cfg).unwrap();
+    PluginScanSummary::export_all(&cfg).unwrap();
     AnalysisRequest::export_all(&cfg).unwrap();
     AnalysisReport::export_all(&cfg).unwrap();
     ExportOptions::export_all(&cfg).unwrap();

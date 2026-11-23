@@ -16,8 +16,8 @@
 //! * [`telemetry`]: the [`TelemetryBank`] of atomics the audio thread writes, and the packed
 //!   little-endian `f32` frame the bridge thread sends over a Tauri `ipc::Channel` (layout in
 //!   that module's docs).
-//! * [`devices`]: the built-in device descriptors ([`device_descriptors`]) the UI builds its
-//!   generic device panels from.
+//! * [`devices`]: the built-in device descriptors ([`device_descriptors`]) and the wire shape of
+//!   scanned plugins the UI builds its generic device panels from.
 //! * [`analysis`]: the request and report types of offline analysis and of export with
 //!   loudness normalisation (the measurements come from `ow-media`).
 //! * [`peaks`]: the raw-byte waveform range response (format only; the data comes from the `ow-media` peak cache).
@@ -49,7 +49,8 @@ pub use analysis::{
     NormalizeOptions,
 };
 pub use devices::{
-    DeviceDescriptor, ParamDescriptorDto, ParamScale, ParamUnit, device_descriptors,
+    DeviceDescriptor, ParamDescriptorDto, ParamScale, ParamUnit, PluginScanFailure,
+    PluginScanSummary, device_descriptors,
 };
 pub use dto::{
     CommandReply, HistoryState, MAX_ALLOC_IDS, MediaImportReply, ModelPatch, PatchOp, Snapshot,

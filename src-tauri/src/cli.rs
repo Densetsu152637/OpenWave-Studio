@@ -35,7 +35,21 @@ where
     if is_mcp(&args) {
         return Some(run_mcp());
     }
+    if let Some(path) = scan_plugin_path(&args) {
+        return Some(ow_plugin_host::scan::run_child(std::path::Path::new(&path)));
+    }
     None
+}
+
+/// The file of `openwave-studio --scan-plugin <file>`: the plugin scanner's child mode. The app
+/// re-launches itself this way for every candidate plugin file, so a plugin that crashes or
+/// hangs while it is loaded takes down only that process (architecture section 8). The process
+/// prints one result line and exits; no window is created.
+fn scan_plugin_path(args: &[OsString]) -> Option<OsString> {
+    match args {
+        [flag, path, ..] if flag == "--scan-plugin" => Some(path.clone()),
+        _ => None,
+    }
 }
 
 /// True for `openwave-studio mcp`: the first argument is the subcommand.
@@ -136,5 +150,20 @@ mod tests {
         assert!(!is_mcp(&[]));
         assert!(!is_mcp(&[OsString::from("--other"), OsString::from("mcp")]));
         assert!(!is_mcp(&[OsString::from("mcpx")]));
+    }
+
+    #[test]
+    fn scan_plugin_takes_the_file_after_the_flag() {
+        let args = |parts: &[&str]| parts.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            scan_plugin_path(&args(&["--scan-plugin", "a.clap"])),
+            Some(OsString::from("a.clap"))
+        );
+        assert_eq!(scan_plugin_path(&args(&["--scan-plugin"])), None);
+        assert_eq!(scan_plugin_path(&args(&["a.clap"])), None);
+        assert_eq!(
+            scan_plugin_path(&args(&["mcp", "--scan-plugin", "a.clap"])),
+            None
+        );
     }
 }

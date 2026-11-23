@@ -5,6 +5,7 @@ pub mod engine;
 pub mod ipc;
 pub mod mcp;
 pub mod paths;
+pub mod plugins;
 pub mod portable_update;
 pub mod prefs;
 pub mod translocation;
@@ -34,6 +35,8 @@ pub const COMMANDS: &[&str] = &[
     "ipc_command",
     "ipc_alloc_ids",
     "device_descriptors",
+    "plugins_scan",
+    "plugins_list",
     "project_new",
     "project_open",
     "project_save",
@@ -90,8 +93,15 @@ pub fn run() {
             window.build()?;
 
             app.manage(EngineState::start(&paths));
-            app.manage(ipc::IpcState::new());
+            // Plugins run their main-thread work on the executor of this platform; the scan
+            // cache gives the plugin list back at once, a background scan refreshes it.
+            let cache = ow_plugin_host::PluginCache::new(plugins::app_executor(app.handle()));
+            let registry = plugins::Plugins::for_app(cache.clone(), &paths.plugin_cache_dir);
+            registry.load_cached();
+            app.manage(ipc::IpcState::with_plugins(cache));
+            app.manage(registry);
             app.manage(paths);
+            plugins::start_background(app.handle());
             app.manage(mcp::McpState::default());
             mcp::sync_with_preferences(app.handle());
             update::setup(app.handle());
@@ -112,6 +122,8 @@ pub fn run() {
             ipc::ipc_command,
             ipc::ipc_alloc_ids,
             ipc::device_descriptors,
+            plugins::plugins_scan,
+            plugins::plugins_list,
             ipc::project_new,
             ipc::project_open,
             ipc::project_save,
@@ -136,6 +148,7 @@ pub fn run() {
         Ok(app) => app.run(|handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 mcp::shutdown(handle);
+                plugins::shutdown(handle);
                 update::install_on_exit(handle);
             }
         }),

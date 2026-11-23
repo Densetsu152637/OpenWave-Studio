@@ -24,6 +24,8 @@ export type { CommandReply } from "./generated/CommandReply";
 export type { Controller } from "./generated/Controller";
 export type { Device } from "./generated/Device";
 export type { DeviceDescriptor } from "./generated/DeviceDescriptor";
+export type { PluginScanFailure } from "./generated/PluginScanFailure";
+export type { PluginScanSummary } from "./generated/PluginScanSummary";
 export type { DeviceBundle } from "./generated/DeviceBundle";
 export type { DeviceId } from "./generated/DeviceId";
 export type { DeviceSlot } from "./generated/DeviceSlot";

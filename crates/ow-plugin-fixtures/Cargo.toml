@@ -1,0 +1,27 @@
+[package]
+name = "ow-plugin-fixtures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fixture plugins for OpenWave Studio's plugin-hosting tests (CLAP now, VST3 later)"
+build = "build.rs"
+# Never published: these are test plugins.
+publish = false
+
+[features]
+# Features select what the shared library built by `build.rs` contains. Never set by hand: the
+# default build is a plain rlib that only knows where the bundles are.
+gain = []
+crash = []
+
+[dependencies]
+clack-plugin = "=0.2.0"
+clack-extensions = { version = "=0.2.0", features = ["clack-plugin", "audio-ports", "note-ports", "params", "state", "latency"] }
+
+# The CLAP entry point is an exported C symbol, which Rust 2024 spells `#[unsafe(no_mangle)]`.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

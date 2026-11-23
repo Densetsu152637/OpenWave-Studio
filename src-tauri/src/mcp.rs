@@ -17,8 +17,10 @@
 //!
 //! # Plugins (M8, M9)
 //!
-//! `scan_plugins`, `list_plugins` and `plugin_editor` answer "unavailable" for now; their arms
-//! are in [`AppBackend::call`] and `get_device_types` lists the plugins in [`AppBackend::device_types`].
+//! `scan_plugins` and `list_plugins` drive the plugin registry (`crate::plugins`);
+//! `get_device_types` lists the scanned plugins next to the built-in devices; a plugin's
+//! parameters are edited with the `edit` tool's `set_device_param` like any device's. The
+//! `plugin_editor` tool answers "unavailable" until the editor windows exist (slice M9).
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -27,7 +29,7 @@ use std::time::Duration;
 use ow_engine::{Engine, TransportCommand};
 use ow_ipc::{
     AnalysisRequest, CommandReply, EditCommand, ExportOptions, ModelPatch, NormalizeOptions,
-    PatchOp, Snapshot, UiCommand,
+    PatchOp, PluginScanSummary, Snapshot, UiCommand,
 };
 use ow_mcp::listener::{McpListener, announce_disabled};
 use ow_mcp::tools::{
@@ -44,6 +46,7 @@ use crate::ipc::control::Control;
 use crate::ipc::export::wav_path;
 use crate::ipc::project::bundle_path;
 use crate::paths::Paths;
+use crate::plugins::Plugins;
 use crate::prefs::Preferences;
 
 /// Most patch operations an `edit` answer lists (the total is always reported).
@@ -55,6 +58,10 @@ pub trait Host: Send + Sync + 'static {
     fn ipc(&self) -> &IpcState;
     /// The audio engine, preferences and device lists.
     fn engine_state(&self) -> &EngineState;
+    /// The plugin registry.
+    fn plugins(&self) -> &Plugins;
+    /// Tells the UI that the plugin list changed. The default does nothing (no UI in tests).
+    fn plugins_changed(&self) {}
 }
 
 /// The host in the running app: Tauri's managed state.
@@ -67,6 +74,15 @@ impl Host for AppHost {
 
     fn engine_state(&self) -> &EngineState {
         self.0.state::<EngineState>().inner()
+    }
+
+    fn plugins(&self) -> &Plugins {
+        self.0.state::<Plugins>().inner()
+    }
+
+    fn plugins_changed(&self) {
+        use tauri::Emitter as _;
+        let _ = self.0.emit(crate::plugins::PLUGINS_CHANGED, ());
     }
 }
 
@@ -96,13 +112,17 @@ impl AppBackend {
     fn engine_state(&self) -> &EngineState {
         self.host.engine_state()
     }
+
+    fn plugins(&self) -> &Plugins {
+        self.host.plugins()
+    }
 }
 
 impl ToolBackend for AppBackend {
     fn call(&self, call: ToolCall) -> Result<ToolOutput, ToolError> {
         let output = match call {
             ToolCall::GetProject(_) => Ok(self.get_project()),
-            ToolCall::GetDeviceTypes(_) => Ok(Self::device_types()),
+            ToolCall::GetDeviceTypes(_) => Ok(self.device_types()),
             ToolCall::Edit(args) => self.edit(args),
             ToolCall::AllocIds(args) => self.alloc_ids(args.count),
             ToolCall::Undo(_) => self.history_step(UiCommand::Undo, "Undid the latest step"),
@@ -114,21 +134,45 @@ impl ToolBackend for AppBackend {
             ToolCall::Analyze(args) => self.analyze(args),
             ToolCall::ExportWav(args) => self.export_wav(args),
             ToolCall::AudioSettings(args) => self.audio_settings(&args),
-            // M8 fills in scanning and listing, M9 the editor windows.
-            ToolCall::ScanPlugins(_) => Ok(plugins_unavailable("scan_plugins")),
-            ToolCall::ListPlugins(_) => Ok(plugins_unavailable("list_plugins")),
-            ToolCall::PluginEditor(_) => Ok(plugins_unavailable("plugin_editor")),
+            ToolCall::ScanPlugins(args) => Ok(self.scan_plugins(args.force)),
+            ToolCall::ListPlugins(_) => Ok(self.list_plugins()),
+            // Editor windows arrive with plugin hosting II (slice M9).
+            ToolCall::PluginEditor(_) => Ok(plugin_editor_unavailable()),
         };
         output.map_err(ToolError)
     }
 }
 
-/// The answer of the plugin tools until plugin hosting exists.
-fn plugins_unavailable(tool: &str) -> ToolOutput {
+/// The answer of `plugin_editor` until editor windows exist.
+fn plugin_editor_unavailable() -> ToolOutput {
     ToolOutput::new(
-        json!({"available": false, "tool": tool, "reason": "plugin hosting is not available in this build yet"}),
-        format!("{tool} is unavailable: plugin hosting is not available in this build yet."),
+        json!({"available": false, "tool": "plugin_editor", "reason": "plugin editor windows are not available in this build yet; edit the plugin's parameters with the edit tool's set_device_param"}),
+        "plugin_editor is unavailable: plugin editor windows are not available in this build yet. Set the plugin's parameters with the edit tool (set_device_param).",
     )
+}
+
+/// The text of a scan or list answer.
+fn scan_line(summary: &PluginScanSummary) -> String {
+    let mut line = format!(
+        "{} plugins usable in {} plugin files ({} scanned now, the rest from the cache).",
+        summary.plugins.len(),
+        summary.files,
+        summary.scanned
+    );
+    if !summary.failures.is_empty() {
+        let failed: Vec<String> = summary
+            .failures
+            .iter()
+            .take(5)
+            .map(|failure| format!("{} ({})", failure.path, failure.status))
+            .collect();
+        line.push_str(&format!(
+            " {} files were skipped: {}.",
+            summary.failures.len(),
+            failed.join(", ")
+        ));
+    }
+    line
 }
 
 fn to_json<T: serde::Serialize>(value: &T) -> Result<Value, String> {
@@ -199,17 +243,36 @@ impl AppBackend {
         }
     }
 
-    /// The device kinds: built-in ones now, scanned plugins from M8 on (add them to `plugins`).
-    fn device_types() -> ToolOutput {
+    /// The device kinds: built-in ones and the scanned plugins.
+    fn device_types(&self) -> ToolOutput {
         let builtin = ow_ipc::device_descriptors();
+        let plugins = self.plugins().descriptors();
         let summary = format!(
-            "{} built-in device kinds; third-party plugins are not available yet.",
-            builtin.len()
+            "{} built-in device kinds and {} scanned plugins (use scan_plugins to look for more).",
+            builtin.len(),
+            plugins.len()
         );
         ToolOutput::new(
-            json!({"builtin": builtin, "plugins": [], "plugins_available": false}),
+            json!({"builtin": builtin, "plugins": plugins, "plugins_available": true}),
             summary,
         )
+    }
+
+    /// Scans the plugin folders (the standard ones and the preferences' extra folders).
+    fn scan_plugins(&self, force: bool) -> ToolOutput {
+        let extra = self.engine_state().preferences().paths.plugin_dirs;
+        let summary = self.plugins().scan(&extra, force);
+        self.ipc().refresh_plugins(self.engine_state().engine());
+        self.host.plugins_changed();
+        let text = scan_line(&summary);
+        ToolOutput::new(to_json(&summary).unwrap_or(Value::Null), text)
+    }
+
+    /// The plugins the last scan found and the files it gave up on.
+    fn list_plugins(&self) -> ToolOutput {
+        let summary = self.plugins().summary();
+        let text = scan_line(&summary);
+        ToolOutput::new(to_json(&summary).unwrap_or(Value::Null), text)
     }
 
     /// Applies the commands under one lock, as one undo step.
@@ -659,6 +722,8 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("ipc_command", "edit"),
     ("ipc_alloc_ids", "alloc_ids"),
     ("device_descriptors", "get_device_types"),
+    ("plugins_scan", "scan_plugins"),
+    ("plugins_list", "list_plugins"),
     ("project_new", "project"),
     ("project_open", "project"),
     ("project_save", "project"),
@@ -955,6 +1020,7 @@ mod tests {
     struct TestHost {
         ipc: IpcState,
         engine: EngineState,
+        plugins: Plugins,
     }
 
     impl Host for TestHost {
@@ -964,6 +1030,10 @@ mod tests {
 
         fn engine_state(&self) -> &EngineState {
             &self.engine
+        }
+
+        fn plugins(&self) -> &Plugins {
+            &self.plugins
         }
     }
 
@@ -977,10 +1047,18 @@ mod tests {
 
     impl Fixture {
         fn start() -> Self {
+            // Most tests never scan: the scanner child is only built for the ones that do.
+            Self::start_with(ow_plugin_host::ScanCommand::new("ow-scan-not-built"))
+        }
+
+        fn start_with(scanner: ow_plugin_host::ScanCommand) -> Self {
             let work = tempfile::tempdir().unwrap();
+            let cache =
+                ow_plugin_host::PluginCache::new(Arc::new(ow_plugin_host::ThreadExecutor::new()));
             let host = Arc::new(TestHost {
-                ipc: IpcState::new(),
+                ipc: IpcState::with_plugins(cache.clone()),
                 engine: EngineState::mock(work.path()),
+                plugins: Plugins::new(cache, scanner, work.path().join("plugin-cache.json")),
             });
             let dir = endpoint::dir_in(&work.path().join("data"));
             let server = AppBackend::server(Arc::clone(&host) as Arc<dyn Host>);
@@ -1336,7 +1414,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_transport_audio_settings_and_unavailable_plugins() {
+    fn mcp_transport_audio_settings_and_the_plugin_editor_stub() {
         let fixture = Fixture::start();
         block_on(async {
             let mut client = fixture.client().await;
@@ -1376,15 +1454,135 @@ mod tests {
                 .await;
             assert!(refused.contains("only be changed by the user"), "{refused}");
 
-            for tool in ["scan_plugins", "list_plugins"] {
-                let answer = client.call(tool, json!({})).await;
-                assert_eq!(answer["available"], false);
-            }
             let editor = client
                 .call("plugin_editor", json!({"action": "open", "device": 1}))
                 .await;
             assert_eq!(editor["available"], false);
         });
+    }
+
+    /// The device ids of `insert_track` bundles that put the fixture gain plugin on an audio
+    /// track.
+    fn gain_track(track: u64, device: u64) -> Value {
+        use ow_model::{Device, DeviceId};
+        let mut bundle = Owned::new(Track {
+            id: TrackId(track),
+            name: "Audio".into(),
+            color: 0,
+            kind: TrackKind::Audio,
+            strip: Strip {
+                inserts: vec![DeviceId(device)],
+                ..Strip::default()
+            },
+            instrument: None,
+        });
+        bundle.devices.push(Device {
+            id: DeviceId(device),
+            kind: "clap:com.openwave.fixture.gain".into(),
+            name: "Gain".into(),
+            enabled: true,
+            params: Default::default(),
+            state: vec![],
+            sidechain: None,
+        });
+        serde_json::to_value(EditCommand::InsertTrack {
+            index: 0,
+            bundle: Box::new(bundle),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn mcp_scans_lists_and_hosts_plugins() {
+        let fixture = Fixture::start_with(ow_plugin_host::ScanCommand::new(
+            crate::plugins::testing::ow_scan(),
+        ));
+        let bundles = ow_plugin_fixtures::bundle_dir();
+        block_on(async {
+            let mut client = fixture.client().await;
+            // Nothing is known before a scan; the fixtures folder is added as a scan folder the
+            // way an agent does it, through the preferences.
+            let before = client.call("list_plugins", json!({})).await;
+            assert_eq!(before["plugins"].as_array().unwrap().len(), 0);
+            client
+                .call(
+                    "audio_settings",
+                    json!({"action": "set", "preferences": {"paths": {"pluginDirs": [bundles]}}}),
+                )
+                .await;
+
+            // The scan loads each file in a child; the crashing fixture is reported, not fatal.
+            let scan = client.call("scan_plugins", json!({})).await;
+            let kinds: Vec<&str> = scan["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|plugin| plugin["kind"].as_str().unwrap())
+                .collect();
+            assert!(
+                kinds.contains(&"clap:com.openwave.fixture.gain"),
+                "{kinds:?}"
+            );
+            assert!(
+                kinds.contains(&"clap:com.openwave.fixture.tone"),
+                "{kinds:?}"
+            );
+            let failures = scan["failures"].as_array().unwrap();
+            assert!(
+                failures.iter().any(|failure| failure["status"] == "crashed"
+                    && failure["path"]
+                        .as_str()
+                        .unwrap()
+                        .ends_with("ow-fixture-crash.clap")),
+                "{failures:?}"
+            );
+            let again = client.call("scan_plugins", json!({})).await;
+            assert_eq!(again["scanned"], 0, "unchanged files come from the cache");
+            let listed = client.call("list_plugins", json!({})).await;
+            assert_eq!(listed["plugins"], again["plugins"]);
+
+            // get_device_types lists them with their parameters.
+            let types = client.call("get_device_types", json!({})).await;
+            assert_eq!(types["plugins_available"], true);
+            let gain = types["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|plugin| plugin["kind"] == "clap:com.openwave.fixture.gain")
+                .expect("the gain plugin is listed");
+            assert_eq!(gain["format"], "clap");
+            assert_eq!(gain["instrument"], false);
+            assert_eq!(gain["params"][1]["choices"], json!(["Normal", "Inverted"]));
+
+            // A plugin is a device like any other: added with an edit, its parameters set with
+            // set_device_param, saved with the project.
+            let ids = client.call("alloc_ids", json!({"count": 2})).await;
+            let (track, device) = (
+                ids["ids"][0].as_u64().unwrap(),
+                ids["ids"][1].as_u64().unwrap(),
+            );
+            client
+                .call("edit", json!({"commands": [gain_track(track, device)]}))
+                .await;
+            client
+                .call(
+                    "edit",
+                    json!({"commands": [{"command": "set_device_param", "device": device, "param": 1, "value": 0.5}]}),
+                )
+                .await;
+            let project = client.call("get_project", json!({})).await;
+            let devices = project["project"]["devices"].as_array().unwrap();
+            let hosted = devices
+                .iter()
+                .find(|d| d["id"] == device)
+                .expect("the device exists");
+            assert_eq!(hosted["params"]["1"], 0.5);
+        });
+        let live = fixture
+            .host
+            .ipc
+            .with_control(|control| control.plugins().cloned());
+        assert_eq!(live.expect("plugins are hosted").len(), 1);
     }
 
     #[test]

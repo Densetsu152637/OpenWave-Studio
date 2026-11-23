@@ -72,10 +72,7 @@ impl IpcState {
         {
             return Err("the loudness target and the ceiling must be numbers".into());
         }
-        let (project, ctx) = {
-            let control = super::lock(&self.control);
-            (control.session().project().clone(), control.ctx.clone())
-        };
+        let (project, ctx) = super::lock(&self.control).offline_snapshot();
         let rate = project.settings.sample_rate;
         let frames = usize::try_from(export_frames(&project)).unwrap_or(usize::MAX);
         let mut mix = render_project(&project, &ctx, frames).map_err(|error| error.to_string())?;

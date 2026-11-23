@@ -10,6 +10,7 @@ import type {
   ExportResult,
   MediaImportReply,
   ModelPatch,
+  PluginScanSummary,
   Snapshot,
   UiCommand,
 } from "./types";
@@ -181,8 +182,29 @@ export function recordStart(transport: IpcTransport = tauriTransport): Promise<v
 }
 
 /**
- * Every built-in device kind with its parameter descriptors (id, name, range, default, unit,
- * scale, choice labels): what the generic device panel is built from. Static for a given build.
+ * Scans the plugin folders (the standard ones, `CLAP_PATH` and the saved extra folders) for CLAP
+ * plugins. Each file is loaded in a separate process, so a plugin that crashes or hangs is
+ * skipped and reported in `failures`. Unchanged files come from the cache unless `force`. Not
+ * queued behind edits: a scan can take seconds. The backend also emits `plugins-changed`.
+ */
+export function pluginsScan(
+  force = false,
+  transport: IpcTransport = tauriTransport,
+): Promise<PluginScanSummary> {
+  return transport.invoke<PluginScanSummary>("plugins_scan", { force });
+}
+
+/** What the last scan found (usable plugins and skipped files), without scanning again. */
+export function pluginsList(
+  transport: IpcTransport = tauriTransport,
+): Promise<PluginScanSummary> {
+  return transport.invoke<PluginScanSummary>("plugins_list");
+}
+
+/**
+ * Every device kind with its parameter descriptors (id, name, range, default, unit, scale,
+ * choice labels): the built-in devices, then the scanned plugins. What the generic device panel
+ * and the effect and instrument pickers are built from. It changes when the plugin list does.
  */
 export function deviceDescriptors(
   transport: IpcTransport = tauriTransport,

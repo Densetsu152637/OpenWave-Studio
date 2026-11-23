@@ -1,0 +1,30 @@
+[package]
+name = "ow-plugin-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Third-party plugin hosting for OpenWave Studio: CLAP, the out-of-process scanner, parameters and state"
+
+[dependencies]
+assert_no_alloc = { version = "1.1.2", features = ["disable_release"] }
+base64 = "0.22"
+clack-host = "=0.2.0"
+clack-extensions = { version = "=0.2.0", features = ["clack-host", "audio-ports", "note-ports", "params", "state", "latency", "thread-check", "log"] }
+ow-dsp = { path = "../ow-dsp" }
+rtrb = "0.4.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Depending on the fixtures builds the plugin bundles, so a fresh checkout passes the tests.
+ow-plugin-fixtures = { path = "../ow-plugin-fixtures" }
+# Dev-dependency cycle (ow-engine depends on this crate): the engine tests compile real projects
+# with hosted plugins.
+ow-engine = { path = "../ow-engine" }
+ow-model = { path = "../ow-model" }
+assert_no_alloc = { version = "1.1.2" }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

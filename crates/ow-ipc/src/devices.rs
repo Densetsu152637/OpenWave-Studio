@@ -1,6 +1,8 @@
-//! Descriptions of the built-in devices, for the UI's generic device panel.
+//! Descriptions of the built-in devices and of scanned plugins, for the UI's generic device
+//! panel.
 //!
-//! The data comes from the `ow-dsp` registry; this module only gives it a wire shape.
+//! The data for built-in devices comes from the `ow-dsp` registry and for plugins from the
+//! scanner (the app crate converts); this module only gives it a wire shape.
 //! [`device_descriptors`] answers the `device_descriptors` query: every built-in kind with its
 //! parameters (id, name, range, default, unit, scale, choice labels). The UI builds each
 //! device's knobs and selectors from it, so a new built-in device needs no UI code. Parameter
@@ -63,12 +65,12 @@ pub struct ParamDescriptorDto {
     pub choices: Vec<String>,
 }
 
-/// One built-in device kind.
+/// One device kind: a built-in device or a scanned third-party plugin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct DeviceDescriptor {
-    /// The `Device::kind` string, for example `builtin.synth`.
+    /// The `Device::kind` string, for example `builtin.synth` or `clap:com.vendor.plugin`.
     pub kind: String,
     /// Name shown in menus and panels.
     pub name: String,
@@ -76,6 +78,44 @@ pub struct DeviceDescriptor {
     pub instrument: bool,
     /// The parameters, in display order.
     pub params: Vec<ParamDescriptorDto>,
+    /// The plugin format (`clap`); absent for a built-in device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub format: Option<String>,
+    /// The plugin's vendor; absent for a built-in device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub vendor: Option<String>,
+}
+
+/// A plugin file the last scan could not use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct PluginScanFailure {
+    /// The plugin file.
+    pub path: String,
+    /// `crashed`, `timed_out` or `failed`.
+    pub status: String,
+    /// What went wrong, as text.
+    pub detail: String,
+}
+
+/// What the plugin scanner knows: every usable plugin and every file it had to give up on.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct PluginScanSummary {
+    /// The plugins that can be used.
+    pub plugins: Vec<DeviceDescriptor>,
+    /// Files that crashed the scanner, timed out or failed to load.
+    pub failures: Vec<PluginScanFailure>,
+    /// Plugin files the last scan found.
+    pub files: u32,
+    /// How many of them were scanned now (the rest came from the cache).
+    pub scanned: u32,
+    /// The folders that were searched.
+    pub folders: Vec<String>,
 }
 
 impl From<&ParamDescriptor> for ParamDescriptorDto {
@@ -112,6 +152,8 @@ impl From<&DeviceInfo> for DeviceDescriptor {
             name: info.name.to_string(),
             instrument: info.instrument,
             params: info.params.iter().map(ParamDescriptorDto::from).collect(),
+            format: None,
+            vendor: None,
         }
     }
 }

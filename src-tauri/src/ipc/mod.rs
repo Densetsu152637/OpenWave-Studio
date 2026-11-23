@@ -46,6 +46,8 @@ mod mix;
 mod mvp;
 #[cfg(test)]
 mod mvp_record;
+#[cfg(test)]
+mod plugin_state;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -85,10 +87,19 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl IpcState {
-    /// State over an empty project.
+    /// State over an empty project, without third-party plugin hosting.
     pub fn new() -> Self {
+        Self::from_control(Control::new())
+    }
+
+    /// State over an empty project that hosts third-party plugins through `plugins`.
+    pub fn with_plugins(plugins: ow_plugin_host::PluginCache) -> Self {
+        Self::from_control(Control::new().with_plugins(plugins))
+    }
+
+    fn from_control(control: Control) -> Self {
         Self {
-            control: Mutex::new(Control::new()),
+            control: Mutex::new(control),
             subscriptions: Arc::new(Subscriptions::new()),
             bridge: Mutex::new(None),
             peaks: peaks::PeakStore::default(),
@@ -108,6 +119,29 @@ impl IpcState {
     /// The whole project at the current sequence number.
     pub fn snapshot(&self) -> Snapshot {
         lock(&self.control).snapshot()
+    }
+
+    /// Recompiles the project when it holds hosted plugins (the plugin list changed: one that
+    /// was missing may be installed now, or one that was playing is gone).
+    pub fn refresh_plugins(&self, target: &dyn control::PlanTarget) {
+        let mut control = lock(&self.control);
+        let hosted = control
+            .session()
+            .project()
+            .devices
+            .values()
+            .any(|device| ow_plugin_host::is_plugin_kind(&device.kind));
+        if hosted {
+            control.apply_to_engine(target);
+        }
+    }
+
+    /// Releases every plugin instance (the app is closing).
+    pub fn release_plugins(&self) {
+        let plugins = lock(&self.control).plugins().cloned();
+        if let Some(plugins) = plugins {
+            plugins.clear();
+        }
     }
 
     /// Runs `work` with the control locked: every command inside is ordered after the previous
@@ -167,11 +201,13 @@ pub async fn ipc_alloc_ids(app: AppHandle, count: u32) -> Result<CommandReply, S
     .await
 }
 
-/// Every built-in device kind with its parameter descriptors: what the UI builds device panels
-/// (and the "Add MIDI track" instrument) from. Static data, so it needs no control lock.
+/// Every device kind with its parameter descriptors: the built-in devices, then the scanned
+/// plugins. What the UI builds device panels, the effect picker and the instrument picker from.
+/// Needs no control lock.
 #[tauri::command]
-pub fn device_descriptors() -> Vec<ow_ipc::DeviceDescriptor> {
-    ow_ipc::device_descriptors()
+pub fn device_descriptors(app: AppHandle) -> Vec<ow_ipc::DeviceDescriptor> {
+    let plugins = app.try_state::<crate::plugins::Plugins>();
+    crate::plugins::all_descriptors(plugins.as_deref())
 }
 
 /// Starts a new, empty project and returns it as a snapshot (the patch channel gets a reset).

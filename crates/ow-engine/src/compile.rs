@@ -37,6 +37,12 @@
 //! * inserts are stereo-in, stereo-out [`DeviceNode`]s in chain order after the source, created
 //!   from the registry the same way. A disabled insert, or one whose kind the registry does not
 //!   know (no effect is built in yet), is a unity [`GainNode`] pass-through under the same key;
+//! * a device of kind `clap:<id>` is a hosted plugin: the node wraps the instance that
+//!   [`CompileContext::plugins`] holds for the device id (created on the first compile, reused by
+//!   every later one, so a recompile never re-instantiates it), with the model's parameters and
+//!   state applied. A plugin that is not installed compiles like an unknown kind: silent as an
+//!   instrument, a pass-through as an insert. The plugin's latency is the node's latency, so
+//!   delay compensation covers it;
 //!
 //! # Stable identity and state carry-over
 //!
@@ -62,6 +68,7 @@ use ow_model::{
     AuxSend, BusId, Clip, ClipContent, ClipId, Device, DeviceId, MediaId, MixerRef, Output,
     Project, Strip, Track, TrackId, ValidationError,
 };
+use ow_plugin_host::{PluginCache, PluginDevice, decode_state, is_plugin_kind};
 
 use ow_ipc::TelemetryBank;
 
@@ -81,6 +88,9 @@ pub struct CompileContext {
     /// Media already loaded (and resampled to the engine rate), shared by every compile with
     /// this context.
     pub sources: SourceCache,
+    /// The hosted plugin instances, by device id, shared by every compile with this context.
+    /// `None` means no plugin can be hosted: devices of plugin kinds compile as unknown kinds.
+    pub plugins: Option<PluginCache>,
 }
 
 impl CompileContext {
@@ -89,6 +99,24 @@ impl CompileContext {
         Self {
             media_root: media_root.into(),
             sources: SourceCache::new(),
+            plugins: None,
+        }
+    }
+
+    /// The same context with `plugins` as its plugin cache.
+    pub fn with_plugins(mut self, plugins: PluginCache) -> Self {
+        self.plugins = Some(plugins);
+        self
+    }
+
+    /// A context for an offline render (export, analysis): the same media and plugin directory,
+    /// but its own plugin instances, so rendering never touches the plugins the live engine is
+    /// running. Dropping the context releases them.
+    pub fn for_offline(&self) -> Self {
+        Self {
+            media_root: self.media_root.clone(),
+            sources: self.sources.clone(),
+            plugins: self.plugins.as_ref().map(PluginCache::fork),
         }
     }
 }
@@ -410,6 +438,7 @@ fn compile_inner(
         meters,
         sample_rate,
         max_block,
+        plugins: ctx.plugins.as_ref(),
     };
     let mut graph = Graph::new();
     let mut nodes = NodeMap::default();
@@ -499,6 +528,16 @@ fn compile_inner(
     }
 
     let plan = graph.compile(sample_rate, max_block)?;
+    if let Some(plugins) = &ctx.plugins {
+        // Plugin instances of devices that left the project (or changed kind) are released.
+        let live = project
+            .devices
+            .values()
+            .filter(|device| is_plugin_kind(&device.kind))
+            .map(|device| (device.id.0, device.kind.clone()))
+            .collect();
+        plugins.retain(&live);
+    }
     Ok(Compiled {
         plan,
         timeline,
@@ -513,6 +552,7 @@ struct Shared<'a> {
     meters: Option<&'a Arc<TelemetryBank>>,
     sample_rate: u32,
     max_block: usize,
+    plugins: Option<&'a PluginCache>,
 }
 
 /// What `build_strip` needs to compile a track's audio clips.
@@ -618,9 +658,46 @@ fn make_device(
     made
 }
 
+/// The hosted plugin for `device` as an `ow-dsp` device, creating its instance on first use.
+/// `None` when no plugin cache is set, the plugin is not installed, is not of the wanted sort
+/// (instrument or effect), or could not be instantiated.
+fn hosted_device(
+    cache: Option<&PluginCache>,
+    device: &Device,
+    instrument: bool,
+    sample_rate: u32,
+    max_block: usize,
+) -> Option<Box<dyn ow_dsp::Device>> {
+    let cache = cache?;
+    let info = cache.directory().find(&device.kind)?;
+    if info.instrument != instrument {
+        return None;
+    }
+    let state = device
+        .state
+        .iter()
+        .find(|chunk| chunk.format == info.format.state_tag())
+        .and_then(|chunk| decode_state(&chunk.data));
+    match cache.acquire(
+        device.id.0,
+        &device.kind,
+        &device.params,
+        state,
+        sample_rate,
+        max_block,
+    ) {
+        Ok(plugin) => Some(Box::new(PluginDevice::new(plugin.processor()))),
+        Err(error) => {
+            eprintln!("[openwave] could not host {}: {error}", device.kind);
+            None
+        }
+    }
+}
+
 /// Adds the instrument node of a MIDI track: the registry's instrument for the device's kind
-/// with the track's MIDI clips as its note source. `None` (a silent track) when the device is
-/// disabled, missing or of a kind that is not a built-in instrument.
+/// (or the hosted plugin of a plugin kind) with the track's MIDI clips as its note source.
+/// `None` (a silent track) when the device is disabled, missing or of a kind that is not an
+/// instrument.
 fn add_instrument(
     graph: &mut Graph,
     add: &mut AddNode<'_>,
@@ -630,17 +707,30 @@ fn add_instrument(
     instrument: DeviceId,
 ) -> Option<NodeId> {
     let device = project.devices.get(&instrument).filter(|d| d.enabled)?;
-    let info = ow_dsp::find(&device.kind).filter(|info| info.instrument)?;
-    let events = schedule(
-        project.clips.values().filter(|c| c.track == track.id),
-        env.timeline,
-        env.sample_rate,
-    );
-    let node = DeviceNode::instrument(
-        info,
-        make_device(info, device, env.sample_rate, env.max_block),
-        MidiClipPlayer::new(events),
-    );
+    let events = || {
+        schedule(
+            project.clips.values().filter(|c| c.track == track.id),
+            env.timeline,
+            env.sample_rate,
+        )
+    };
+    let node = if is_plugin_kind(&device.kind) {
+        let hosted = hosted_device(
+            env.ctx.plugins.as_ref(),
+            device,
+            true,
+            env.sample_rate,
+            env.max_block,
+        )?;
+        DeviceNode::hosted_instrument(hosted, MidiClipPlayer::new(events()))
+    } else {
+        let info = ow_dsp::find(&device.kind).filter(|info| info.instrument)?;
+        DeviceNode::instrument(
+            info,
+            make_device(info, device, env.sample_rate, env.max_block),
+            MidiClipPlayer::new(events()),
+        )
+    };
     Some(add(graph, NodeKey::Device(instrument), Box::new(node)))
 }
 
@@ -651,19 +741,29 @@ fn add_insert(
     add: &mut AddNode<'_>,
     project: &Project,
     id: DeviceId,
-    sample_rate: u32,
-    max_block: usize,
+    shared: Shared<'_>,
 ) -> NodeId {
-    let effect = project
-        .devices
-        .get(&id)
-        .filter(|d| d.enabled)
-        .and_then(|d| Some((d, ow_dsp::find(&d.kind).filter(|info| !info.instrument)?)));
-    let node: Box<dyn crate::Node> = match effect {
-        Some((device, info)) => Box::new(DeviceNode::effect(
-            info,
-            make_device(info, device, sample_rate, max_block),
-        )),
+    let Shared {
+        sample_rate,
+        max_block,
+        plugins,
+        ..
+    } = shared;
+    let enabled = project.devices.get(&id).filter(|d| d.enabled);
+    let node: Box<dyn crate::Node> = match enabled {
+        Some(device) if is_plugin_kind(&device.kind) => {
+            match hosted_device(plugins, device, false, sample_rate, max_block) {
+                Some(hosted) => Box::new(DeviceNode::hosted_effect(hosted)),
+                None => Box::new(GainNode::new(2, 1.0)),
+            }
+        }
+        Some(device) => match ow_dsp::find(&device.kind).filter(|info| !info.instrument) {
+            Some(info) => Box::new(DeviceNode::effect(
+                info,
+                make_device(info, device, sample_rate, max_block),
+            )),
+            None => Box::new(GainNode::new(2, 1.0)),
+        },
         None => Box::new(GainNode::new(2, 1.0)),
     };
     add(graph, NodeKey::Device(id), node)
@@ -679,11 +779,7 @@ fn build_strip(
     shared: Shared<'_>,
     clips: Option<&mut ClipEnv<'_>>,
 ) -> StripNodes {
-    let Shared {
-        meters,
-        sample_rate,
-        max_block,
-    } = shared;
+    let Shared { meters, .. } = shared;
     // Source: the track's audio clips, or its instrument playing its MIDI clips. Both are
     // stereo nodes.
     let mut source: Option<NodeId> = None;
@@ -738,7 +834,7 @@ fn build_strip(
         previous = Some(node);
     }
     for device in &strip.inserts {
-        let node = add_insert(graph, add, project, *device, sample_rate, max_block);
+        let node = add_insert(graph, add, project, *device, shared);
         entry.get_or_insert(node);
         if let Some(from) = previous {
             wire.push((from, node));

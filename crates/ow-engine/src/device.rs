@@ -12,6 +12,12 @@
 //! Parameters are fixed when the node is built from the model's device; `Node::set_param`
 //! forwards a live value (clamped to the descriptor's range) for callers that want to change one
 //! without a recompile.
+//!
+//! A hosted third-party plugin is a device too (`ow_plugin_host::PluginDevice`), so it runs in
+//! the same node, built with [`DeviceNode::hosted_instrument`] or [`DeviceNode::hosted_effect`].
+//! It has no static descriptor, and its live parameter edits do not pass through the node: they
+//! go through the plugin instance's own queue, which survives the recompile that replaces this
+//! node.
 
 use ow_dsp::{Device, DeviceInfo, Event};
 
@@ -23,7 +29,8 @@ pub const MAX_EVENTS_PER_BLOCK: usize = 4096;
 
 /// A built-in device running as a node.
 pub struct DeviceNode {
-    info: &'static DeviceInfo,
+    /// The built-in device's descriptor; `None` for a hosted plugin.
+    info: Option<&'static DeviceInfo>,
     device: Box<dyn Device>,
     player: Option<MidiClipPlayer>,
     inputs: usize,
@@ -39,16 +46,26 @@ impl DeviceNode {
         device: Box<dyn Device>,
         player: MidiClipPlayer,
     ) -> Self {
-        Self::build(info, device, Some(player), 0)
+        Self::build(Some(info), device, Some(player), 0)
     }
 
     /// An effect node: stereo in, stereo out, no events.
     pub fn effect(info: &'static DeviceInfo, device: Box<dyn Device>) -> Self {
-        Self::build(info, device, None, 2)
+        Self::build(Some(info), device, None, 2)
+    }
+
+    /// An instrument node over a hosted plugin: no audio inputs, notes from `player`.
+    pub fn hosted_instrument(device: Box<dyn Device>, player: MidiClipPlayer) -> Self {
+        Self::build(None, device, Some(player), 0)
+    }
+
+    /// An effect node over a hosted plugin: stereo in, stereo out.
+    pub fn hosted_effect(device: Box<dyn Device>) -> Self {
+        Self::build(None, device, None, 2)
     }
 
     fn build(
-        info: &'static DeviceInfo,
+        info: Option<&'static DeviceInfo>,
         device: Box<dyn Device>,
         player: Option<MidiClipPlayer>,
         inputs: usize,
@@ -124,7 +141,7 @@ impl Node for DeviceNode {
     }
 
     fn set_param(&mut self, param: u32, value: f32) {
-        if let Some(descriptor) = self.info.param(param) {
+        if let Some(descriptor) = self.info.and_then(|info| info.param(param)) {
             self.device
                 .set_param(param, descriptor.clamp(f64::from(value)));
         }

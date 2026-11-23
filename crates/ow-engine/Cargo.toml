@@ -18,6 +18,9 @@ ow-ipc = { path = "../ow-ipc" }
 # `AudioSource` for the clip source node (decoding, streaming and peaks stay in `ow-media`).
 ow-media = { path = "../ow-media" }
 ow-model = { path = "../ow-model" }
+# Hosted third-party plugins as device nodes, and the cache that keeps their instances across
+# recompiles.
+ow-plugin-host = { path = "../ow-plugin-host" }
 rtrb = "0.4.1"
 
 [dev-dependencies]

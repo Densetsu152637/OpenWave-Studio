@@ -59,10 +59,7 @@ impl IpcState {
     /// the end of the last clip plus the export tail). The render always runs from the project
     /// start, so tails and held notes are right at the start of a range.
     pub fn analyze(&self, request: &AnalysisRequest) -> Result<AnalysisReport, String> {
-        let (project, ctx) = {
-            let control = super::lock(&self.control);
-            (control.session().project().clone(), control.ctx.clone())
-        };
+        let (project, ctx) = super::lock(&self.control).offline_snapshot();
         let beat = |name: &str, value: Option<f64>| match value {
             Some(beat) if !beat.is_finite() || beat < 0.0 => {
                 Err(format!("{name} must be a beat of 0 or more"))

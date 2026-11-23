@@ -215,6 +215,16 @@ pub enum EditorAction {
     Close,
 }
 
+/// Arguments of `scan_plugins`.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ScanPluginsArgs {
+    /// Scan every plugin file again, also those that did not change since the last scan (and
+    /// those that crashed it before). By default unchanged files are answered from the cache.
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// Arguments of `plugin_editor`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -306,7 +316,7 @@ tools! {
     GetProject(NoArgs) = "get_project",
         "Read the whole open project as the UI shows it: settings, tempo and time-signature maps, tracks (with their strip settings: volume, pan, mute, solo, output routing, sends), buses, the master strip, clips (MIDI clips with their notes), patterns, the media pool, devices with their current parameter values, automation lanes, markers. Also the history state (can_undo, can_redo, dirty, armed_tracks, missing_media, engine_error) and the saved project path. All ids are numbers, unique across every kind of entity.";
     GetDeviceTypes(NoArgs) = "get_device_types",
-        "List the device kinds that can be added as a track's instrument or as an insert effect: each kind's id (the `kind` of a Device), its name and its parameters (id, name, range, default, unit, scale, choice labels). Parameter values are set with the edit tool's set_device_param command. Scanned third-party plugins are listed here too once plugin hosting exists.";
+        "List the device kinds that can be added as a track's instrument or as an insert effect: each kind's id (the `kind` of a Device), its name and its parameters (id, name, range, default, unit, scale, choice labels). Parameter values are set with the edit tool's set_device_param command, for built-in devices and third-party plugins alike. `builtin` lists the built-in devices and `plugins` the scanned CLAP plugins (kind `clap:<plugin id>`; instruments are added as a MIDI track's instrument, effects as inserts). A plugin's state is saved with the project.";
     Edit(EditArgs) = "edit",
         "Change the project with edit commands, exactly as the UI does (the UI updates live and every call is an undo step). Anything a user can do to the project is an edit command: add, remove and move tracks and buses, add and move clips, notes, devices and sends, set volume, pan, mute, solo, output routing, tempo, markers and project settings. New entities need ids: reserve them with alloc_ids first and use them in the command (insert_track takes a bundle with the track, its clips and its devices). Read get_project to see ids and current values. Pass several commands to apply them atomically as one undo step.";
     AllocIds(AllocIdsArgs) = "alloc_ids",
@@ -329,12 +339,12 @@ tools! {
         "Render the project to a 32-bit float stereo WAV file, optionally normalised to a target integrated loudness with a true-peak ceiling (a plain gain). Answers the file written, what normalisation did and the measurements of what was written. Writes a file with the user's own file access; an existing file needs overwrite=true.";
     AudioSettings(AudioSettingsArgs) = "audio_settings",
         "Audio and MIDI device settings: list the backends, devices and MIDI inputs; get or set the preferences (audio backend, output and input device, sample rate, buffer size, MIDI inputs); retry a failed audio device; toggle the test tone.";
-    ScanPlugins(NoArgs) = "scan_plugins",
-        "Scan the plugin folders for third-party CLAP and VST3 plugins. Not available yet: the answer says so.";
+    ScanPlugins(ScanPluginsArgs) = "scan_plugins",
+        "Scan for third-party CLAP plugins: the standard plugin folders of this OS, the CLAP_PATH folders and the extra plugin folders of the preferences (audio_settings set `{\"paths\":{\"pluginDirs\":[\"/absolute/folder\"]}}`). Each plugin file is loaded in a separate process, so a plugin that crashes or hangs is skipped and reported, not fatal; files that did not change are answered from the cache unless force is true. Answers the usable plugins (their `kind` is what a device's kind is set to) and the files that failed.";
     ListPlugins(NoArgs) = "list_plugins",
-        "List the scanned third-party plugins. Not available yet: the answer says so.";
+        "List the plugins the last scan found and the plugin files it had to skip (crashed, timed out or failed to load), without scanning again.";
     PluginEditor(PluginEditorArgs) = "plugin_editor",
-        "Open or close a hosted plugin's own editor window. Not available yet: the answer says so.";
+        "Open or close a hosted plugin's own editor window. Not available yet: the answer says so; set the plugin's parameters with the edit tool instead.";
 }
 
 #[cfg(test)]

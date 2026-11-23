@@ -1,9 +1,33 @@
 <script lang="ts">
   import type { Preferences } from "../../lib/ipc";
+  import { pluginsList, pluginsScan } from "../../lib/ipc/commands";
+  import type { PluginScanSummary } from "../../lib/ipc/types";
+  import { onMount } from "svelte";
 
   let { prefs = $bindable() }: { prefs: Preferences } = $props();
 
   let newPluginDir = $state("");
+  let scan = $state<PluginScanSummary | null>(null);
+  let scanning = $state(false);
+  let scanError = $state<string | null>(null);
+
+  onMount(() => {
+    pluginsList()
+      .then((summary) => (scan = summary))
+      .catch(() => {});
+  });
+
+  async function scanNow(force: boolean) {
+    scanning = true;
+    scanError = null;
+    try {
+      scan = await pluginsScan(force);
+    } catch (error) {
+      scanError = String(error);
+    } finally {
+      scanning = false;
+    }
+  }
 
   function addPluginDir() {
     const dir = newPluginDir.trim();
@@ -57,7 +81,36 @@
     />
     <button type="button" onclick={addPluginDir} disabled={!newPluginDir.trim()}>Add</button>
   </div>
-  <p class="hint">Paths must be absolute. They take effect when the project and plugin features read them.</p>
+  <p class="hint">Paths must be absolute. Save the settings, then scan.</p>
+
+  <h4>Plugins</h4>
+  <div class="row">
+    <button type="button" onclick={() => scanNow(false)} disabled={scanning}>
+      {scanning ? "Scanning\u2026" : "Scan for plugins"}
+    </button>
+    <button type="button" onclick={() => scanNow(true)} disabled={scanning} title="Load every plugin file again">
+      Rescan all
+    </button>
+  </div>
+  {#if scanError}
+    <p class="error" role="alert">{scanError}</p>
+  {/if}
+  {#if scan}
+    <p class="hint">
+      {scan.plugins.length} usable CLAP plugin{scan.plugins.length === 1 ? "" : "s"} in {scan.files} file{scan.files ===
+      1
+        ? ""
+        : "s"}.
+    </p>
+    {#if scan.failures.length > 0}
+      <p class="hint">Skipped, because they crashed the scanner, did not answer or could not be loaded:</p>
+      <ul>
+        {#each scan.failures as failure (failure.path)}
+          <li><span class="path">{failure.path}</span> <span class="hint">({failure.status})</span></li>
+        {/each}
+      </ul>
+    {/if}
+  {/if}
 </section>
 
 <style>
@@ -97,5 +150,8 @@
   }
   .hint {
     color: var(--muted);
+  }
+  .error {
+    color: var(--danger, #c0392b);
   }
 </style>

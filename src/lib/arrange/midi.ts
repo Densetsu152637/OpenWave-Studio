@@ -35,13 +35,19 @@ export function synthDescriptor(descriptors: readonly DeviceDescriptor[]): Devic
   return synth;
 }
 
-/** Appends a MIDI track named "MIDI N" with a `builtin.synth` instrument; resolves with its id. */
+/**
+ * Appends a MIDI track named "MIDI N" with an instrument; resolves with its id. The instrument is
+ * `instrument` (a built-in or plugin instrument from the descriptors) or, by default, the
+ * built-in synth.
+ */
 export async function addMidiTrack(
   api: ArrangeApi,
   trackCount: number,
   descriptors: readonly DeviceDescriptor[],
+  instrument?: DeviceDescriptor,
 ): Promise<number> {
-  const synth = synthDescriptor(descriptors);
+  if (instrument && !instrument.instrument) throw new Error(`${instrument.name} is not an instrument`);
+  const synth = instrument ?? synthDescriptor(descriptors);
   const [id, deviceId] = await api.allocIds(2);
   if (id === undefined || deviceId === undefined) throw new Error("no ids were reserved");
   await api.edit({

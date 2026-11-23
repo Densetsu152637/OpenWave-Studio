@@ -2,11 +2,11 @@
 import type { ParamDescriptorDto } from "./ParamDescriptorDto";
 
 /**
- * One built-in device kind.
+ * One device kind: a built-in device or a scanned third-party plugin.
  */
 export type DeviceDescriptor = { 
 /**
- * The `Device::kind` string, for example `builtin.synth`.
+ * The `Device::kind` string, for example `builtin.synth` or `clap:com.vendor.plugin`.
  */
 kind: string, 
 /**
@@ -20,4 +20,12 @@ instrument: boolean,
 /**
  * The parameters, in display order.
  */
-params: Array<ParamDescriptorDto>, };
+params: Array<ParamDescriptorDto>, 
+/**
+ * The plugin format (`clap`); absent for a built-in device.
+ */
+format?: string, 
+/**
+ * The plugin's vendor; absent for a built-in device.
+ */
+vendor?: string, };

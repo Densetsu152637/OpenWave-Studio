@@ -24,7 +24,7 @@ const RIGHT_HZ: f64 = 330.0;
 /// Compiles each project for the project's own rate and records what was missing.
 #[derive(Default)]
 pub(super) struct CompilingTarget {
-    applied: RefCell<Vec<Vec<u64>>>,
+    pub(super) applied: RefCell<Vec<Vec<u64>>>,
 }
 
 impl PlanTarget for CompilingTarget {

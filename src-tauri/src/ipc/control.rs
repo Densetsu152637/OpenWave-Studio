@@ -10,11 +10,13 @@
 //! (created by the first import, deleted when the project is saved elsewhere, replaced or the
 //! app exits).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use ow_engine::{CompileContext, Engine};
 use ow_ipc::{CommandReply, ModelPatch, PatchOp, Project, Session, Snapshot, UiCommand};
-use ow_model::{TrackId, TrackKind};
+use ow_model::{Device, DeviceId, StateChunk, TrackId, TrackKind};
+use ow_plugin_host::{PluginCache, encode_state, is_plugin_kind};
 
 /// Where patches go (the UI's `ipc::Channel`).
 pub trait PatchSink: Send {
@@ -51,6 +53,10 @@ pub struct Control {
     /// Counts the projects this control has swapped in (open, new), so a recording can tell
     /// that the project it started in is gone.
     epoch: u64,
+    /// The hosted-plugin devices as of the last compile, by device id. A command that changes
+    /// nothing about a plugin device except its parameters is sent to the running plugin
+    /// instance instead of recompiling the project.
+    plugin_shadow: BTreeMap<u64, Device>,
 }
 
 /// True when an operation changes what the engine plays; renaming the project or reserving ids
@@ -74,7 +80,102 @@ impl Control {
             ctx: CompileContext::default(),
             temp: None,
             epoch: 0,
+            plugin_shadow: BTreeMap::new(),
         }
+    }
+
+    /// Hosts third-party plugins through `plugins` from now on.
+    pub fn with_plugins(mut self, plugins: PluginCache) -> Self {
+        self.ctx.plugins = Some(plugins);
+        self
+    }
+
+    /// The plugin cache, when plugins can be hosted.
+    pub fn plugins(&self) -> Option<&PluginCache> {
+        self.ctx.plugins.as_ref()
+    }
+
+    /// Writes every hosted plugin's current state into the `state` of its device in `project`
+    /// (a copy of the model being serialised, or rendered). The live model is not touched, so
+    /// this adds no undo step and does not make the project dirty. The state is collected from
+    /// the plugin instances on the plugin main thread.
+    pub(super) fn embed_plugin_states(&self, project: &mut Project) {
+        let Some(plugins) = self.plugins() else {
+            return;
+        };
+        for (device, format, bytes) in plugins.collect_states() {
+            let Some(target) = project.devices.get_mut(&DeviceId(device)) else {
+                continue;
+            };
+            let chunk = StateChunk {
+                format: format.state_tag().to_string(),
+                data: encode_state(&bytes),
+            };
+            match target.state.iter_mut().find(|c| c.format == chunk.format) {
+                Some(existing) => *existing = chunk,
+                None => target.state.push(chunk),
+            }
+        }
+    }
+
+    /// The project and context for an offline render (export, analysis): the project with the
+    /// plugins' current state embedded, and a context with its own plugin instances so the live
+    /// engine's are left alone.
+    pub(super) fn offline_snapshot(&self) -> (Project, CompileContext) {
+        let mut project = self.session.project().clone();
+        self.embed_plugin_states(&mut project);
+        (project, self.ctx.for_offline())
+    }
+
+    /// Remembers the hosted-plugin devices of the project that was just compiled.
+    fn refresh_plugin_shadow(&mut self) {
+        self.plugin_shadow = self
+            .session
+            .project()
+            .devices
+            .values()
+            .filter(|device| is_plugin_kind(&device.kind))
+            .map(|device| (device.id.0, device.clone()))
+            .collect();
+    }
+
+    /// Tries to apply `patch` to the running plugin instances alone. True when every operation
+    /// that changes what is played is a hosted plugin whose parameters (and nothing else about
+    /// the sound) changed; the new values were then queued on the instances and no recompile is
+    /// needed. False means the project has to be recompiled.
+    fn apply_plugin_param_edits(&mut self, patch: &ModelPatch) -> bool {
+        let Some(plugins) = self.ctx.plugins.clone() else {
+            return false;
+        };
+        if self.engine_error.is_some() {
+            return false;
+        }
+        let mut updates = Vec::new();
+        for op in patch.ops.iter().filter(|op| affects_audio(op)) {
+            let PatchOp::UpsertDevice { device } = op else {
+                return false;
+            };
+            let Some(before) = self.plugin_shadow.get(&device.id.0) else {
+                return false;
+            };
+            let same_sound = is_plugin_kind(&device.kind)
+                && before.kind == device.kind
+                && before.enabled == device.enabled
+                && before.state == device.state
+                && before.sidechain == device.sidechain;
+            let Some(plugin) = plugins.get(device.id.0).filter(|_| same_sound) else {
+                return false;
+            };
+            updates.push((device.clone(), plugin));
+        }
+        if updates.is_empty() {
+            return false;
+        }
+        for (device, plugin) in updates {
+            plugin.set_params(&device.params);
+            self.plugin_shadow.insert(device.id.0, device);
+        }
+        true
     }
 
     /// Changes whenever another project replaces the current one.
@@ -220,10 +321,14 @@ impl Control {
         keep_patch: bool,
     ) -> (Result<CommandReply, String>, Option<ModelPatch>) {
         let outcome = self.session.handle(command);
-        let changed = outcome
-            .patch
-            .as_ref()
-            .is_some_and(|patch| patch.ops.iter().any(affects_audio));
+        // A hosted plugin's parameter edit goes straight to the running instance; anything else
+        // that changes the sound recompiles.
+        let changed = match &outcome.patch {
+            Some(patch) if patch.ops.iter().any(affects_audio) => {
+                !self.apply_plugin_param_edits(patch)
+            }
+            _ => false,
+        };
         if let Some(patch) = &outcome.patch {
             self.deliver(patch);
         }
@@ -257,6 +362,7 @@ impl Control {
         match target.apply_project(self.session.project(), &self.ctx) {
             Ok(missing) => {
                 self.engine_error = None;
+                self.refresh_plugin_shadow();
                 self.deliver_status(missing);
             }
             Err(error) => {

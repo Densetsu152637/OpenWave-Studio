@@ -29,7 +29,14 @@
     withSend,
     withoutSend,
   } from "../mixer/mixer";
-  import { loadDescriptors } from "../devices/descriptors";
+  import {
+    deviceLabel,
+    instrumentDescriptors,
+    loadDescriptors,
+    pluginDescriptors,
+    resetDescriptors,
+    watchPlugins,
+  } from "../devices/descriptors";
   import { descriptorFor, setParamCommand } from "../devices/params";
   import { replaceNotesCommand } from "../pianoroll/notes";
   import { nativeDialogs } from "../arrange/dialogs";
@@ -219,9 +226,12 @@
       selectedClip = result.clipId;
     });
 
-  const addInstrumentTrack = () =>
+  /** Plugin instruments, which the instrument picker offers next to the built-in synth. */
+  const pluginInstruments = $derived(instrumentDescriptors(pluginDescriptors(descriptors)));
+
+  const addInstrumentTrack = (instrument?: DeviceDescriptor) =>
     run(async () => {
-      selectedTrack = await addMidiTrack(commandsApi, tracks.length, descriptors);
+      selectedTrack = await addMidiTrack(commandsApi, tracks.length, descriptors, instrument);
       selectedClip = null;
     });
 
@@ -284,9 +294,22 @@
   }
 
   onMount(() => {
-    loadDescriptors()
-      .then((loaded) => (descriptors = loaded))
-      .catch(() => {});
+    const reload = () =>
+      loadDescriptors()
+        .then((loaded) => (descriptors = loaded))
+        .catch(() => {});
+    reload();
+    // A plugin scan finished (at startup, or from the settings or an agent): fetch again.
+    let stop = () => {};
+    let gone = false;
+    watchPlugins(() => {
+      resetDescriptors();
+      reload();
+    }).then((unlisten) => (gone ? unlisten() : (stop = unlisten)));
+    return () => {
+      gone = true;
+      stop();
+    };
   });
 
   function selectClip(track: Track, id: number) {
@@ -317,9 +340,27 @@
 <main class="arrangement" aria-label="Arrangement">
   <div class="toolbar">
     <button type="button" onclick={addAudioTrack} disabled={!project}>Add audio track</button>
-    <button type="button" onclick={addInstrumentTrack} disabled={!project || descriptors.length === 0}>
+    <button type="button" onclick={() => addInstrumentTrack()} disabled={!project || descriptors.length === 0}>
       Add MIDI track
     </button>
+    {#if pluginInstruments.length > 0}
+      <select
+        aria-label="Add MIDI track with a plugin instrument"
+        value=""
+        disabled={!project}
+        onchange={(event) => {
+          const kind = event.currentTarget.value;
+          event.currentTarget.value = "";
+          const instrument = pluginInstruments.find((d) => d.kind === kind);
+          if (instrument) addInstrumentTrack(instrument);
+        }}
+      >
+        <option value="" disabled>MIDI track with plugin&hellip;</option>
+        {#each pluginInstruments as instrument (instrument.kind)}
+          <option value={instrument.kind}>{deviceLabel(instrument)}</option>
+        {/each}
+      </select>
+    {/if}
     <button type="button" onclick={newMidiClip} disabled={!selectedMidiTrack}>New MIDI clip</button>
     <button type="button" onclick={addBusStrip} disabled={!project}>Add bus</button>
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>

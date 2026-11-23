@@ -47,6 +47,33 @@ describe("MIDI tracks", () => {
   });
 });
 
+describe("plugin instruments", () => {
+  const plugin: DeviceDescriptor = {
+    kind: "clap:com.vendor.pad",
+    name: "Pad",
+    instrument: true,
+    params: [],
+    format: "clap",
+    vendor: "Vendor",
+  };
+
+  it("puts a chosen plugin instrument on the new track instead of the synth", async () => {
+    const { api, edits } = recorder();
+    await addMidiTrack(api, 0, [synth, plugin], plugin);
+    const insert = edits[0]!;
+    if (insert.command !== "insert_track") throw new Error("expected insert_track");
+    expect(insert.bundle.devices[0]).toMatchObject({ kind: "clap:com.vendor.pad", name: "Pad" });
+    expect(insert.bundle.item).toMatchObject({ kind: "midi", instrument: 101 });
+  });
+
+  it("refuses an effect as the instrument", async () => {
+    const { api, edits } = recorder();
+    const effect = { ...plugin, instrument: false };
+    await expect(addMidiTrack(api, 0, [synth], effect)).rejects.toThrow("not an instrument");
+    expect(edits).toEqual([]);
+  });
+});
+
 describe("MIDI clips", () => {
   const signatures = new SignatureMap([]);
 

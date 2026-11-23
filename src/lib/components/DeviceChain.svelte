@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { ChainEntry } from "../devices/chain";
+  import { deviceLabel } from "../devices/descriptors";
   import type { Device, DeviceDescriptor } from "../ipc/types";
 
   /**
    * The FX list of one track: its instrument (MIDI tracks) and inserts in signal order. Selecting
    * an entry shows its panel; an insert has a bypass toggle and a remove button; the menu adds one
-   * of the built-in effects at the end. It edits nothing itself.
+   * of the built-in effects or scanned plugins at the end. It edits nothing itself.
    */
   let {
     chain,
@@ -82,7 +83,7 @@
   >
     <option value="" disabled>Add effect&hellip;</option>
     {#each effects as effect (effect.kind)}
-      <option value={effect.kind}>{effect.name}</option>
+      <option value={effect.kind}>{deviceLabel(effect)}</option>
     {/each}
   </select>
 </section>

@@ -74,6 +74,10 @@ impl IpcState {
         let old_temp = control.temp.take();
         control.ctx.media_root = PathBuf::new();
         control.ctx.sources.clear();
+        // Device ids of the old project mean other devices now: release its plugins.
+        if let Some(plugins) = control.plugins() {
+            plugins.clear();
+        }
         control.replace_project(Project::new("Untitled"), None, target);
         drop(old_temp);
         Ok(control.snapshot())
@@ -90,6 +94,9 @@ impl IpcState {
         control.ctx.media_root = dir.clone();
         control.ctx.sources.retain_under(&dir);
         self.prepare_peaks(&dir, &project);
+        if let Some(plugins) = control.plugins() {
+            plugins.clear();
+        }
         control.replace_project(project, Some(dir.to_string_lossy().into_owned()), target);
         drop(old_temp);
         Ok(control.snapshot())
@@ -115,7 +122,10 @@ impl IpcState {
                 .ok_or("the project has not been saved yet: choose where to save it")?,
         };
         let old_root = control.ctx.media_root.clone();
-        let project = control.session().project().clone();
+        // The plugins' current state goes into the saved copy (not into the live model, so the
+        // save adds no undo step and the dirty flag is decided by the user's edits alone).
+        let mut project = control.session().project().clone();
+        control.embed_plugin_states(&mut project);
         let moving = control.session().project_path().map(Path::new) != Some(dest.as_path());
         bundle::create_dirs(&dest)
             .map_err(|error| format!("could not create {}: {error}", dest.display()))?;
