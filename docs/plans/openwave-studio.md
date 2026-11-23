@@ -2,7 +2,7 @@
 
 Revision: 2026-11-22, revision 3 (critic rounds 1–3 applied; owner answers to open questions 1, 2 and 4 applied; no stage started)
 
-Paused 2026-11-23 at the owner's request: work stops once the app has auto-update, keeping it bare; resumption expected about two months later. State at pause: stages 1–10 done and reviewed on `experimental` (`de71eac`); stage 11 not started (an attempt was cancelled before any commit). Resume at stage 11. Before resuming, check: PR #3 (`experimental` → `main`) merged and a stable `v*` tag pushed, so the `updater-main` feed exists; toolchain and dependency versions in the architecture record's sources still current (Tauri, tauri-action pin, cpal, ts-rs); owner manual checks still open (update procedures for stages 3–4, stage 9 device checks on macOS/Linux, real unplug, real MIDI hardware); open question 1 (content source) still open.
+Paused 2026-11-23 at the owner's request (owner then asked to finish stage 11 first); resumption expected about two months later. State at pause: stages 1–11 done and reviewed on `experimental` (`661350c`). Resume at stage 12. Before resuming, check: PR #3 (`experimental` → `main`) merged and a stable `v*` tag pushed, so the `updater-main` feed exists; toolchain and dependency versions in the architecture record's sources still current (Tauri, tauri-action pin, cpal, ts-rs); owner manual checks still open (update procedures for stages 3–4, stage 9 device checks on macOS/Linux, real unplug, real MIDI hardware); open question 1 (content source) still open.
 
 Goals: each is true when its verifying command or observation succeeds.
 
@@ -220,13 +220,14 @@ Resolved 2026-11-22: ASIO stays source-build-only, no GPLv3 edition; plugin bund
 
 - Objective: `ow-media` import (symphonia), resampling (rubato), content-hashed copy into `audio/`, peak pyramid files, disk-streaming reader with prefetch, in-memory playback for short clips, recording writer (hound).
 - Depends on: stage 8
-- Owned paths: `crates/ow-media/`
+- Owned paths: `crates/ow-media/`; also touched with root acceptance: `crates/ow-engine/src/graph/clip.rs` (`ClipSourceNode`), `crates/ow-engine/tests/clip_source.rs`, `src-tauri/src/ipc/peaks.rs` (stage 10 handoff), docs in `crates/ow-ipc` and `docs/architecture.md` §2/§7/§11
 - Acceptance checks:
   - Decode and resample fixtures (WAV, AIFF, FLAC, MP3, Ogg) within tolerance: `cargo test -p ow-media decode`.
   - Streaming a 30-minute file renders identically to in-memory playback: `cargo test -p ow-media stream`.
-- Status: pending
-- Outcome:
-- Handoff notes: streaming threshold configurable (default 30 s).
+- Status: done
+- Outcome: `experimental` `661350c` (impl `10d2ca4`; review fixes `e88b959`, `661350c`). `ow-media`: symphonia 0.6 import (WAV, AIFF, FLAC, MP3, Ogg Vorbis; MPL-2.0 codecs only), rubato 5.1 resampling with delay compensation (exact `div_ceil` lengths, in-place padding), bounded hostile input (2 GiB file, 2^27 samples pre- and post-resample, 8 channels, corrupt packets, codec panics caught), content-hashed 32-bit float WAV copies in `audio/` with unique-temp atomic writes and complete-file dedup; `.owpk` peak pyramid (64/512/4096) built off-thread, served by `PeakCache` through `peaks_range` with the `ow_ipc::peaks` wire format unchanged; `StreamSource` two-lane disk streaming (gapless hinted loop wraps, underrun = silence + counter), memory playback up to a configurable 30 s threshold; `RecordWriter` (hound, lock-free ring); `ow_engine::ClipSourceNode` playing any `AudioSource` at timeline placements. WAV headers in bundles are validated and clamped before any allocation. Tests: `decode` (exact lengths, sample-by-sample vs analytic sine for up- and downsampling), `stream` (30-minute file identical to memory, gapless hinted wrap), `rt_safety`, `wav_headers`, `peaks`, `record`, `ow-engine` `clip_source`, app `ipc::peaks`. CI green (45109293883). Implementation gate: 3 rounds, 7 findings (6 + R1) accepted and fixed, 0 rejected, 0 open; improvements adopted: exact lengths, in-place padding, rubato-version comment; declined: stale temp-file sweep (hidden, harmless; owner asked to keep it lean). FORMAT_VERSION unchanged.
+- Handoff notes: streaming threshold configurable (default 30 s). No import Tauri command yet; after `import_file` + `spawn_build`, call `PeakStore::register(media, owpk_path)`. Stage 12: request peak bins at least 64 frames wide. Stage 13: `compile` still builds placeholder tones — build a `ClipSourceNode` per clip from `MediaItem.path` via `open_source`, one source per simultaneously playing placement, call `seek_hint` before transport start, after locate and ahead of each loop wrap; fades not implemented (linear gain only); sources must be at the project rate; streams use 2 lanes × blocks × block_frames memory (≈8 MB at 8 ch). Stage 14: wire `RecordProducer` into the input path, `finish()` on stop, then `Pyramid::from_wav` and register. The `- 1` resampler delay constant was measured with rubato 5.1; the analytic-sine test guards upgrades. Possible later: sweep orphan `.*.tmp` files in `audio/` and `cache/`.
+
 
 ## Stage 12: Arrangement view and navigation
 
