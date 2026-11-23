@@ -115,3 +115,24 @@ fn damaged_files_are_rejected_not_misread() {
     assert!(cache.range(1, 0, 100, 10).is_empty());
     assert!(cache.range(2, 0, 100, 10).is_empty());
 }
+
+#[test]
+fn registering_again_replaces_a_loaded_pyramid() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("a.owpk"), dir.path().join("b.owpk"));
+    let quiet = Pcm {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 640]],
+    };
+    let loud = Pcm {
+        sample_rate: 48_000,
+        channels: vec![vec![0.9; 640]],
+    };
+    Pyramid::from_pcm(&quiet).write(&a).unwrap();
+    Pyramid::from_pcm(&loud).write(&b).unwrap();
+    let cache = PeakCache::default();
+    cache.register(1, a);
+    assert_eq!(cache.range(1, 0, 640, 1), [(0.1, 0.1)]);
+    cache.register(1, b);
+    assert_eq!(cache.range(1, 0, 640, 1), [(0.9, 0.9)]);
+}

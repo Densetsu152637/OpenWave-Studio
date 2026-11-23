@@ -21,9 +21,13 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
 use crate::Pcm;
+use crate::wav::{wav_info, write_atomic};
 
 /// Packets that fail to decode are skipped; a file with more bad packets than this is refused.
 pub const MAX_BAD_PACKETS: usize = 64;
+
+/// Most channels a media file may have.
+pub const MAX_CHANNELS: usize = 8;
 
 /// Bounds on what one import may read and hold.
 #[derive(Debug, Clone, Copy)]
@@ -41,7 +45,7 @@ impl Default for ImportLimits {
         Self {
             max_file_bytes: 2 << 30,
             max_samples: 1 << 27,
-            max_channels: 8,
+            max_channels: MAX_CHANNELS,
         }
     }
 }
@@ -183,8 +187,9 @@ fn decode_inner(file: File, hint: Hint, limits: &ImportLimits) -> Result<Pcm, Im
 }
 
 /// Resamples to `rate`. Output length is `ceil(frames * rate / source rate)`; the filter's
-/// startup delay is removed.
-pub fn resample(pcm: &Pcm, rate: u32) -> Result<Pcm, ImportError> {
+/// startup delay is removed. A result of more than `max_samples` samples (frames times
+/// channels) is refused before anything is allocated.
+pub fn resample(pcm: &Pcm, rate: u32, max_samples: u64) -> Result<Pcm, ImportError> {
     if !(1000..=768_000).contains(&rate) || pcm.sample_rate == 0 {
         return Err(ImportError::BadRate);
     }
@@ -195,25 +200,80 @@ pub fn resample(pcm: &Pcm, rate: u32) -> Result<Pcm, ImportError> {
     let channels = pcm.channels.len();
     let frames = pcm.frames();
     let ratio = f64::from(rate) / f64::from(pcm.sample_rate);
-    let params = SincInterpolationParameters::new(128, WindowFunction::BlackmanHarris2);
+    let out_frames = (frames as f64 * ratio).ceil() + 1.0;
+    if out_frames * channels as f64 > max_samples as f64 {
+        return Err(ImportError::TooLarge("duration after resampling"));
+    }
+    const SINC_LEN: usize = 128;
+    let params = SincInterpolationParameters::new(SINC_LEN, WindowFunction::BlackmanHarris2);
+    // rubato trims `floor(delay)` frames, leaving the output up to one frame early. Prepend
+    // `lead` zero frames so the delay `(SINC_LEN / 2 + lead) * ratio` is a whole number of
+    // output frames, and drop exactly that many (see `skip` below): output frame `j` is then
+    // the input at time `j / ratio`. Rates whose reduced ratio is too awkward skip this.
+    let divisor = gcd(u64::from(pcm.sample_rate), u64::from(rate));
+    let period = u64::from(pcm.sample_rate) / divisor;
+    let half = (SINC_LEN / 2) as u64;
+    let mut lead = if period <= 65_536 {
+        ((period - half % period) % period) as usize
+    } else {
+        0
+    };
+    // The output must be shifted by at least one frame (see `skip`): another period of lead
+    // when the alignment alone would shift by none.
+    let whole_delay =
+        |lead: usize| (half + lead as u64) * u64::from(rate) / u64::from(pcm.sample_rate);
+    if period <= 65_536
+        && whole_delay(lead) <= (half * u64::from(rate)) / u64::from(pcm.sample_rate)
+    {
+        lead += period as usize;
+    }
+    let tail = 2;
+    let padded: Vec<Vec<f32>> = pcm
+        .channels
+        .iter()
+        .map(|c| {
+            let mut v = vec![0.0; lead];
+            v.extend_from_slice(c);
+            v.resize(lead + frames + tail, 0.0);
+            v
+        })
+        .collect();
+    let padded_frames = lead + frames + tail;
     let mut resampler =
         Async::<f32>::new_sinc(ratio, 1.0, &params, 1024, channels, FixedAsync::Input)
             .map_err(|e| err(&e))?;
-    let needed = resampler.process_all_needed_output_len(frames);
+    let needed = resampler.process_all_needed_output_len(padded_frames);
     let mut out = vec![vec![0.0_f32; needed]; channels];
-    let input = SequentialSliceOfVecs::new(&pcm.channels, channels, frames).map_err(|e| err(&e))?;
+    let input =
+        SequentialSliceOfVecs::new(&padded, channels, padded_frames).map_err(|e| err(&e))?;
     let mut output =
         SequentialSliceOfVecs::new_mut(&mut out, channels, needed).map_err(|e| err(&e))?;
     let (_, produced) = resampler
-        .process_all_into_buffer(&input, &mut output, frames, None)
+        .process_all_into_buffer(&input, &mut output, padded_frames, None)
         .map_err(|e| err(&e))?;
+    let skip = if period <= 65_536 {
+        // One frame fewer is dropped, as measured: rubato's output runs one frame ahead of its nominal delay
+        // (checked against an analytic sine at 22.05, 48 and 96 kHz in the tests).
+        (((half + lead as u64) * u64::from(rate)) / u64::from(pcm.sample_rate)) as usize
+            - resampler.output_delay()
+            - 1
+    } else {
+        0
+    };
+    let wanted = (frames as f64 * ratio).ceil() as usize;
     for channel in &mut out {
         channel.truncate(produced);
+        channel.drain(..skip.min(channel.len()));
+        channel.truncate(wanted);
     }
     Ok(Pcm {
         sample_rate: rate,
         channels: out,
     })
+}
+
+fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 /// The result of [`import_file`].
@@ -261,18 +321,30 @@ pub(crate) fn wav_spec(channels: usize, sample_rate: u32) -> hound::WavSpec {
     }
 }
 
-/// Writes planar audio as a 32-bit float WAV.
-pub fn write_wav(path: &Path, pcm: &Pcm) -> Result<(), ImportError> {
-    let wav_err = |e: hound::Error| ImportError::Io(io::Error::other(e));
+fn write_wav_io(path: &Path, pcm: &Pcm) -> io::Result<()> {
     let spec = wav_spec(pcm.channels.len(), pcm.sample_rate);
-    let mut writer =
-        hound::WavWriter::new(io::BufWriter::new(File::create(path)?), spec).map_err(wav_err)?;
+    let mut writer = hound::WavWriter::new(io::BufWriter::new(File::create(path)?), spec)
+        .map_err(io::Error::other)?;
     for frame in 0..pcm.frames() {
         for channel in &pcm.channels {
-            writer.write_sample(channel[frame]).map_err(wav_err)?;
+            writer
+                .write_sample(channel[frame])
+                .map_err(io::Error::other)?;
         }
     }
-    writer.finalize().map_err(wav_err)
+    writer.finalize().map_err(io::Error::other)
+}
+
+/// Writes planar audio as a 32-bit float WAV (not atomic; [`import_file`] is).
+pub fn write_wav(path: &Path, pcm: &Pcm) -> Result<(), ImportError> {
+    Ok(write_wav_io(path, pcm)?)
+}
+
+/// True when `path` is a complete bundle copy at `rate`: a 32-bit float WAV whose data holds
+/// every frame its header claims.
+fn existing_is_complete(path: &Path, rate: u32) -> Option<(u16, u64)> {
+    let info = wav_info(path, true).ok()?;
+    (info.complete() && info.spec.sample_rate == rate).then_some((info.spec.channels, info.frames))
 }
 
 /// Imports `src` into `bundle/audio/` at `project_rate`. A repeat import of the same file at
@@ -303,17 +375,16 @@ pub fn import_file(
         frames,
         deduplicated,
     };
-    if let Ok(reader) = hound::WavReader::open(&target) {
-        return Ok(done(
-            reader.spec().channels,
-            u64::from(reader.duration()),
-            true,
-        ));
+    if let Some((channels, frames)) = existing_is_complete(&target, project_rate) {
+        return Ok(done(channels, frames, true));
     }
-    let pcm = resample(&decode_file(src, limits)?, project_rate)?;
-    fs::create_dir_all(bundle.join("audio"))?;
-    let temp = bundle.join("audio").join(format!(".{hash}.tmp"));
-    write_wav(&temp, &pcm)?;
-    fs::rename(&temp, &target)?;
-    Ok(done(pcm.channels.len() as u16, pcm.frames() as u64, false))
+    let pcm = resample(&decode_file(src, limits)?, project_rate, limits.max_samples)?;
+    match write_atomic(&target, |temp| write_wav_io(temp, &pcm)) {
+        Ok(()) => Ok(done(pcm.channels.len() as u16, pcm.frames() as u64, false)),
+        // Another import of the same content won the rename: its file is identical.
+        Err(e) => match existing_is_complete(&target, project_rate) {
+            Some((channels, frames)) => Ok(done(channels, frames, true)),
+            None => Err(e.into()),
+        },
+    }
 }

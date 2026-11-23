@@ -102,10 +102,15 @@ impl Pyramid {
     /// The pyramid of a bundle WAV, read in one pass without holding the audio.
     pub fn from_wav(path: &Path) -> io::Result<Self> {
         let bad = io::Error::other;
+        let to_io = |e: crate::import::ImportError| match e {
+            crate::import::ImportError::Io(e) => e,
+            other => io::Error::new(io::ErrorKind::InvalidData, other.to_string()),
+        };
+        let info = crate::wav::wav_info(path, false).map_err(to_io)?;
+        let spec = info.spec;
         let mut reader = hound::WavReader::new(BufReader::new(File::open(path)?)).map_err(bad)?;
-        let spec = reader.spec();
         let channels = usize::from(spec.channels).max(1);
-        let frames = u64::from(reader.duration());
+        let frames = info.frames;
         let mut level0 = Vec::with_capacity(entries(frames, BLOCKS[0]));
         let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
         let mut in_block = 0;
@@ -132,13 +137,13 @@ impl Pyramid {
         };
         match (spec.sample_format, spec.bits_per_sample) {
             (hound::SampleFormat::Float, 32) => {
-                for s in reader.samples::<f32>() {
+                for s in reader.samples::<f32>().take(frames as usize * channels) {
                     each(s.map_err(bad)?);
                 }
             }
             (hound::SampleFormat::Int, bits @ 1..=32) => {
                 let scale = 1.0 / (2.0_f64.powi(i32::from(bits) - 1)) as f32;
-                for s in reader.samples::<i32>() {
+                for s in reader.samples::<i32>().take(frames as usize * channels) {
                     each(s.map_err(bad)? as f32 * scale);
                 }
             }
@@ -155,7 +160,7 @@ impl Pyramid {
         ))
     }
 
-    /// Writes the `.owpk` file atomically (temp file, then rename).
+    /// Writes the `.owpk` file atomically (unique temp file, sync, rename).
     pub fn write(&self, path: &Path) -> io::Result<()> {
         let mut bytes =
             Vec::with_capacity(HEADER_BYTES + 8 * self.levels.iter().map(Vec::len).sum::<usize>());
@@ -175,12 +180,7 @@ impl Pyramid {
                 bytes.extend_from_slice(&hi.to_le_bytes());
             }
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let temp = path.with_extension("owpk.tmp");
-        fs::write(&temp, bytes)?;
-        fs::rename(&temp, path)
+        crate::wav::write_atomic(path, |temp| fs::write(temp, bytes))
     }
 
     /// Reads and validates a `.owpk` file (`InvalidData` for anything not exactly well-formed).
@@ -276,30 +276,54 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+#[derive(Default)]
+struct CacheState {
+    /// Media id to (peak file, registration version).
+    files: HashMap<u64, (PathBuf, u64)>,
+    /// Media id to (version it was loaded for, pyramid).
+    loaded: HashMap<u64, (u64, Arc<Pyramid>)>,
+    version: u64,
+}
+
 /// Media id to loaded pyramid, for the `peaks_range` command. Files are read on first use and
-/// kept; a media item without a (valid) peak file answers an empty range.
+/// kept; a media item without a (valid) peak file answers an empty range. Re-registering a
+/// media item invalidates its pyramid, even for a load that was in flight.
 #[derive(Default)]
 pub struct PeakCache {
-    files: Mutex<HashMap<u64, PathBuf>>,
-    loaded: Mutex<HashMap<u64, Arc<Pyramid>>>,
+    state: Mutex<CacheState>,
 }
 
 impl PeakCache {
     /// Points `media` at its `.owpk` file (dropping any pyramid loaded earlier for it).
     pub fn register(&self, media: u64, owpk: PathBuf) {
-        lock(&self.files).insert(media, owpk);
-        lock(&self.loaded).remove(&media);
+        let mut state = lock(&self.state);
+        state.version += 1;
+        let version = state.version;
+        state.files.insert(media, (owpk, version));
+        state.loaded.remove(&media);
     }
 
     /// Min/max pairs for the range (see [`Pyramid::range`]).
     pub fn range(&self, media: u64, start: u64, end: u64, bins: usize) -> Vec<(f32, f32)> {
-        let cached = lock(&self.loaded).get(&media).cloned();
-        let pyramid = cached.or_else(|| {
-            let path = lock(&self.files).get(&media)?.clone();
-            let pyramid = Arc::new(Pyramid::read(&path).ok()?);
-            lock(&self.loaded).insert(media, Arc::clone(&pyramid));
-            Some(pyramid)
-        });
-        pyramid.map_or_else(Vec::new, |p| p.range(start, end, bins))
+        let (path, version) = {
+            let state = lock(&self.state);
+            match state.loaded.get(&media) {
+                Some((_, pyramid)) => return pyramid.range(start, end, bins),
+                None => match state.files.get(&media) {
+                    Some((path, version)) => (path.clone(), *version),
+                    None => return Vec::new(),
+                },
+            }
+        };
+        let Ok(pyramid) = Pyramid::read(&path).map(Arc::new) else {
+            return Vec::new();
+        };
+        let mut state = lock(&self.state);
+        // Keep the load only if the media was not re-registered while the file was read.
+        if state.files.get(&media).map(|f| f.1) == Some(version) {
+            state.loaded.insert(media, (version, Arc::clone(&pyramid)));
+        }
+        drop(state);
+        pyramid.range(start, end, bins)
     }
 }

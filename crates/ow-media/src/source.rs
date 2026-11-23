@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::Pcm;
 use crate::import::ImportError;
 use crate::stream::{StreamHandle, StreamOptions, StreamSource};
+use crate::wav::wav_info;
 
 /// Audio the engine reads on the audio thread. Implementations never allocate, lock or do I/O
 /// in [`read`](Self::read).
@@ -75,20 +76,19 @@ impl Default for SourceConfig {
 }
 
 /// Reads a bundle media file (the 32-bit float WAV [`import`](crate::import) writes) fully.
+/// The header is not trusted: channels are capped and the length is clamped to the file.
 pub fn load_wav(path: &Path) -> Result<Pcm, ImportError> {
     let wav_err = |e: hound::Error| ImportError::Decode(e.to_string());
+    let info = wav_info(path, true)?;
+    let channels = usize::from(info.spec.channels);
+    let frames = info.frames as usize;
     let mut reader = hound::WavReader::open(path).map_err(wav_err)?;
-    let spec = reader.spec();
-    if spec.sample_format != hound::SampleFormat::Float || spec.bits_per_sample != 32 {
-        return Err(ImportError::Decode("media is not 32-bit float WAV".into()));
-    }
-    let channels = usize::from(spec.channels);
-    let mut planar = vec![Vec::with_capacity(reader.duration() as usize); channels];
-    for (i, sample) in reader.samples::<f32>().enumerate() {
+    let mut planar = vec![Vec::with_capacity(frames); channels];
+    for (i, sample) in reader.samples::<f32>().take(frames * channels).enumerate() {
         planar[i % channels].push(sample.map_err(wav_err)?);
     }
     Ok(Pcm {
-        sample_rate: spec.sample_rate,
+        sample_rate: info.spec.sample_rate,
         channels: planar,
     })
 }
@@ -99,10 +99,8 @@ pub fn open_source(
     path: &Path,
     config: &SourceConfig,
 ) -> Result<(Box<dyn AudioSource>, Option<StreamHandle>), ImportError> {
-    let reader = hound::WavReader::open(path).map_err(|e| ImportError::Decode(e.to_string()))?;
-    let spec = reader.spec();
-    let seconds = f64::from(reader.duration()) / f64::from(spec.sample_rate.max(1));
-    drop(reader);
+    let info = wav_info(path, true)?;
+    let seconds = info.frames as f64 / f64::from(info.spec.sample_rate);
     if seconds <= config.stream_threshold_secs {
         let pcm = load_wav(path)?;
         Ok((Box::new(MemorySource::new(Arc::new(pcm))), None))

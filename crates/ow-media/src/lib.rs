@@ -24,6 +24,7 @@ pub mod peaks;
 pub mod record;
 pub mod source;
 pub mod stream;
+mod wav;
 
 pub use record::{RecordProducer, RecordWriter};
 pub use source::{AudioSource, MemorySource, SourceConfig, open_source};

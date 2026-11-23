@@ -123,3 +123,40 @@ fn short_files_play_from_memory_and_long_ones_stream() {
     assert!(stream.is_some(), "10 s is over a 5 s threshold");
     assert_eq!(source.frames(), 10_000);
 }
+
+#[test]
+fn a_hinted_loop_wrap_is_gapless_while_playback_continues() {
+    const LOOP: std::ops::Range<u64> = 50_000..100_000;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loop.wav");
+    write_signal(&path, 2, 8000, 200_000);
+    let mut memory = MemorySource::new(Arc::new(load_wav(&path).unwrap()));
+    let mut stream = StreamSource::open(&path, StreamOptions::default()).unwrap();
+    let handle = stream.handle();
+    let (mut want, mut got) = (blocks(2), blocks(2));
+    let mut check = |stream: &mut StreamSource, position: u64| {
+        memory.read(position, &mut want, BLOCK);
+        stream.read(position, &mut got, BLOCK);
+        assert!(want == got, "blocks differ at frame {position}");
+    };
+
+    // Start the loop the idle way: hint, wait, read.
+    handle.seek_hint(LOOP.start);
+    wait_prefetched(&handle, LOOP.end, 200_000);
+    let blocks_per_pass = (LOOP.end - LOOP.start) / BLOCK as u64;
+    for pass in 0..3 {
+        for step in 0..blocks_per_pass {
+            let position = LOOP.start + step * BLOCK as u64;
+            if step == blocks_per_pass / 2 {
+                // Mid-playback: aim the spare lane at the loop start and let it fill.
+                handle.seek_hint(LOOP.start);
+                wait_prefetched(&handle, LOOP.end, 200_000);
+            }
+            check(&mut stream, position);
+        }
+        assert_eq!(handle.underruns(), 0, "after pass {pass}");
+    }
+    // Contiguous playback past the loop end afterwards still works from the active lane.
+    check(&mut stream, LOOP.start);
+    assert_eq!(handle.underruns(), 0);
+}
