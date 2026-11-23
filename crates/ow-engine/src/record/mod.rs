@@ -44,6 +44,7 @@ pub struct RecordShared {
     started: AtomicBool,
     start_sample: AtomicU64,
     captured: AtomicU64,
+    skipped: AtomicU64,
     done: AtomicBool,
 }
 
@@ -64,6 +65,12 @@ impl RecordShared {
     /// finished, less whatever its ring had no room for ([`FinishedTake::dropped_frames`]).
     pub fn captured(&self) -> u64 {
         self.captured.load(Ordering::Acquire)
+    }
+
+    /// Frames of recording-time input the tap could not use (a device buffer whose size did not
+    /// match, or an input with too few channels); lost from every take.
+    pub fn skipped(&self) -> u64 {
+        self.skipped.load(Ordering::Acquire)
     }
 
     /// True once the audio thread will push no more frames for this recording.
@@ -117,11 +124,22 @@ impl RecordSet {
         self.shared.done.store(true, Ordering::Release);
     }
 
+    /// Counts `frames` of input that could not be recorded this cycle.
+    pub(crate) fn skip_frames(&self, frames: usize) {
+        self.shared
+            .skipped
+            .fetch_add(frames as u64, Ordering::Release);
+    }
+
     /// Pushes this cycle's interleaved `input` (`in_channels` channels per frame) to every take.
     /// `position` is the timeline position at the start of the cycle. Audio thread; allocation
     /// free.
     pub(crate) fn capture(&mut self, position: u64, input: &[f32], in_channels: usize) {
-        if self.ended || in_channels < self.channels {
+        if self.ended {
+            return;
+        }
+        if in_channels < self.channels {
+            self.skip_frames(input.len() / in_channels.max(1));
             return;
         }
         if !self.shared.started.load(Ordering::Relaxed) {
@@ -254,37 +272,141 @@ impl Recording {
         &self.shared
     }
 
-    /// Finishes every take file. Call only once the audio thread will push no more frames.
-    pub(crate) fn finish(self) -> Result<Vec<FinishedTake>, RecordError> {
+    /// Finishes every take file. Call only once the audio thread will push no more frames. A
+    /// take whose writer failed is reported in [`Stopped::failures`]; the others are kept.
+    pub(crate) fn finish(self) -> (Vec<FinishedTake>, Vec<TakeFailure>) {
         let start_sample = if self.shared.started() {
             self.shared.start_sample()
         } else {
             0
         };
-        let mut takes = Vec::with_capacity(self.writers.len());
-        let mut failure = None;
-        for take in self.writers {
-            match take.writer.finish() {
-                Ok(stats) => takes.push(FinishedTake {
-                    track: take.track,
-                    path: take.path,
-                    frames: stats.frames,
-                    dropped_frames: stats.dropped_frames,
-                    start_sample,
-                    sample_rate: self.sample_rate,
-                    channels: self.channels,
-                }),
-                Err(error) => {
-                    failure.get_or_insert_with(|| {
-                        RecordError::Io(format!("{}: {error}", take.path.display()))
-                    });
-                }
-            }
+        let skipped = self.shared.skipped();
+        let results = self
+            .writers
+            .into_iter()
+            .map(|take| (take.track, take.path, take.writer.finish()))
+            .collect();
+        collect_takes(
+            results,
+            start_sample,
+            skipped,
+            self.sample_rate,
+            self.channels,
+        )
+    }
+}
+
+/// Splits writer results into finished takes and failures. `skipped` frames of input the tap
+/// could not use are counted as dropped in every take.
+fn collect_takes(
+    results: Vec<(
+        TrackId,
+        PathBuf,
+        std::io::Result<ow_media::record::RecordStats>,
+    )>,
+    start_sample: u64,
+    skipped: u64,
+    sample_rate: u32,
+    channels: u16,
+) -> (Vec<FinishedTake>, Vec<TakeFailure>) {
+    let mut takes = Vec::with_capacity(results.len());
+    let mut failures = Vec::new();
+    for (track, path, result) in results {
+        match result {
+            Ok(stats) => takes.push(FinishedTake {
+                track,
+                path,
+                frames: stats.frames,
+                dropped_frames: stats.dropped_frames + skipped,
+                start_sample,
+                sample_rate,
+                channels,
+            }),
+            Err(error) => failures.push(TakeFailure {
+                track,
+                path,
+                error: error.to_string(),
+            }),
         }
-        match failure {
-            Some(error) => Err(error),
-            None => Ok(takes),
-        }
+    }
+    (takes, failures)
+}
+
+/// A take whose file could not be finished.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TakeFailure {
+    /// The track the take was for.
+    pub track: TrackId,
+    /// The take file (it may hold part of the recording).
+    pub path: PathBuf,
+    /// What went wrong.
+    pub error: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use ow_media::record::RecordStats;
+
+    use super::*;
+
+    #[test]
+    fn input_the_tap_cannot_use_is_counted_as_skipped() {
+        use crate::{CoreBuilder, Message, TransportCommand};
+        let dir = tempfile::tempdir().unwrap();
+        let (writer, producer) =
+            RecordWriter::start(&dir.path().join("t.wav"), 2, 48_000, 48_000).unwrap();
+        let (set, shared) = RecordSet::new(vec![producer], 2, 0);
+        let (mut link, mut core) = CoreBuilder::new().workers(0).build();
+        link.swap_record(set).unwrap();
+        assert!(link.send(Message::Transport(TransportCommand::SetRecordArm(true))));
+        assert!(link.send(Message::Transport(TransportCommand::Play)));
+        let mut out = vec![0.0_f32; 64 * 2];
+        // 64 output frames but an input that is not a whole number of frames per output frame.
+        core.process(&mut out, 2, Some(&[0.5; 100]));
+        assert_eq!(shared.skipped(), 64);
+        assert_eq!(shared.captured(), 0);
+        // A matching buffer records again.
+        core.process(&mut out, 2, Some(&[0.5; 128]));
+        assert_eq!(shared.captured(), 64);
+        assert!(link.send(Message::EndRecording));
+        core.process(&mut out, 2, Some(&[0.5; 128]));
+        link.collect_retired();
+        assert_eq!(writer.finish().unwrap().frames, 64);
+    }
+
+    #[test]
+    fn one_failing_writer_does_not_lose_the_other_takes() {
+        let ok = |frames| {
+            Ok(RecordStats {
+                frames,
+                dropped_frames: 0,
+            })
+        };
+        let results = vec![
+            (TrackId(1), PathBuf::from("a.wav"), ok(100)),
+            (
+                TrackId(2),
+                PathBuf::from("b.wav"),
+                Err(io::Error::other("disk full")),
+            ),
+            (TrackId(3), PathBuf::from("c.wav"), ok(100)),
+        ];
+        let (takes, failures) = collect_takes(results, 10, 7, 48_000, 2);
+        assert_eq!(
+            takes.iter().map(|t| t.track).collect::<Vec<_>>(),
+            [TrackId(1), TrackId(3)]
+        );
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].track, TrackId(2));
+        assert!(failures[0].error.contains("disk full"));
+        // Input the tap skipped counts as lost in every take.
+        assert!(
+            takes
+                .iter()
+                .all(|t| t.dropped_frames == 7 && t.start_sample == 10)
+        );
     }
 }
 
@@ -313,7 +435,9 @@ pub struct FinishedTake {
 pub struct Stopped {
     /// The take files, in the order they were requested.
     pub takes: Vec<FinishedTake>,
-    /// False when the audio thread did not confirm the stop in time, so the end of the takes
-    /// may be missing.
+    /// False when the audio thread did not confirm the stop in time, or the tap skipped input
+    /// ([`RecordShared::skipped`]), so parts of the takes may be missing.
     pub complete: bool,
+    /// Takes whose files could not be finished; the others are in `takes`.
+    pub failures: Vec<TakeFailure>,
 }

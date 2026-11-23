@@ -360,3 +360,64 @@ fn inserts_work_on_midi_tracks_after_the_instrument() {
     assert_ne!(reverbed, without);
     assert!(reverbed.iter().all(|s| s.is_finite()));
 }
+
+/// A stereo source of a steady 0.2 that puts a NaN and an infinity (in different channels and
+/// blocks) into the stream, then goes back to finite samples.
+struct Poison {
+    block: usize,
+}
+
+impl ow_engine::Node for Poison {
+    fn name(&self) -> &'static str {
+        "poison"
+    }
+    fn input_channels(&self) -> usize {
+        0
+    }
+    fn output_channels(&self) -> usize {
+        2
+    }
+    fn process(&mut self, ctx: &mut ow_engine::ProcessContext<'_>) {
+        for channel in 0..2 {
+            ctx.outputs.channel_mut(channel).fill(0.2);
+        }
+        match self.block {
+            2 => ctx.outputs.channel_mut(0)[5] = f32::NAN,
+            3 => ctx.outputs.channel_mut(1)[7] = f32::INFINITY,
+            4 => ctx.outputs.channel_mut(0)[1] = f32::NEG_INFINITY,
+            _ => {}
+        }
+        self.block += 1;
+    }
+}
+
+#[test]
+fn inserts_survive_non_finite_input_and_recover_on_the_next_finite_block() {
+    for info in ow_dsp::all().iter().filter(|info| !info.instrument) {
+        let kind = info.kind;
+        let mut graph = ow_engine::Graph::new();
+        let source = graph.add_node(Box::new(Poison { block: 0 }));
+        let effect = graph.add_node(Box::new(ow_engine::DeviceNode::effect(
+            info,
+            info.create(RATE as f32, MAX_BLOCK),
+        )));
+        let master = graph.add_node(Box::new(ow_engine::MasterNode::new()));
+        for channel in 0..2 {
+            graph.connect(source, channel, effect, channel).unwrap();
+            graph.connect(effect, channel, master, channel).unwrap();
+        }
+        graph.set_master(master).unwrap();
+        let mut renderer = OfflineRenderer::new(graph.compile(RATE, MAX_BLOCK).unwrap(), 2);
+        renderer.send(Message::Transport(TransportCommand::Play));
+        let out = renderer.render(64 * 20, 64);
+        assert!(
+            out.iter().all(|s| s.is_finite()),
+            "{kind}: output stays finite"
+        );
+        let tail = &out[out.len() - 128..];
+        assert!(
+            tail.iter().any(|s| s.abs() > 1.0e-3),
+            "{kind}: sound continues after the bad samples"
+        );
+    }
+}

@@ -59,7 +59,9 @@ pub use midi_hub::{
 pub use offline::OfflineRenderer;
 pub use pdc::DelayNode;
 pub use plan::RenderPlan;
-pub use record::{FinishedTake, RecordError, RecordSet, RecordShared, Recording, Stopped};
+pub use record::{
+    FinishedTake, RecordError, RecordSet, RecordShared, Recording, Stopped, TakeFailure,
+};
 pub use rings::{ProducerRing, RingSender, producer_ring};
 pub use transport::{
     BlockTiming, Click, MetronomeNode, Span, Spans, Timeline, TimelineSwapError, Transport,
@@ -560,7 +562,13 @@ impl Engine {
         if let Some(live) = lock(&self.live).as_mut() {
             live.control.collect_retired();
         }
-        recording.finish().map(|takes| Stopped { takes, complete })
+        let complete = complete && recording.shared.skipped() == 0;
+        let (takes, failures) = recording.finish();
+        Ok(Stopped {
+            takes,
+            complete,
+            failures,
+        })
     }
 
     pub fn test_tone(&self) -> bool {

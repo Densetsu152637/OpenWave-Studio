@@ -69,6 +69,7 @@ impl IpcState {
     /// Starts an empty, unsaved project (the UI receives a `Reset` patch). The previous
     /// project's temporary media folder is deleted.
     pub fn project_new(&self, target: &dyn PlanTarget) -> Result<Snapshot, String> {
+        self.refuse_while_recording()?;
         let mut control = super::lock(&self.control);
         let old_temp = control.temp.take();
         control.ctx.media_root = PathBuf::new();
@@ -80,6 +81,7 @@ impl IpcState {
 
     /// Opens the bundle at `path`. Nothing changes when it cannot be loaded.
     pub fn project_open(&self, path: &Path, target: &dyn PlanTarget) -> Result<Snapshot, String> {
+        self.refuse_while_recording()?;
         let dir = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
         let project = bundle::load(&dir)
             .map_err(|error| format!("could not open {}: {error}", dir.display()))?;

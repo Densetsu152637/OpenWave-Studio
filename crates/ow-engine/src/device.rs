@@ -5,7 +5,9 @@
 //! edges carry audio only. An *effect* node has two inputs (left and right of the signal before
 //! it in the chain) and no player. Either way the node has two outputs, and the device processes
 //! stereo in place: the node copies the inputs (or silence) into two preallocated buffers, runs
-//! the device and copies the result out, so a device never sees the graph's buffer types.
+//! the device and copies the result out, so a device never sees the graph's buffer types. Non-finite
+//! input samples are replaced with silence on the way in, so one bad sample cannot poison an
+//! effect's filter or feedback memory.
 //!
 //! Parameters are fixed when the node is built from the model's device; `Node::set_param`
 //! forwards a live value (clamped to the descriptor's range) for callers that want to change one
@@ -90,8 +92,15 @@ impl Node for DeviceNode {
             player.generate(&ctx.timing, &mut self.events);
         }
         if self.inputs == 2 {
-            self.left[..frames].copy_from_slice(ctx.inputs.channel(0));
-            self.right[..frames].copy_from_slice(ctx.inputs.channel(1));
+            // A NaN or infinity would stay in an effect's feedback state for good, so a
+            // non-finite input sample reaches the device as silence.
+            let finite = |s: &f32| if s.is_finite() { *s } else { 0.0 };
+            for (dst, src) in self.left[..frames].iter_mut().zip(ctx.inputs.channel(0)) {
+                *dst = finite(src);
+            }
+            for (dst, src) in self.right[..frames].iter_mut().zip(ctx.inputs.channel(1)) {
+                *dst = finite(src);
+            }
         } else {
             self.left[..frames].fill(0.0);
             self.right[..frames].fill(0.0);

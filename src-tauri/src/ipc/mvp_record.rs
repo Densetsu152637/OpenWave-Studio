@@ -268,7 +268,7 @@ fn mvp_record_is_refused_without_an_armed_track_or_an_input() {
 }
 
 #[test]
-fn mvp_record_is_discarded_when_the_project_is_replaced_while_recording() {
+fn mvp_record_refuses_to_replace_the_project_and_stopping_keeps_the_take() {
     let work = tempfile::tempdir().unwrap();
     let engine = engine(2);
     let state = IpcState::new();
@@ -278,15 +278,27 @@ fn mvp_record_is_discarded_when_the_project_is_replaced_while_recording() {
     state.record_start(&engine).unwrap();
     wait_until("some audio", || engine.telemetry_bank().position() > 2_000);
 
-    // A new project replaces the one the takes belong to; ids restart, so the takes must not
-    // land on whatever has the same track id there.
-    let snapshot = state.project_new(&engine).unwrap();
-    assert!(snapshot.history.armed_tracks.is_empty());
-    let error = state.transport_stop(&engine).unwrap_err();
-    assert!(error.contains("discarded"), "{error}");
-    let snapshot = ui.sync(&state);
-    assert!(snapshot.project.clips.is_empty());
-    assert!(snapshot.project.media_pool.is_empty());
-    // The state is clean again: the next stop is a plain one.
+    // A new or opened project would take the takes' project away: refused, nothing changes.
+    let seq = ui.sync(&state).seq;
+    let error = state.project_new(&engine).unwrap_err();
+    assert_eq!(error, "Stop recording before opening or creating a project");
+    let error = state
+        .project_open(&work.path().join("any.owave"), &engine)
+        .unwrap_err();
+    assert!(error.contains("Stop recording"), "{error}");
+    assert_eq!(ui.sync(&state).seq, seq);
+
+    // Stopping keeps the take as a clip on the armed track.
     state.transport_stop(&engine).unwrap();
+    let snapshot = ui.sync(&state);
+    assert_eq!(snapshot.project.clips.len(), 2);
+    assert!(
+        snapshot
+            .project
+            .clips
+            .values()
+            .any(|clip| clip.track == armed)
+    );
+    // Now the project can be replaced.
+    state.project_new(&engine).unwrap();
 }

@@ -45,6 +45,14 @@ impl IpcState {
         lock(&self.control).set_armed(track, armed)
     }
 
+    /// Refuses to replace the project while a recording is running: its takes belong to it.
+    pub(super) fn refuse_while_recording(&self) -> Result<(), String> {
+        if lock(&self.recording).is_some() {
+            return Err("Stop recording before opening or creating a project".into());
+        }
+        Ok(())
+    }
+
     /// Starts recording on every armed track from the current position: the takes are written
     /// as the transport plays and become clips when the transport stops.
     pub fn record_start(&self, engine: &Engine) -> Result<(), String> {
@@ -96,110 +104,149 @@ impl IpcState {
             dir,
             epoch,
         } = active;
-        let stopped = engine
-            .stop_recording(recording)
-            .map_err(|error| error.to_string())?;
         let mut problems = Vec::new();
-        if !stopped.complete {
-            problems.push(
-                "the audio engine did not stop promptly, so the end of the recording may be missing"
-                    .to_string(),
-            );
+        match engine.stop_recording(recording) {
+            Ok(stopped) => {
+                if !stopped.complete {
+                    problems.push(
+                        "part of the recording may be missing (the audio engine did not stop \
+                         promptly or skipped input)"
+                            .to_string(),
+                    );
+                }
+                for failure in &stopped.failures {
+                    problems.push(format!(
+                        "the take for track {} could not be finished ({}): {}",
+                        failure.track.0,
+                        failure.path.display(),
+                        failure.error
+                    ));
+                }
+                let takes: Vec<FinishedTake> =
+                    stopped.takes.into_iter().filter(|t| t.frames > 0).collect();
+                if takes.iter().any(|take| take.dropped_frames > 0) {
+                    problems.push(
+                        "the disk could not keep up and part of the recording is missing".into(),
+                    );
+                }
+                self.add_takes(takes, epoch, engine, &mut problems);
+            }
+            Err(error) => problems.push(error.to_string()),
+        }
+        if problems.is_empty() {
+            return Ok(());
+        }
+        // Whatever went wrong, the take files stay so nothing recorded is lost.
+        let kept = dir.keep();
+        Err(format!(
+            "{}; the take files were kept in {}",
+            problems.join("; "),
+            kept.display()
+        ))
+    }
+
+    /// Imports the takes and adds them to the project in one transaction. Failures are
+    /// appended to `problems`; whatever succeeded is kept, and the transaction is always ended.
+    fn add_takes(
+        &self,
+        takes: Vec<FinishedTake>,
+        epoch: u64,
+        engine: &Engine,
+        problems: &mut Vec<String>,
+    ) {
+        if takes.is_empty() {
+            return;
         }
         let mut control = lock(&self.control);
         if control.epoch() != epoch {
-            return Err("the project changed while recording; the recording was discarded".into());
+            problems.push("the project changed while recording".into());
+            return;
         }
-        let takes: Vec<FinishedTake> = stopped.takes.into_iter().filter(|t| t.frames > 0).collect();
-        if takes.iter().any(|take| take.dropped_frames > 0) {
-            problems.push("the disk could not keep up and part of the recording is missing".into());
-        }
-        if !takes.is_empty() {
-            let root = control.media_root_for_import()?;
-            let rate = control.session().project().settings.sample_rate;
-            let mut imported = Vec::with_capacity(takes.len());
-            for take in takes {
-                let file = import_into(&root, &take.path, rate)?;
-                imported.push((take, file));
+        let root = match control.media_root_for_import() {
+            Ok(root) => root,
+            Err(error) => {
+                problems.push(error);
+                return;
             }
-            control.command(
-                UiCommand::Begin {
-                    label: "Record".into(),
-                },
-                engine,
-            )?;
-            match self.place_takes(&mut control, &root, &imported, engine) {
-                Ok(skipped) => {
-                    control.command(UiCommand::End, engine)?;
-                    problems.extend(skipped);
-                }
-                Err(error) => {
-                    let _ = control.command(UiCommand::Cancel, engine);
-                    return Err(error);
-                }
+        };
+        let rate = control.session().project().settings.sample_rate;
+        let mut imported = Vec::with_capacity(takes.len());
+        for take in takes {
+            match import_into(&root, &take.path, rate) {
+                Ok(file) => imported.push((take, file)),
+                Err(error) => problems.push(format!("{}: {error}", take.path.display())),
             }
         }
-        drop(control);
-        drop(dir);
-        if problems.is_empty() {
-            Ok(())
-        } else {
-            Err(problems.join("; "))
+        if imported.is_empty() {
+            return;
+        }
+        let begin = UiCommand::Begin {
+            label: "Record".into(),
+        };
+        if let Err(error) = control.command(begin, engine) {
+            problems.push(error);
+            return;
+        }
+        for (take, file) in &imported {
+            if let Err(error) = self.place_take(&mut control, &root, take, file, engine) {
+                problems.push(error);
+            }
+        }
+        // Commit what was added, even when a take failed on the way.
+        if let Err(error) = control.command(UiCommand::End, engine) {
+            problems.push(error);
         }
     }
 
-    /// Adds every take to the media pool and as a clip on its track; returns what was skipped.
-    fn place_takes(
+    /// Adds one take to the media pool and as a clip on its track.
+    fn place_take(
         &self,
         control: &mut Control,
         root: &std::path::Path,
-        imported: &[(FinishedTake, Imported)],
+        take: &FinishedTake,
+        file: &Imported,
         engine: &Engine,
-    ) -> Result<Vec<String>, String> {
-        let mut skipped = Vec::new();
-        for (take, file) in imported {
-            let Some(track) = control
-                .session()
-                .project()
-                .tracks
-                .iter()
-                .find(|t| t.id == take.track)
-                .cloned()
-            else {
-                skipped.push("a recorded track was deleted; its take was discarded".to_string());
-                continue;
-            };
-            let tempo = &control.session().project().tempo_map;
-            let rate = take.sample_rate;
-            let start = tempo.samples_to_beats(take.start_sample as f64, rate);
-            let end = tempo.samples_to_beats((take.start_sample + take.frames) as f64, rate);
-            let media = self.register_media(control, root, file, engine)?;
-            let reply = control.command(UiCommand::AllocIds { count: 1 }, engine)?;
-            let id = *reply.ids.first().ok_or("no clip id was reserved")?;
-            control.command(
-                UiCommand::Edit {
-                    edit: EditCommand::AddClip {
-                        clip: Box::new(Clip {
-                            id: ClipId::from(id),
-                            track: track.id,
-                            name: display_name(&format!("{} take", track.name)),
-                            start,
-                            length: end - start,
-                            muted: false,
-                            content: ClipContent::Audio {
-                                media,
-                                source_offset: 0,
-                                gain_db: 0.0,
-                                fade_in: 0.0,
-                                fade_out: 0.0,
-                            },
-                        }),
-                    },
+    ) -> Result<(), String> {
+        let Some(track) = control
+            .session()
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == take.track)
+            .cloned()
+        else {
+            return Err("a recorded track was deleted; its take was not added".to_string());
+        };
+        let tempo = &control.session().project().tempo_map;
+        let rate = take.sample_rate;
+        let start = tempo.samples_to_beats(take.start_sample as f64, rate);
+        let end = tempo.samples_to_beats((take.start_sample + take.frames) as f64, rate);
+        let media = self.register_media(control, root, file, engine)?;
+        let reply = control.command(UiCommand::AllocIds { count: 1 }, engine)?;
+        let id = *reply.ids.first().ok_or("no clip id was reserved")?;
+        control.command(
+            UiCommand::Edit {
+                edit: EditCommand::AddClip {
+                    clip: Box::new(Clip {
+                        id: ClipId::from(id),
+                        track: track.id,
+                        name: display_name(&format!("{} take", track.name)),
+                        start,
+                        length: end - start,
+                        muted: false,
+                        content: ClipContent::Audio {
+                            media,
+                            source_offset: 0,
+                            gain_db: 0.0,
+                            fade_in: 0.0,
+                            fade_out: 0.0,
+                        },
+                    }),
                 },
-                engine,
-            )?;
-        }
-        Ok(skipped)
+            },
+            engine,
+        )?;
+        Ok(())
     }
 }
 

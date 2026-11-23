@@ -651,7 +651,12 @@ impl AudioCore {
             return;
         };
         let transport = self.transport.summary();
-        if frames == 0 || !transport.recording || input.len() % frames != 0 {
+        if frames == 0 || !transport.recording || set.is_ended() {
+            return;
+        }
+        if input.len() % frames != 0 {
+            // Counted, so the stop reports the loss instead of a silently short take.
+            set.skip_frames(frames);
             return;
         }
         set.capture(transport.position, input, input.len() / frames);
