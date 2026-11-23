@@ -30,6 +30,7 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 hound = "3.5.1"
 # The temporary media folder of a project that was never saved.
 tempfile = "3"
+tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading"] }

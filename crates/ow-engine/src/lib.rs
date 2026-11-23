@@ -461,6 +461,28 @@ impl Engine {
         false
     }
 
+    /// Sends a transport command (play, stop, locate) to the audio thread. Returns whether it
+    /// reached the thread; false when no stream is open or the control ring stayed full.
+    pub fn send_transport(&self, command: TransportCommand) -> bool {
+        let mut guard = lock(&self.live);
+        let Some(live) = guard.as_mut() else {
+            return false;
+        };
+        let mut message = Message::Transport(command);
+        for attempt in 0..SEND_ATTEMPTS {
+            match live.control.try_send(message) {
+                Ok(()) => return true,
+                Err(returned) => {
+                    message = returned;
+                    if attempt + 1 < SEND_ATTEMPTS {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub fn test_tone(&self) -> bool {
         self.shared.tone.load(Ordering::Relaxed)
     }

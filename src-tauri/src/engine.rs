@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
 
-use ow_engine::{Engine, EngineConfig, MidiInputSelection};
+use ow_engine::{Engine, EngineConfig, MidiInputSelection, TransportCommand};
 use ow_io::{AudioSelection, AudioState, DEFAULT_DEVICE, DeviceInfo, StreamRequest};
 use serde::Serialize;
 use tauri::State;
@@ -334,6 +334,33 @@ pub fn engine_status(state: State<'_, EngineState>) -> EngineStatus {
 pub fn set_test_tone(state: State<'_, EngineState>, on: bool) -> EngineStatus {
     state.set_test_tone(on);
     state.status()
+}
+
+/// Sends a transport command to the audio thread.
+fn send_transport(state: &EngineState, command: TransportCommand) -> Result<(), String> {
+    if state.engine.send_transport(command) {
+        Ok(())
+    } else {
+        Err("the audio engine is not running".to_string())
+    }
+}
+
+/// Starts playback from the current position.
+#[tauri::command]
+pub fn transport_play(state: State<'_, EngineState>) -> Result<(), String> {
+    send_transport(&state, TransportCommand::Play)
+}
+
+/// Stops playback; the position holds.
+#[tauri::command]
+pub fn transport_stop(state: State<'_, EngineState>) -> Result<(), String> {
+    send_transport(&state, TransportCommand::Stop)
+}
+
+/// Moves the position to `beats` (during playback too).
+#[tauri::command]
+pub fn transport_locate(state: State<'_, EngineState>, beats: f64) -> Result<(), String> {
+    send_transport(&state, TransportCommand::LocateBeats(beats))
 }
 
 #[tauri::command]

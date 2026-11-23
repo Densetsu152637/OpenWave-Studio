@@ -22,6 +22,7 @@ pub fn run() {
     }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let resolver = app.path();
             let data = resolver.app_data_dir()?;
@@ -58,6 +59,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             engine::engine_status,
             engine::set_test_tone,
+            engine::transport_play,
+            engine::transport_stop,
+            engine::transport_locate,
             engine::prefs_get,
             engine::prefs_set,
             engine::audio_devices,

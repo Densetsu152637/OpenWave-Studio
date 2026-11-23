@@ -1,13 +1,29 @@
 <script lang="ts">
   import type { EngineStatus } from "../ipc";
 
-  let { status, onToggle }: { status: EngineStatus; onToggle: (on: boolean) => void } = $props();
+  let {
+    status,
+    onToggle,
+    playing,
+    position,
+    onPlay,
+    onStop,
+  }: {
+    status: EngineStatus;
+    onToggle: (on: boolean) => void;
+    playing: boolean;
+    /** "bar.beat" of the playhead. */
+    position: string;
+    onPlay: () => void;
+    onStop: () => void;
+  } = $props();
 </script>
 
 <div class="transport" role="toolbar" aria-label="Transport">
   {#if status.projectPlan}
-    <!-- The engine plays the project now; the settings test tone no longer exists. -->
-    <span class="readout">Playing the project</span>
+    <button type="button" class="play" disabled={playing} onclick={onPlay}>Play</button>
+    <button type="button" class="stop" onclick={onStop}>Stop</button>
+    <span class="readout" aria-live="off" title="Position (bar.beat)">{position}</span>
   {:else}
   <button
     type="button"
@@ -41,5 +57,6 @@
   .readout {
     color: var(--muted);
     margin-left: 8px;
+    font-variant-numeric: tabular-nums;
   }
 </style>

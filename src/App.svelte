@@ -5,15 +5,98 @@
   import Transport from "./lib/components/Transport.svelte";
   import StatusBar from "./lib/components/StatusBar.svelte";
   import SettingsDialog from "./routes/settings/SettingsDialog.svelte";
-  import { engineStatus, offlineStatus, prefsGet, setTestTone, type EngineStatus } from "./lib/ipc";
+  import { nativeDialogs } from "./lib/arrange/dialogs";
+  import { fileActions } from "./lib/arrange/files";
+  import { positionLabel, transportLocate, transportPlay, transportStop } from "./lib/arrange/playback";
+  import { SignatureMap, TempoMap } from "./lib/arrange/time";
+  import {
+    engineStatus,
+    exportWav,
+    offlineStatus,
+    prefsGet,
+    projectNew,
+    projectOpen,
+    projectSave,
+    redo,
+    setTestTone,
+    undo,
+    type EngineStatus,
+  } from "./lib/ipc";
   import { applyTheme } from "./lib/prefs";
-  import { modelMirror, type MirrorState } from "./lib/stores";
+  import { modelMirror, telemetryStore, type MirrorState } from "./lib/stores";
 
   const POLL_MS = 500;
 
   let status = $state<EngineStatus>(offlineStatus);
   let settingsOpen = $state(false);
   let mirror = $state.raw<MirrorState>(modelMirror.state);
+  let notice = $state<string | null>(null);
+  let playing = $state(false);
+  /** The last transport position, in samples, from telemetry; null before the first frame. */
+  let framePosition = $state<number | null>(null);
+  /** Where the playhead was last placed by a click, used until telemetry reports a position. */
+  let locatedBeat = $state(0);
+
+  const tempo = $derived(new TempoMap(mirror.project?.tempo_map ?? []));
+  const signatures = $derived(new SignatureMap(mirror.project?.time_signature_map ?? []));
+  const sampleRate = $derived(status.sampleRate ?? mirror.project?.settings.sample_rate ?? 48_000);
+  const playheadBeat = $derived(
+    framePosition === null ? locatedBeat : tempo.samplesToBeats(framePosition, sampleRate),
+  );
+  const projectName = $derived(mirror.project?.name ?? "No project");
+  const files = fileActions(
+    { projectNew, projectOpen, projectSave, exportWav },
+    nativeDialogs,
+    () => ({
+      dirty: mirror.history?.dirty ?? false,
+      projectPath: mirror.projectPath,
+      name: mirror.project?.name ?? "Untitled",
+    }),
+  );
+
+  const fail = (error: unknown) => (notice = String(error));
+
+  async function play() {
+    try {
+      await transportPlay();
+      playing = true;
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function stop() {
+    try {
+      await transportStop();
+      playing = false;
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function locate(beat: number) {
+    locatedBeat = beat;
+    try {
+      await transportLocate(beat);
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  function onKey(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    const typing = target?.closest("input, textarea, select, [contenteditable]");
+    const command = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (command && !typing && (key === "z" || key === "y")) {
+      event.preventDefault();
+      const redoing = key === "y" || event.shiftKey;
+      void (redoing ? redo() : undo()).catch(fail);
+    } else if (event.key === " " && !command && !typing && !target?.closest("button")) {
+      event.preventDefault();
+      void (playing ? stop() : play());
+    }
+  }
 
   async function refresh() {
     try {
@@ -36,6 +119,9 @@
     // The project mirror: patches (including engine swap failures) arrive on its channel.
     const stopMirror = modelMirror.subscribe((state) => (mirror = state));
     void modelMirror.attach();
+    // The transport position for the playhead.
+    const stopTelemetry = telemetryStore.subscribe((frame) => (framePosition = frame?.position ?? null));
+    telemetryStore.start().catch(() => {});
     // The saved theme applies at launch, not only when Settings opens.
     prefsGet()
       .then((snapshot) => applyTheme(snapshot.prefs.appearance.theme))
@@ -44,22 +130,61 @@
     return () => {
       clearInterval(timer);
       stopMirror();
+      stopTelemetry();
     };
   });
 </script>
 
+<svelte:window onkeydown={onKey} />
+
 <div class="shell">
-  <MenuBar onSettings={() => (settingsOpen = true)} />
-  <Transport {status} onToggle={toggleTone} />
-  <Arrangement />
+  <MenuBar
+    onSettings={() => (settingsOpen = true)}
+    file={files}
+    title={mirror.history?.dirty ? `${projectName} *` : projectName}
+    hasProject={mirror.project !== null}
+    onError={fail}
+  />
+  <Transport
+    {status}
+    onToggle={toggleTone}
+    {playing}
+    position={positionLabel(playheadBeat, signatures)}
+    onPlay={play}
+    onStop={stop}
+  />
+  <Arrangement {mirror} {playheadBeat} onLocate={locate} onError={fail} />
   <StatusBar {status} engineError={mirror.history?.engineError ?? null} />
 </div>
+
+{#if notice}
+  <div class="notice" role="alert">
+    <span>{notice}</span>
+    <button type="button" onclick={() => (notice = null)}>Dismiss</button>
+  </div>
+{/if}
 
 {#if settingsOpen}
   <SettingsDialog {status} onStatus={(next) => (status = next)} onClose={() => (settingsOpen = false)} />
 {/if}
 
 <style>
+  .notice {
+    position: fixed;
+    right: 12px;
+    bottom: 36px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 60%;
+    padding: 6px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--danger);
+    border-radius: 4px;
+    color: var(--danger);
+    user-select: text;
+  }
   .shell {
     display: grid;
     grid-template-rows: auto auto 1fr auto;
