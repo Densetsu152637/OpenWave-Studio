@@ -694,14 +694,19 @@ impl ClapPlugin {
             })?
         };
         let (side, flags, latency) = created.map_err(PluginError::Plugin)?;
+        let slot = Arc::new(Mutex::new(AudioSlot {
+            side: Some(side),
+            edits: consumer,
+        }));
+        // On macOS the standard mutex allocates its pthread mutex the first time it is locked.
+        // Lock it once here, on the control thread, so the audio thread's first `try_lock`
+        // allocates nothing.
+        drop(lock(&slot));
         Ok(Arc::new(Self {
             key,
             info,
             executor,
-            slot: Arc::new(Mutex::new(AudioSlot {
-                side: Some(side),
-                edits: consumer,
-            })),
+            slot,
             edits: Mutex::new(producer),
             applied: Mutex::new(HashMap::new()),
             flags,
