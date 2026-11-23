@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 use ow_engine::{CompileContext, MAX_BLOCK, NodeKey, compile_project};
 use ow_model::{EditCommand, Editor, Project};
 use ow_plugin_fixtures::{GAIN_LATENCY, PARAM_GAIN, PARAM_LEVEL};
-use ow_plugin_host::instantiation_count;
 
 use common::*;
 
@@ -63,10 +62,10 @@ fn a_recompile_reuses_the_plugin_instance_and_edits_need_no_recompile() {
     );
     let cache = fixture_cache();
     let ctx = CompileContext::default().with_plugins(cache.clone());
-    let before = instantiation_count();
+    let before = cache.instances_created();
     let first = compile_project(&editor.project().clone(), &ctx, RATE, MAX_BLOCK).unwrap();
     // Two plugins (tone and gain) were instantiated once.
-    assert_eq!(instantiation_count(), before + 2);
+    assert_eq!(cache.instances_created(), before + 2);
     let plugin = cache.get(inserts[0].0).unwrap();
 
     let mut renderer = player(first);
@@ -88,11 +87,11 @@ fn a_recompile_reuses_the_plugin_instance_and_edits_need_no_recompile() {
     let quiet = render(&mut renderer, 2048);
     let half = quiet[1500 * 2];
     assert!((half - 0.5 * level).abs() < 1e-5, "{half} vs {level}");
-    assert_eq!(instantiation_count(), before + 2);
+    assert_eq!(cache.instances_created(), before + 2);
 
     // A full recompile (any structural edit) finds the same instances and keeps the value.
     let second = compile_project(&editor.project().clone(), &ctx, RATE, MAX_BLOCK).unwrap();
-    assert_eq!(instantiation_count(), before + 2);
+    assert_eq!(cache.instances_created(), before + 2);
     assert!(std::sync::Arc::ptr_eq(
         &plugin,
         &cache.get(inserts[0].0).unwrap()

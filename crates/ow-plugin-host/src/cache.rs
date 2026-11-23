@@ -10,6 +10,7 @@
 //! kind string becomes a file to load.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use crate::clap::ClapPlugin;
@@ -67,6 +68,8 @@ struct Inner {
     executor: Arc<dyn MainThreadExecutor>,
     directory: Arc<PluginDirectory>,
     entries: Mutex<HashMap<u64, Entry>>,
+    /// Plugin instances created by this cache and its forks.
+    created: Arc<AtomicU64>,
 }
 
 impl Drop for Inner {
@@ -99,8 +102,15 @@ impl PluginCache {
                 executor,
                 directory: Arc::new(PluginDirectory::default()),
                 entries: Mutex::new(HashMap::new()),
+                created: Arc::new(AtomicU64::new(0)),
             }),
         }
+    }
+
+    /// How many plugin instances this cache (and the forks made from it) has created. A
+    /// parameter edit or a recompile must not change it: that is what "the same instance" means.
+    pub fn instances_created(&self) -> u64 {
+        self.inner.created.load(Ordering::SeqCst)
     }
 
     /// The plugin main thread.
@@ -122,6 +132,7 @@ impl PluginCache {
                 executor: Arc::clone(&self.inner.executor),
                 directory: Arc::clone(&self.inner.directory),
                 entries: Mutex::new(HashMap::new()),
+                created: Arc::clone(&self.inner.created),
             }),
         }
     }
@@ -170,6 +181,7 @@ impl PluginCache {
                 ));
             }
         };
+        self.inner.created.fetch_add(1, Ordering::SeqCst);
         plugin.set_params(params);
         entries.insert(
             device,

@@ -13,9 +13,7 @@ use ow_plugin_fixtures::{
     CRASH_ID, CRASH_MODE_ENV, GAIN_ID, GAIN_LATENCY, PARAM_GAIN, PARAM_LEVEL, PARAM_POLARITY,
     TONE_ID,
 };
-use ow_plugin_host::{
-    ScanCommand, ScanStatus, Scanner, decode_state, encode_state, instantiation_count,
-};
+use ow_plugin_host::{ScanCommand, ScanStatus, Scanner, decode_state, encode_state};
 
 use common::*;
 
@@ -109,11 +107,11 @@ fn a_file_that_is_not_a_plugin_is_a_failed_record_not_a_crash() {
 fn a_parameter_edit_keeps_the_same_instance_and_changes_the_sound() {
     let cache = fixture_cache();
     let kind = gain_kind();
-    let before = instantiation_count();
+    let before = cache.instances_created();
     let plugin = cache
         .acquire(7, &kind, &BTreeMap::new(), None, RATE, BLOCK)
         .unwrap();
-    assert_eq!(instantiation_count(), before + 1);
+    assert_eq!(cache.instances_created(), before + 1);
     let mut processor = plugin.processor();
 
     // The plugin delays by its latency: an impulse at frame 0 comes out at frame 64, at gain 1.
@@ -140,7 +138,7 @@ fn a_parameter_edit_keeps_the_same_instance_and_changes_the_sound() {
     let edit = BTreeMap::from([(PARAM_GAIN, 0.25), (PARAM_POLARITY, 1.0)]);
     let again = cache.acquire(7, &kind, &edit, None, RATE, BLOCK).unwrap();
     assert!(Arc::ptr_eq(&plugin, &again));
-    assert_eq!(instantiation_count(), before + 1);
+    assert_eq!(cache.instances_created(), before + 1);
     let (left, _) = run(processor.as_mut(), &impulse(), &impulse(), &[]);
     assert_eq!(left[at], -0.25);
     assert_eq!(plugin.param_value(PARAM_POLARITY).unwrap(), Some(1.0));

@@ -58,14 +58,7 @@ const MAX_BLOCK_EVENTS: usize = 2048;
 /// Longest enumeration the scanner reads option names for.
 const MAX_CHOICES: usize = 128;
 
-static INSTANTIATIONS: AtomicU64 = AtomicU64::new(0);
 static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
-
-/// How many CLAP plugin instances this process has created. Tests use it to prove that an edit
-/// or a recompile did not re-instantiate a plugin.
-pub fn instantiation_count() -> u64 {
-    INSTANTIATIONS.load(Ordering::SeqCst)
-}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -278,7 +271,6 @@ fn create_instance(
         &host_info()?,
     )
     .map_err(|error| format!("could not create the plugin: {error}"))?;
-    INSTANTIATIONS.fetch_add(1, Ordering::SeqCst);
     let extensions = instance
         .access_shared_handler(|shared| shared.extensions.get().copied().unwrap_or_default());
     let main = Main {

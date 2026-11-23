@@ -25,7 +25,6 @@ pub mod info;
 pub mod scan;
 
 pub use cache::{PluginCache, PluginDirectory};
-pub use clap::instantiation_count;
 pub use device::PluginDevice;
 pub use executor::{ExecutorError, InlineExecutor, MainThreadExecutor, ThreadExecutor};
 pub use hosted::{HostedPlugin, PluginError, PluginProcessor, Requests};

@@ -9,9 +9,7 @@ use ow_engine::{MAX_BLOCK, compile_project};
 use ow_ipc::{EditCommand, UiCommand};
 use ow_model::{Device, DeviceId, Owned, Strip, Track, TrackId, TrackKind};
 use ow_plugin_fixtures::{GAIN_ID, PARAM_GAIN, PARAM_POLARITY};
-use ow_plugin_host::{
-    HostedPlugin, PluginCache, ThreadExecutor, decode_state, instantiation_count, scan,
-};
+use ow_plugin_host::{HostedPlugin, PluginCache, ThreadExecutor, decode_state, scan};
 
 use super::control::PlanTarget;
 use super::mvp::{CompilingTarget, command, edit};
@@ -95,7 +93,7 @@ fn plugin_state_a_parameter_edit_needs_no_recompile_and_keeps_the_instance() {
     let target = CompilingTarget::default();
     let device = add_gain_track(&state, &target);
     let compiles = target.applied.borrow().len();
-    let instances = instantiation_count();
+    let instances = cache.instances_created();
     let plugin = cache.get(device.0).expect("the plugin was instantiated");
     assert_eq!(plugin.info().id, GAIN_ID);
 
@@ -107,7 +105,7 @@ fn plugin_state_a_parameter_edit_needs_no_recompile_and_keeps_the_instance() {
         "a plugin parameter edit must not recompile the project"
     );
     assert_eq!(
-        instantiation_count(),
+        cache.instances_created(),
         instances,
         "nor re-instantiate the plugin"
     );
@@ -207,12 +205,12 @@ fn plugin_state_an_export_renders_its_own_instances_and_leaves_the_live_ones() {
     let device = add_gain_track(&state, &target);
     set_param(&state, &target, device, PARAM_GAIN, 0.5);
     let live = cache.get(device.0).unwrap();
-    let before = instantiation_count();
+    let before = cache.instances_created();
 
     let dir = tempfile::tempdir().unwrap();
     state.export_wav(&dir.path().join("mix.wav")).unwrap();
     assert!(
-        instantiation_count() > before,
+        cache.instances_created() > before,
         "the render made its own instance"
     );
     assert_eq!(cache.len(), 1);
