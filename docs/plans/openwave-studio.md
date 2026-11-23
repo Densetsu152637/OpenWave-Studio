@@ -299,9 +299,9 @@ Extension goals:
 - Depends on: M3
 - Owned paths: `crates/ow-dsp/` (new crate; the root `members = ["src-tauri", "crates/*"]` already covers it), `Cargo.lock`, `crates/ow-engine/src/compile.rs`, `crates/ow-engine/src/clips/midi.rs`, `crates/ow-engine/tests/midi_clips.rs`, `crates/ow-engine/Cargo.toml`, `crates/ow-ipc/src/` (device descriptor DTO and a `device_descriptors` query), `src-tauri/src/ipc/`, `src/lib/ipc/`, `src/lib/pianoroll/`, `src/lib/devices/` (generic panel), `src/lib/components/`, `src/lib/arrange/` (MIDI clip drawing), `docs/architecture.md` (`ow-dsp` paragraph)
 - Acceptance checks: M-G7; M-G9 (pianoroll part and generic panel); `cargo test --workspace`, clippy, `cargo deny check licenses`, bindings current, `pnpm typecheck`, `pnpm test`.
-- Status: pending
-- Outcome:
-- Handoff notes: devices must not depend on app types (stage 27 exports them).
+- Status: done (implementation gate runs over M3–M5 together)
+- Outcome: `experimental` `495e43f`; CI push run 45143409171 success. New dependency-free crate `ow-dsp`: `Device` trait (`prepare`, `set_param`, `reset`, stereo in-place `process(&mut [&mut [f32]; 2], &[Event])`), `ParamDescriptor` (linear, log, choice), `registry::ALL`; `builtin.synth` (PolyBLEP saw/square/sine, trapezoidal SVF low-pass, ADSR, 16 voices with stealing, gain). Engine: `DeviceNode` (`src/device.rs`, added outside the listed paths with root acceptance) plays a MIDI track's clips sample-accurately inside the instrument node (one node per MIDI track, `NodeKey::Device`), releasing notes on stop, locate and loop wrap; compile taps are all stereo; disabled or unknown devices are silent (instruments) or unity (inserts). `device_descriptors` command and `DeviceDescriptor` DTO. UI: Add MIDI track (one `insert_track` bundle with the synth), New MIDI clip, piano roll (draw, move, resize, delete, snap, velocity 100), lane note bars, generic `DevicePanel`. Tests: `ow-dsp synth` 13, `midi_clips` 11, pianoroll/devices vitest 35, workspace 355, `pnpm test` 136, rt_safety with the synth and MIDI player.
+- Handoff notes: devices must not depend on app types (stage 27 exports them). Parameter edits recompile, so voices restart on any edit (a `set_param` fast path exists on `DeviceNode` for later). Owner manual checks: melody timing through a real device, no clicks on parameter edits during playback, export with a MIDI track, piano roll in the real window and both themes.
 
 #### Slice M5: Basic effects as track inserts
 
