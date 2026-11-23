@@ -7,6 +7,7 @@
 #![allow(unsafe_code)]
 
 mod builder;
+pub mod clip;
 pub mod nodes;
 mod runtime;
 

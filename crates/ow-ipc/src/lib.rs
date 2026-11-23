@@ -16,7 +16,7 @@
 //! * [`telemetry`]: the [`TelemetryBank`] of atomics the audio thread writes, and the packed
 //!   little-endian `f32` frame the bridge thread sends over a Tauri `ipc::Channel` (layout in
 //!   that module's docs).
-//! * [`peaks`]: the raw-byte waveform range response (stub source until stage 11).
+//! * [`peaks`]: the raw-byte waveform range response (format only; the data comes from the `ow-media` peak cache).
 //!
 //! # Threads
 //!

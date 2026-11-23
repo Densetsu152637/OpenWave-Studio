@@ -1,4 +1,4 @@
-//! Waveform peak ranges as raw bytes (the contract; the real peak cache arrives with stage 11).
+//! Waveform peak ranges as raw bytes (the wire contract; `ow-media` supplies the pairs).
 //!
 //! The UI asks for `bins` min/max pairs covering the frame range `[start, end)` of one media
 //! item through the `peaks_range` command, which answers with a `tauri::ipc::Response` holding the
@@ -16,11 +16,11 @@
 //! Bins split the range evenly (the last may be shorter). A range with no audio (unknown media,
 //! empty range, `bins == 0`) answers `n = 0`.
 //!
-//! # Stub
+//! # Source
 //!
-//! [`min_max`] computes the pairs directly from an in-memory mono buffer. Stage 11 replaces the
-//! source with the `.owpk` peak pyramids (min/max per 64/512/4096 samples) and keeps this wire
-//! format; the app registers short buffers in its `PeakStore` only for tests and demos.
+//! The app serves pairs from the `.owpk` peak pyramids of `ow-media` (min/max per 64, 512 and
+//! 4096 frames). [`min_max`] computes the same pairs directly from a mono buffer and is the
+//! reference the tests compare the cache against.
 
 /// Wire format version in the first word of a peak response.
 pub const PEAKS_VERSION: u32 = 1;

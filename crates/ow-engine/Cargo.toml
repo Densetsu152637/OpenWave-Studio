@@ -14,10 +14,13 @@ num_cpus = "1.17.0"
 ow-io = { path = "../ow-io" }
 # Only the telemetry bank (atomics the audio thread writes); `ow-ipc` depends on `ow-model` alone.
 ow-ipc = { path = "../ow-ipc" }
+# `AudioSource` for the clip source node (decoding, streaming and peaks stay in `ow-media`).
+ow-media = { path = "../ow-media" }
 ow-model = { path = "../ow-model" }
 rtrb = "0.4.1"
 
 [dev-dependencies]
+tempfile = "3.27.0"
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 
 [[bench]]

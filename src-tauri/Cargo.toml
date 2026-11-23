@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 ow-engine = { path = "../crates/ow-engine" }
 ow-io = { path = "../crates/ow-io" }
 ow-ipc = { path = "../crates/ow-ipc" }
+ow-media = { path = "../crates/ow-media" }
 ow-model = { path = "../crates/ow-model" }
 tauri-plugin-updater = "2"
 semver = "1"

@@ -39,6 +39,7 @@ pub use compile::{
     Carry, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
     compile_project_metered, fader_gain,
 };
+pub use graph::clip::{ClipPlacement, ClipSourceNode};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,

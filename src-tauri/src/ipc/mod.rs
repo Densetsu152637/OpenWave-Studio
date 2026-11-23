@@ -11,7 +11,7 @@
 //! * `telemetry_start` / `telemetry_set_strips` / `telemetry_stop`: the 60 Hz bridge thread
 //!   ([`bridge::Bridge`]) that sends packed `f32` frames over a second channel as raw bytes.
 //! * `peaks_range`: waveform min/max pairs as a raw-byte `ipc::Response` ([`peaks::PeakStore`],
-//!   a stub source until stage 11).
+//!   served from the `ow-media` peak cache).
 //!
 //! What is not wired yet: fine-grained updates that skip the recompile (fader and mute changes
 //! could travel as `Message::SetParam` using `ow_engine::fader_gain`), project open and save
@@ -173,7 +173,7 @@ pub async fn telemetry_stop(app: AppHandle) -> Result<(), String> {
 }
 
 /// `bins` min/max pairs over frames `[start, end)` of a media item, as raw bytes (layout in
-/// `ow_ipc::peaks`). Stub source until the peak cache exists.
+/// `ow_ipc::peaks`). Served from the peak cache.
 #[tauri::command]
 pub async fn peaks_range(
     app: AppHandle,
