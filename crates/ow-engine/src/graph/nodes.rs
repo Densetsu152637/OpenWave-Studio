@@ -157,6 +157,41 @@ impl Node for GainNode {
     }
 }
 
+/// Stereo gain with one fixed gain per channel: the pan or balance stage of a strip. The
+/// compiler computes the gains ([`crate::pan_gains`]); a change takes a recompile.
+#[derive(Debug, Clone)]
+pub struct PanNode {
+    gains: [f32; 2],
+}
+
+impl PanNode {
+    /// A stage scaling the left channel by `gains[0]` and the right by `gains[1]`.
+    pub fn new(gains: [f32; 2]) -> Self {
+        Self { gains }
+    }
+}
+
+impl Node for PanNode {
+    fn name(&self) -> &'static str {
+        "pan"
+    }
+    fn input_channels(&self) -> usize {
+        2
+    }
+    fn output_channels(&self) -> usize {
+        2
+    }
+    fn process(&mut self, ctx: &mut ProcessContext<'_>) {
+        for channel in 0..2 {
+            let gain = self.gains[channel];
+            let input = ctx.inputs.channel(channel);
+            for (out, sample) in ctx.outputs.channel_mut(channel).iter_mut().zip(input) {
+                *out = sample * gain;
+            }
+        }
+    }
+}
+
 /// Stereo master: a gain stage whose two outputs are what the device plays.
 #[derive(Debug, Clone)]
 pub struct MasterNode {

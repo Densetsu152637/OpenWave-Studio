@@ -78,6 +78,12 @@ impl Node for DeviceNode {
         2
     }
 
+    /// The device's own latency, so delay compensation lines its path up with the others. It is
+    /// read when a graph is compiled, from the device built with the model's parameters.
+    fn latency_samples(&self) -> u32 {
+        self.device.latency_frames()
+    }
+
     fn prepare(&mut self, sample_rate: u32, max_block: usize) {
         self.left = vec![0.0; max_block];
         self.right = vec![0.0; max_block];

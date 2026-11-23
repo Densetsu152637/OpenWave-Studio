@@ -17,6 +17,9 @@
 //!   are plain methods on [`IpcState`] (testable without a window); the commands below only
 //!   hand them the engine as the [`control::PlanTarget`].
 //!
+//! * `export_mix` ([`export`]) and `analyze` ([`analysis`]): export with optional loudness
+//!   normalisation, and offline measurement of the master or one strip. Plain `IpcState`
+//!   methods like the rest.
 //! * `device_descriptors` (in this module): the built-in devices' parameter descriptors from
 //!   `ow-dsp`, for the generic device panel. MIDI tracks and their synth are plain model edits
 //!   (`insert_track` with an instrument device, `add_clip` with MIDI notes, `set_device_param`),
@@ -28,6 +31,7 @@
 //! could travel as `Message::SetParam` using `ow_engine::fader_gain`) and telemetry for strips
 //! beyond the 256 meter slots.
 
+pub mod analysis;
 pub mod bridge;
 pub mod control;
 pub mod export;
@@ -36,6 +40,8 @@ pub mod peaks;
 pub mod project;
 pub mod record;
 
+#[cfg(test)]
+mod mix;
 #[cfg(test)]
 mod mvp;
 #[cfg(test)]
@@ -197,6 +203,25 @@ pub async fn media_import(app: AppHandle, path: String) -> Result<MediaImportRep
 #[tauri::command]
 pub async fn export_wav(app: AppHandle, path: String) -> Result<String, String> {
     blocking(move || app.state::<IpcState>().export_wav(Path::new(&path))).await
+}
+
+/// Renders the project with options (optional loudness normalisation) to a WAV file; answers
+/// what was written and measured.
+#[tauri::command]
+pub async fn export_mix(
+    app: AppHandle,
+    options: ow_ipc::ExportOptions,
+) -> Result<ow_ipc::ExportResult, String> {
+    blocking(move || app.state::<IpcState>().export_mix(&options)).await
+}
+
+/// Renders the mix (or one strip, or a beat range) offline and measures it.
+#[tauri::command]
+pub async fn analyze(
+    app: AppHandle,
+    request: ow_ipc::AnalysisRequest,
+) -> Result<ow_ipc::AnalysisReport, String> {
+    blocking(move || app.state::<IpcState>().analyze(&request)).await
 }
 
 /// Starts (or restarts) the telemetry bridge: frames go to `frames` as raw bytes at `hz`

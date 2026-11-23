@@ -1,9 +1,7 @@
 <script lang="ts">
   import { cssColor } from "../arrange/view";
-  import type { Track } from "../ipc/types";
-
-  const MIN_DB = -60;
-  const MAX_DB = 6;
+  import type { Bus, Output, Track } from "../ipc/types";
+  import StripMixer from "./StripMixer.svelte";
 
   let {
     track,
@@ -14,8 +12,12 @@
     onSelect,
     onRename,
     onMute,
+    onSolo,
     onArm,
     onVolume,
+    onPan,
+    onOutput,
+    destinations,
     onDelete,
   }: {
     track: Track;
@@ -28,17 +30,21 @@
     onSelect: () => void;
     onRename: (name: string) => void;
     onMute: (mute: boolean) => void;
+    onSolo: (solo: boolean) => void;
     onArm: () => void;
     /** Called once the slider is released, with the new gain in dB. */
     onVolume: (gainDb: number) => void;
+    /** Called once the slider is released, with the new pan (-1 left to 1 right). */
+    onPan: (pan: number) => void;
+    onOutput: (output: Output) => void;
+    /** The buses the output may be set to. */
+    destinations: readonly Bus[];
     onDelete: () => void;
   } = $props();
 
   let draft = $state<string | null>(null);
-  let sliding = $state<number | null>(null);
 
   const name = $derived(draft ?? track.name);
-  const gain = $derived(sliding ?? track.strip.settings.gain_db);
 
   function commitName() {
     if (draft !== null) onRename(draft);
@@ -97,27 +103,21 @@
     >
       M
     </button>
+    <button
+      type="button"
+      class="solo"
+      class:on={track.strip.settings.solo}
+      aria-pressed={track.strip.settings.solo}
+      title="Solo"
+      onclick={() => onSolo(!track.strip.settings.solo)}
+    >
+      S
+    </button>
     <button type="button" class="delete" title="Delete track" aria-label="Delete track" onclick={onDelete}>
       &times;
     </button>
   </div>
-  <div class="row">
-    <input
-      class="volume"
-      type="range"
-      aria-label="Volume"
-      min={MIN_DB}
-      max={MAX_DB}
-      step="0.1"
-      value={gain}
-      oninput={(event) => (sliding = event.currentTarget.valueAsNumber)}
-      onchange={(event) => {
-        sliding = null;
-        onVolume(event.currentTarget.valueAsNumber);
-      }}
-    />
-    <span class="db">{gain <= MIN_DB ? "-inf" : gain.toFixed(1)} dB</span>
-  </div>
+  <StripMixer settings={track.strip.settings} {destinations} routable={true} {onVolume} {onPan} {onOutput} />
 </div>
 
 <style>
@@ -157,6 +157,7 @@
     outline: none;
   }
   .mute,
+  .solo,
   .arm,
   .delete {
     padding: 1px 6px;
@@ -165,17 +166,9 @@
     background: var(--danger);
     color: var(--bg);
   }
-  .mute.on {
+  .mute.on,
+  .solo.on {
     background: var(--accent);
     color: var(--bg);
-  }
-  .volume {
-    flex: 1;
-    min-width: 0;
-  }
-  .db {
-    width: 58px;
-    text-align: right;
-    color: var(--muted);
   }
 </style>

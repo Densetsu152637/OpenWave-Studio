@@ -18,6 +18,8 @@
 //!   that module's docs).
 //! * [`devices`]: the built-in device descriptors ([`device_descriptors`]) the UI builds its
 //!   generic device panels from.
+//! * [`analysis`]: the request and report types of offline analysis and of export with
+//!   loudness normalisation (the measurements come from `ow-media`).
 //! * [`peaks`]: the raw-byte waveform range response (format only; the data comes from the `ow-media` peak cache).
 //!
 //! # Threads
@@ -34,6 +36,7 @@
 //!    `seq`) is ignored; anything beyond the next number is a gap.
 //! 3. On a gap it discards what it holds, asks for a fresh snapshot and continues from there.
 
+pub mod analysis;
 pub mod devices;
 pub mod dto;
 pub mod mirror;
@@ -41,6 +44,10 @@ pub mod peaks;
 pub mod session;
 pub mod telemetry;
 
+pub use analysis::{
+    AnalysisReport, AnalysisRequest, BandEnergy, ExportOptions, ExportResult, NormalizationReport,
+    NormalizeOptions,
+};
 pub use devices::{
     DeviceDescriptor, ParamDescriptorDto, ParamScale, ParamUnit, device_descriptors,
 };

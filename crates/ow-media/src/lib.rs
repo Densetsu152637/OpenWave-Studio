@@ -19,6 +19,7 @@
 //! nothing, takes no lock and performs no I/O. Decoding, resampling, file reads and writes and
 //! peak computation run on the control thread or on a thread this crate owns.
 
+pub mod analysis;
 pub mod import;
 pub mod peaks;
 pub mod record;

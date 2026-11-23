@@ -1,9 +1,13 @@
 import type { IpcTransport } from "./transport";
 import { tauriTransport } from "./transport";
 import type {
+  AnalysisReport,
+  AnalysisRequest,
   CommandReply,
   DeviceDescriptor,
   EditCommand,
+  ExportOptions,
+  ExportResult,
   MediaImportReply,
   ModelPatch,
   Snapshot,
@@ -129,6 +133,29 @@ export function mediaImport(
  */
 export function exportWav(path: string, transport: IpcTransport = tauriTransport): Promise<string> {
   return queued(transport, () => transport.invoke<string>("export_wav", { path }));
+}
+
+/**
+ * Renders the project like `exportWav`, optionally scaled to an integrated loudness under a
+ * true-peak ceiling (`options.normalize`), and answers where the file went, what normalising did
+ * and the measurements of what was written.
+ */
+export function exportMix(
+  options: ExportOptions,
+  transport: IpcTransport = tauriTransport,
+): Promise<ExportResult> {
+  return queued(transport, () => transport.invoke<ExportResult>("export_mix", { options }));
+}
+
+/**
+ * Renders the mix (or one strip after its fader, or a beat range) offline and measures it:
+ * loudness, true and sample peak, RMS, crest factor, stereo correlation and eight band energies.
+ */
+export function analyze(
+  request: AnalysisRequest = { strip: null, startBeat: null, endBeat: null },
+  transport: IpcTransport = tauriTransport,
+): Promise<AnalysisReport> {
+  return queued(transport, () => transport.invoke<AnalysisReport>("analyze", { request }));
 }
 
 /**

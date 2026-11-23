@@ -4,11 +4,17 @@
 //! through this list, so a new kind needs no change anywhere else.
 
 use crate::device::DeviceInfo;
-use crate::effects::{compressor, eq, reverb};
+use crate::effects::{compressor, eq, limiter, reverb};
 use crate::instruments::synth;
 
 /// Every built-in device kind, instruments first.
-pub static ALL: &[DeviceInfo] = &[synth::INFO, eq::INFO, compressor::INFO, reverb::INFO];
+pub static ALL: &[DeviceInfo] = &[
+    synth::INFO,
+    eq::INFO,
+    compressor::INFO,
+    reverb::INFO,
+    limiter::INFO,
+];
 
 /// Every built-in device kind.
 pub fn all() -> &'static [DeviceInfo] {

@@ -249,7 +249,8 @@ fn inserts_apply_in_chain_order() {
     let (dry, _) = audio_project(&[]);
     let dry = render(&fixture, &dry);
     assert!(
-        (rms(&dry) - 0.2 / 2.0_f64.sqrt()).abs() < 1e-3,
+        // The sine's RMS less the 3 dB a mono source loses at the centre of the pan law.
+        (rms(&dry) - 0.2 / 2.0).abs() < 1e-3,
         "the source plays"
     );
 

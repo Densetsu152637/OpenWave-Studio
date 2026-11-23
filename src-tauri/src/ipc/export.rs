@@ -5,6 +5,8 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use ow_engine::export::{export_frames, render_project};
+use ow_ipc::{ExportOptions, ExportResult, MixerRef, NormalizeOptions};
+use ow_media::analysis::{Normalization, analyze, normalize};
 
 use super::IpcState;
 
@@ -52,15 +54,48 @@ impl IpcState {
     /// extension); returns the path written. The render runs offline on its own plan: neither
     /// the audio engine nor the control lock is held while it works.
     pub fn export_wav(&self, path: &Path) -> Result<String, String> {
+        let options = ExportOptions {
+            path: path.to_string_lossy().into_owned(),
+            normalize: None,
+        };
+        self.export_mix(&options).map(|result| result.path)
+    }
+
+    /// Like [`export_wav`](Self::export_wav) with options: with `normalize` the rendered mix is
+    /// scaled to `target_lufs` integrated loudness, or by less when that would put its true peak
+    /// over `true_peak_ceiling_db` (a plain gain: nothing is limited or clipped). Answers where
+    /// the file went, what normalisation did and the measurements of what was written. A
+    /// lookahead limiter's latency is compensated, so the file starts at the timeline's start.
+    pub fn export_mix(&self, options: &ExportOptions) -> Result<ExportResult, String> {
+        if let Some(normalize) = &options.normalize
+            && !(normalize.target_lufs.is_finite() && normalize.true_peak_ceiling_db.is_finite())
+        {
+            return Err("the loudness target and the ceiling must be numbers".into());
+        }
         let (project, ctx) = {
             let control = super::lock(&self.control);
             (control.session().project().clone(), control.ctx.clone())
         };
+        let rate = project.settings.sample_rate;
         let frames = usize::try_from(export_frames(&project)).unwrap_or(usize::MAX);
-        let mix = render_project(&project, &ctx, frames).map_err(|error| error.to_string())?;
-        let path = wav_path(path);
-        write_wav(&path, project.settings.sample_rate, &mix)
+        let mut mix = render_project(&project, &ctx, frames).map_err(|error| error.to_string())?;
+        let normalization = options.normalize.map(|normalize| {
+            super::analysis::normalization_report(scale(&mut mix, rate, normalize))
+        });
+        let path = wav_path(Path::new(&options.path));
+        write_wav(&path, rate, &mix)
             .map_err(|error| format!("could not write {}: {error}", path.display()))?;
-        Ok(path.to_string_lossy().into_owned())
+        Ok(ExportResult {
+            path: path.to_string_lossy().into_owned(),
+            sample_rate: rate,
+            frames: (mix.len() / 2) as u64,
+            normalization,
+            analysis: super::analysis::report(MixerRef::Master, 0, &analyze(&mix, rate)),
+        })
     }
+}
+
+/// Normalises `mix` as `options` ask.
+fn scale(mix: &mut [f32], rate: u32, options: NormalizeOptions) -> Normalization {
+    normalize(mix, rate, options.target_lufs, options.true_peak_ceiling_db)
 }

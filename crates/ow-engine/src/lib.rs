@@ -43,11 +43,11 @@ use crate::midi_hub::MidiRings;
 pub use clips::{LoadedMedia, SourceCache};
 pub use compile::{
     Carry, CompileContext, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
-    compile_project_metered, fader_gain,
+    compile_project_metered, compile_project_tap, fader_gain, pan_gains,
 };
 pub use device::{DeviceNode, MAX_EVENTS_PER_BLOCK};
 pub use graph::clip::{ClipPlacement, ClipSourceNode};
-pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
+pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, PanNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
     Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, RecordSwapError, SwapError,

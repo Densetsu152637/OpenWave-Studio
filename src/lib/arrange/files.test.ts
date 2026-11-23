@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../ipc/types";
-import { fileActions, type Dialogs, type FileState, type ProjectOps } from "./files";
+import { STREAMING_TARGET, fileActions, type Dialogs, type FileState, type ProjectOps } from "./files";
 
 function setup(state: FileState, answers: Partial<Record<keyof Dialogs, unknown>> = {}) {
   const calls: string[] = [];
@@ -10,6 +10,9 @@ function setup(state: FileState, answers: Partial<Record<keyof Dialogs, unknown>
     projectOpen: async (path) => (calls.push(`open:${path}`), snapshot),
     projectSave: async (path) => (calls.push(`save:${path ?? ""}`), path ?? "saved"),
     exportWav: async (path) => (calls.push(`export:${path}`), path),
+    exportMix: async (path, normalize) => (
+      calls.push(`mix:${path}:${normalize.targetLufs}:${normalize.truePeakCeilingDb}`), undefined
+    ),
   };
   const answer = (name: keyof Dialogs, fallback: unknown) =>
     name in answers ? answers[name] : fallback;
@@ -80,5 +83,15 @@ describe("file menu", () => {
     expect(a.calls).toEqual(["exportpath:Song", "export:/p/out.wav"]);
     const b = setup(dirty, { pickExportPath: null });
     expect(await b.actions.exportWav()).toBe(false);
+  });
+
+  it("exports normalised to the streaming target", async () => {
+    const a = setup(dirty);
+    expect(await a.actions.exportNormalized()).toBe(true);
+    expect(a.calls).toEqual(["exportpath:Song", "mix:/p/out.wav:-14:-1"]);
+    expect(STREAMING_TARGET).toEqual({ targetLufs: -14, truePeakCeilingDb: -1 });
+    const b = setup(dirty, { pickExportPath: null });
+    expect(await b.actions.exportNormalized()).toBe(false);
+    expect(b.calls).toEqual(["exportpath:Song"]);
   });
 });

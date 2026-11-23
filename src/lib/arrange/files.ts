@@ -1,4 +1,7 @@
-import type { Snapshot } from "../ipc/types";
+import type { NormalizeOptions, Snapshot } from "../ipc/types";
+
+/** The loudness of the "normalised" export: the usual streaming target, with 1 dB of true-peak headroom. */
+export const STREAMING_TARGET: NormalizeOptions = { targetLufs: -14, truePeakCeilingDb: -1 };
 
 /** The native dialogs the file menu uses; each resolves null when the user cancels. */
 export interface Dialogs {
@@ -16,6 +19,7 @@ export interface ProjectOps {
   projectOpen(path: string): Promise<Snapshot>;
   projectSave(path?: string): Promise<string>;
   exportWav(path: string): Promise<string>;
+  exportMix(path: string, normalize: NormalizeOptions): Promise<unknown>;
 }
 
 /** The mirror's view of the project the file menu needs. */
@@ -64,6 +68,13 @@ export function fileActions(
       const path = await dialogs.pickExportPath(state().name);
       if (!path) return false;
       await ops.exportWav(path);
+      return true;
+    },
+    /** Exports scaled to [`STREAMING_TARGET`] (integrated loudness under a true-peak ceiling). */
+    async exportNormalized(): Promise<boolean> {
+      const path = await dialogs.pickExportPath(state().name);
+      if (!path) return false;
+      await ops.exportMix(path, STREAMING_TARGET);
       return true;
     },
   };

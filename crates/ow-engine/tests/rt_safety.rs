@@ -681,3 +681,207 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
     }
     assert!(heard > 0.05, "the synth sounded: {heard}");
 }
+
+/// The mixing stages under the allocation guard: pan stages, a bus with an input stage and a
+/// pre-fader send, a limiter on a track and on the master (so delay compensation inserts delay
+/// lines), and a loud signal that keeps the limiter working.
+#[test]
+fn the_mix_stages_and_the_limiter_are_allocation_free() {
+    use ow_model::{AuxSend, Bus, BusId, Device, DeviceBundle, DeviceId, DeviceSlot, Output};
+    let mut editor = Editor::new(Project::new("mix"));
+    let midi_track = |editor: &mut Editor, pan: f64, output: Output| {
+        let track = editor.alloc_id().unwrap();
+        let synth = editor.alloc_id().unwrap();
+        let clip = editor.alloc_id().unwrap();
+        let notes: Vec<ow_model::Note> = (0..64)
+            .map(|i| ow_model::Note {
+                start: f64::from(i) * 0.05,
+                length: 0.5,
+                key: 40 + (i % 24) as u8,
+                velocity: 127,
+            })
+            .collect();
+        editor
+            .apply(EditCommand::InsertTrack {
+                index: editor.project().tracks.len(),
+                bundle: Box::new(Owned {
+                    item: Track {
+                        id: track,
+                        name: "Keys".into(),
+                        color: 0,
+                        kind: TrackKind::Midi,
+                        strip: Strip {
+                            settings: ow_model::StripSettings {
+                                pan,
+                                output,
+                                ..Default::default()
+                            },
+                            ..Strip::default()
+                        },
+                        instrument: Some(synth),
+                    },
+                    clips: vec![Clip {
+                        id: clip,
+                        track,
+                        name: "notes".into(),
+                        start: 0.0,
+                        length: 8.0,
+                        muted: false,
+                        content: ClipContent::Midi {
+                            notes,
+                            controllers: vec![],
+                        },
+                    }],
+                    devices: vec![Device {
+                        id: synth,
+                        kind: "builtin.synth".into(),
+                        name: "synth".into(),
+                        enabled: true,
+                        params: [(7, 12.0)].into_iter().collect(),
+                        state: vec![],
+                        sidechain: None,
+                    }],
+                    lanes: vec![],
+                }),
+            })
+            .unwrap();
+        track
+    };
+    let bus: BusId = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::InsertBus {
+            index: 0,
+            bundle: Box::new(Owned {
+                item: Bus {
+                    id: bus,
+                    name: "Bus".into(),
+                    color: 0,
+                    strip: Strip {
+                        settings: ow_model::StripSettings {
+                            pan: -0.3,
+                            ..Default::default()
+                        },
+                        sends: vec![],
+                        inserts: vec![],
+                    },
+                },
+                clips: vec![],
+                devices: vec![],
+                lanes: vec![],
+            }),
+        })
+        .unwrap();
+    let aux: BusId = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::InsertBus {
+            index: 1,
+            bundle: Box::new(Owned {
+                item: Bus {
+                    id: aux,
+                    name: "Aux".into(),
+                    color: 0,
+                    strip: Strip::default(),
+                },
+                clips: vec![],
+                devices: vec![],
+                lanes: vec![],
+            }),
+        })
+        .unwrap();
+    let first = midi_track(&mut editor, 0.6, Output::Bus(bus));
+    let second = midi_track(&mut editor, -0.8, Output::Master);
+    editor
+        .apply(EditCommand::SetSends {
+            target: MixerRef::Bus(bus),
+            sends: vec![AuxSend {
+                target: aux,
+                level_db: -6.0,
+                pre_fader: true,
+            }],
+        })
+        .unwrap();
+    editor
+        .apply(EditCommand::SetSends {
+            target: MixerRef::Track(second),
+            sends: vec![AuxSend {
+                target: bus,
+                level_db: -3.0,
+                pre_fader: false,
+            }],
+        })
+        .unwrap();
+    let mut limiters: Vec<DeviceId> = Vec::new();
+    for strip in [MixerRef::Track(first), MixerRef::Master] {
+        let id: DeviceId = editor.alloc_id().unwrap();
+        limiters.push(id);
+        editor
+            .apply(EditCommand::InsertDevice {
+                slot: DeviceSlot::Insert { strip, index: 0 },
+                bundle: Box::new(DeviceBundle {
+                    device: Device {
+                        id,
+                        kind: "builtin.limiter".into(),
+                        name: "limiter".into(),
+                        enabled: true,
+                        params: [(0, -6.0), (2, 0.004)].into_iter().collect(),
+                        state: vec![],
+                        sidechain: None,
+                    },
+                    lanes: vec![],
+                }),
+            })
+            .unwrap();
+    }
+    let compiled = compile_project_metered(
+        editor.project(),
+        &CompileContext::default(),
+        SAMPLE_RATE,
+        MAX_BLOCK,
+        None,
+    )
+    .unwrap();
+    assert!(
+        compiled
+            .nodes
+            .get(NodeKey::Pan(MixerRef::Track(first)))
+            .is_some()
+    );
+    assert!(
+        compiled
+            .nodes
+            .get(NodeKey::Pan(MixerRef::Bus(bus)))
+            .is_some()
+    );
+    assert!(
+        compiled
+            .nodes
+            .get(NodeKey::Input(MixerRef::Bus(bus)))
+            .is_some()
+    );
+    assert!(compiled.plan.output_latency() >= 2 * 192);
+    let (mut link, mut core) = builder().build();
+    link.swap_timeline(compiled.timeline).unwrap();
+    link.swap_plan(compiled.plan).unwrap();
+    assert!(link.send(Message::Transport(TransportCommand::SetLoop {
+        enabled: true,
+        start_beats: 0.0,
+        end_beats: 2.0,
+    })));
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+    let mut buffer = vec![0.0_f32; 64 * 2];
+    let mut heard = 0.0_f32;
+    let ceiling = 10.0_f32.powf(-6.0 / 20.0);
+    for cycle in 0..3000_u32 {
+        if cycle == 1400 {
+            assert!(link.send(Message::Transport(TransportCommand::Stop)));
+        }
+        if cycle == 1500 {
+            assert!(link.send(Message::Transport(TransportCommand::Play)));
+        }
+        core.process(&mut buffer, 2, None);
+        heard = buffer.iter().fold(heard, |m, s| m.max(s.abs()));
+        assert!(buffer.iter().all(|s| s.is_finite()));
+        assert!(buffer.iter().all(|s| s.abs() <= ceiling), "cycle {cycle}");
+    }
+    assert!(heard > 0.05, "the mix sounded: {heard}");
+}

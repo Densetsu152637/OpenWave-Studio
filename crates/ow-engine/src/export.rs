@@ -5,12 +5,17 @@
 //! transport from 0 on an [`OfflineRenderer`] and returns the interleaved stereo mix. The
 //! caller decides the length; [`export_frames`] gives the usual one, the end of the last clip
 //! plus one second for effects tails.
+//!
+//! The plan's output latency (a lookahead limiter on the master, say) is compensated: the render
+//! runs that many frames longer and drops the first ones, so the result is aligned with the
+//! timeline and has exactly the requested length. [`render_strip`] renders one strip after its
+//! fader instead of the master, for analysis.
 
 use std::fmt;
 
-use ow_model::Project;
+use ow_model::{MixerRef, Project};
 
-use crate::compile::{CompileContext, CompileError, compile_project};
+use crate::compile::{CompileContext, CompileError, compile_project_tap};
 use crate::{MAX_BLOCK, Message, OfflineRenderer, Timeline, TransportCommand};
 
 /// Longest export, in frames per channel: 2^28 is 1.4 hours at 48 kHz and 2 GiB of `f32` for
@@ -63,6 +68,15 @@ pub fn export_frames(project: &Project) -> u64 {
     end + u64::from(TAIL_SECONDS) * u64::from(rate)
 }
 
+/// The sample index at the start of `beat` at the project's rate (the tempo map applies).
+pub fn beat_to_frame(project: &Project, beat: f64) -> u64 {
+    Timeline::new(
+        project.tempo_map.clone(),
+        project.time_signature_map.clone(),
+    )
+    .beat_to_sample_index(beat.max(0.0), project.settings.sample_rate)
+}
+
 /// Renders `frames` frames of `project` from the start at its sample rate and returns them as
 /// interleaved stereo (`frames * 2` samples). Allocates and loads media: not for the audio
 /// thread; the live engine is never involved.
@@ -71,18 +85,34 @@ pub fn render_project(
     ctx: &CompileContext,
     frames: usize,
 ) -> Result<Vec<f32>, ExportError> {
+    render_strip(project, ctx, MixerRef::Master, frames)
+}
+
+/// Like [`render_project`] for the output of `strip` after its fader (the master's fader gives
+/// the whole mix). Sends, buses and inserts upstream of the strip are included; a strip the
+/// project does not have is a [`ExportError::Compile`].
+pub fn render_strip(
+    project: &Project,
+    ctx: &CompileContext,
+    strip: MixerRef,
+    frames: usize,
+) -> Result<Vec<f32>, ExportError> {
     if frames > MAX_EXPORT_FRAMES {
         return Err(ExportError::TooLong {
             frames: frames as u64,
         });
     }
-    let compiled = compile_project(project, ctx, project.settings.sample_rate, MAX_BLOCK)
-        .map_err(ExportError::Compile)?;
+    let compiled =
+        compile_project_tap(project, ctx, project.settings.sample_rate, MAX_BLOCK, strip)
+            .map_err(ExportError::Compile)?;
+    let latency = compiled.plan.output_latency() as usize;
     let mut renderer = OfflineRenderer::new(compiled.plan, 2);
     // A fresh renderer's queues have room for these.
     let queued = renderer.link().swap_timeline(compiled.timeline).is_ok()
         && renderer.send(Message::Transport(TransportCommand::Locate(0)))
         && renderer.send(Message::Transport(TransportCommand::Play));
     debug_assert!(queued);
-    Ok(renderer.render(frames, MAX_BLOCK))
+    let mut mix = renderer.render(frames + latency, MAX_BLOCK);
+    mix.drain(..latency * 2);
+    Ok(mix)
 }

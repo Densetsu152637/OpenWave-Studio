@@ -201,6 +201,14 @@ pub trait Device: Send {
 
     /// Renders `audio[0].len()` frames.
     fn process(&mut self, audio: &mut [&mut [f32]; 2], events: &[Event]);
+
+    /// Frames by which the output lags the input (a lookahead effect's delay); 0 by default. The
+    /// engine reads it when it compiles and delays every parallel path by the same amount (plugin
+    /// delay compensation), so it must be correct right after [`prepare`](Self::prepare) and
+    /// [`set_param`](Self::set_param); a change takes a recompile to be compensated.
+    fn latency_frames(&self) -> u32 {
+        0
+    }
 }
 
 /// Static facts about a kind of device, plus its constructor.

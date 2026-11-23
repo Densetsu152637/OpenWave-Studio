@@ -76,6 +76,8 @@ pub fn run() {
             ipc::project_save,
             ipc::media_import,
             ipc::export_wav,
+            ipc::export_mix,
+            ipc::analyze,
             ipc::record::record_set_arm,
             ipc::record::record_start,
             ipc::telemetry_start,

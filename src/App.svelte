@@ -12,6 +12,7 @@
   import { SignatureMap, TempoMap } from "./lib/arrange/time";
   import {
     engineStatus,
+    exportMix,
     exportWav,
     offlineStatus,
     prefsGet,
@@ -61,6 +62,7 @@
       projectOpen: (path) => stopAfter(() => projectOpen(path))() as ReturnType<typeof projectOpen>,
       projectSave,
       exportWav,
+      exportMix: (path, normalize) => exportMix({ path, normalize }),
     },
     nativeDialogs,
     () => ({

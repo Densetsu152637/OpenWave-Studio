@@ -7,10 +7,13 @@
  * automation, markers) are arrays on the wire. The state mirror (`$lib/stores/model`) turns them
  * into maps keyed by id.
  */
+export type { AnalysisReport } from "./generated/AnalysisReport";
+export type { AnalysisRequest } from "./generated/AnalysisRequest";
 export type { AutomationLane } from "./generated/AutomationLane";
 export type { AutomationPoint } from "./generated/AutomationPoint";
 export type { AutomationTarget } from "./generated/AutomationTarget";
 export type { AuxSend } from "./generated/AuxSend";
+export type { BandEnergy } from "./generated/BandEnergy";
 export type { BeatRange } from "./generated/BeatRange";
 export type { Bus } from "./generated/Bus";
 export type { BusId } from "./generated/BusId";
@@ -25,6 +28,8 @@ export type { DeviceBundle } from "./generated/DeviceBundle";
 export type { DeviceId } from "./generated/DeviceId";
 export type { DeviceSlot } from "./generated/DeviceSlot";
 export type { EditCommand } from "./generated/EditCommand";
+export type { ExportOptions } from "./generated/ExportOptions";
+export type { ExportResult } from "./generated/ExportResult";
 export type { HistoryState } from "./generated/HistoryState";
 export type { LaneId } from "./generated/LaneId";
 export type { Marker } from "./generated/Marker";
@@ -34,6 +39,8 @@ export type { MediaImportReply } from "./generated/MediaImportReply";
 export type { MediaItem } from "./generated/MediaItem";
 export type { MixerRef } from "./generated/MixerRef";
 export type { ModelPatch } from "./generated/ModelPatch";
+export type { NormalizationReport } from "./generated/NormalizationReport";
+export type { NormalizeOptions } from "./generated/NormalizeOptions";
 export type { Note } from "./generated/Note";
 export type { Output } from "./generated/Output";
 export type { Owned } from "./generated/Owned";

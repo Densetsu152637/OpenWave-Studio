@@ -137,11 +137,11 @@ export async function renameTrack(api: ArrangeApi, track: Track, name: string): 
   return true;
 }
 
-/** Changes a track's mute or fader gain (dB); the rest of its strip settings stay. */
+/** Changes a track's mute, solo, pan or fader gain (dB); the rest of its strip settings stay. */
 export async function setTrackStrip(
   api: ArrangeApi,
   track: Track,
-  change: Partial<Pick<StripSettings, "mute" | "gain_db">>,
+  change: Partial<Pick<StripSettings, "mute" | "solo" | "pan" | "gain_db" | "output">>,
 ): Promise<void> {
   await api.edit({
     command: "set_strip_settings",

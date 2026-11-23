@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  analyze,
   beginTransaction,
   edit,
   endTransaction,
+  exportMix,
   exportWav,
   ipcCommand,
   mediaImport,
@@ -101,5 +103,38 @@ describe("project commands", () => {
     expect(calls[4][1]).toEqual({ path: "C:/song.owave" });
     expect(calls[5][1]).toBeUndefined();
     expect(calls[6][1]).toEqual({ path: "C:/mix" });
+  });
+});
+
+describe("mix commands", () => {
+  it("send the export options and the analysis request through the same queue", async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    const transport: IpcTransport = {
+      available: true,
+      channel: <T>(handler: (message: T) => void) => ({ onmessage: handler }),
+      invoke: (async (command: string, args?: Record<string, unknown>) => {
+        calls.push([command, args]);
+        if (command === "ipc_command") await new Promise((resolve) => setTimeout(resolve, 20));
+        return { path: "C:/mix.wav" };
+      }) as IpcTransport["invoke"],
+    };
+    const first = edit({ command: "set_name", name: "a" }, transport);
+    const options = { path: "C:/mix", normalize: { targetLufs: -14, truePeakCeilingDb: -1 } };
+    const exported = exportMix(options, transport);
+    const plain = exportMix({ path: "C:/plain", normalize: null }, transport);
+    const everything = analyze(undefined, transport);
+    const strip = analyze({ strip: { bus: 3 }, startBeat: 4, endBeat: 8 }, transport);
+    await Promise.all([first, exported, plain, everything, strip]);
+    expect(calls.map(([command]) => command)).toEqual([
+      "ipc_command",
+      "export_mix",
+      "export_mix",
+      "analyze",
+      "analyze",
+    ]);
+    expect(calls[1][1]).toEqual({ options });
+    expect(calls[2][1]).toEqual({ options: { path: "C:/plain", normalize: null } });
+    expect(calls[3][1]).toEqual({ request: { strip: null, startBeat: null, endBeat: null } });
+    expect(calls[4][1]).toEqual({ request: { strip: { bus: 3 }, startBeat: 4, endBeat: 8 } });
   });
 });

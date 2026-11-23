@@ -15,6 +15,8 @@ use ow_model::{
     StripSettings, Track, TrackId, TrackKind,
 };
 
+/// Gain of a mono source at the centre of the constant-power pan law (-3 dB).
+const CENTRE: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const RATE: u32 = 48_000;
 /// At the default 120 BPM one beat is half a second.
 const BEAT: usize = 24_000;
@@ -270,7 +272,8 @@ fn mono_media_plays_on_both_sides() {
     fx.clip(track, media, ClipSpec::default());
     let ctx = fx.ctx();
     let out = fx.render(&ctx, BEAT);
-    let expected = |frame: usize| LEFT.at(frame as f64 / f64::from(RATE));
+    // A mono source sits at the centre of the constant-power pan law: -3 dB on both sides.
+    let expected = |frame: usize| LEFT.at(frame as f64 / f64::from(RATE)) * CENTRE;
     assert!(max_error(&out, 0, expected) < TOLERANCE);
     assert!(max_error(&out, 1, expected) < TOLERANCE);
 }
@@ -364,7 +367,7 @@ fn media_at_another_rate_is_resampled_and_its_source_offset_scales() {
     let out = fx.render(&ctx, 4 * BEAT);
     let expected = |frame: usize| {
         if (BEAT..3 * BEAT).contains(&frame) {
-            tone.at(0.5 + (frame - BEAT) as f64 / f64::from(RATE))
+            tone.at(0.5 + (frame - BEAT) as f64 / f64::from(RATE)) * CENTRE
         } else {
             0.0
         }
@@ -415,7 +418,7 @@ fn missing_media_is_silence_and_a_warning_not_an_error() {
     let out = fx.render(&ctx, 3 * BEAT);
     let expected = |frame: usize| {
         if frame < BEAT {
-            LEFT.at(frame as f64 / f64::from(RATE))
+            LEFT.at(frame as f64 / f64::from(RATE)) * CENTRE
         } else {
             0.0
         }

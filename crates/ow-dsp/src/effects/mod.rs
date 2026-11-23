@@ -5,4 +5,5 @@
 
 pub mod compressor;
 pub mod eq;
+pub mod limiter;
 pub mod reverb;

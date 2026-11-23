@@ -4,7 +4,7 @@
 use std::f64::consts::TAU;
 
 use assert_no_alloc::{AllocDisabler, assert_no_alloc};
-use ow_dsp::effects::{compressor, eq, reverb};
+use ow_dsp::effects::{compressor, eq, limiter, reverb};
 use ow_dsp::{Device, DeviceInfo, find};
 
 #[global_allocator]
@@ -50,7 +50,7 @@ fn eq_with(settings: &[(u32, f64)], rate: f32) -> Box<dyn Device> {
 
 #[test]
 fn effects_are_registered_as_non_instruments() {
-    for kind in [eq::KIND, compressor::KIND, reverb::KIND] {
+    for kind in [eq::KIND, compressor::KIND, reverb::KIND, limiter::KIND] {
         let info: &DeviceInfo = find(kind).expect("registered");
         assert!(!info.instrument, "{kind}");
         assert!(!info.params.is_empty());
@@ -322,7 +322,7 @@ fn effects_reverb_larger_sizes_ring_longer_and_reset_silences() {
 
 #[test]
 fn effects_stay_finite_on_extreme_input_and_parameters() {
-    for info in [eq::INFO, compressor::INFO, reverb::INFO] {
+    for info in [eq::INFO, compressor::INFO, reverb::INFO, limiter::INFO] {
         for pick in [0, 1] {
             let mut device = info.create(RATE, 4096);
             for param in info.params {
@@ -349,7 +349,7 @@ fn effects_stay_finite_on_extreme_input_and_parameters() {
 
 #[test]
 fn effects_do_not_allocate_while_processing() {
-    for info in [eq::INFO, compressor::INFO, reverb::INFO] {
+    for info in [eq::INFO, compressor::INFO, reverb::INFO, limiter::INFO] {
         let mut device = info.create(RATE, 512);
         let mut left = sine(220.0, 0.8, 512, RATE);
         let mut right = sine(330.0, 0.8, 512, RATE);
@@ -370,4 +370,86 @@ fn effects_do_not_allocate_while_processing() {
             left.iter_mut().for_each(|s| *s = s.clamp(-1.0, 1.0));
         }
     }
+}
+
+fn limiter_with(ceiling_db: f64, release: f64, lookahead: f64, rate: f32) -> Box<dyn Device> {
+    let mut device = make(limiter::KIND, rate);
+    device.set_param(limiter::PARAM_CEILING, ceiling_db);
+    device.set_param(limiter::PARAM_RELEASE, release);
+    device.set_param(limiter::PARAM_LOOKAHEAD, lookahead);
+    device
+}
+
+#[test]
+fn effects_limiter_reports_its_lookahead_as_latency() {
+    for (rate, lookahead, expected) in [
+        (48_000.0, 0.002, 96),
+        (48_000.0, 0.005, 240),
+        (44_100.0, 0.001, 44),
+        (96_000.0, 0.003, 288),
+    ] {
+        let device = limiter_with(-1.0, 0.1, lookahead, rate);
+        assert_eq!(device.latency_frames(), expected, "{rate} {lookahead}");
+    }
+    // Every other effect adds none.
+    for kind in [eq::KIND, compressor::KIND, reverb::KIND] {
+        assert_eq!(make(kind, RATE).latency_frames(), 0, "{kind}");
+    }
+}
+
+#[test]
+fn effects_limiter_never_exceeds_its_ceiling_and_delays_by_the_latency() {
+    for (ceiling_db, lookahead) in [(-1.0, 0.002), (-6.0, 0.005), (-0.1, 0.001), (-20.0, 0.003)] {
+        let ceiling = 10.0_f64.powf(ceiling_db / 20.0) as f32;
+        let mut device = limiter_with(ceiling_db, 0.05, lookahead, RATE);
+        let latency = device.latency_frames() as usize;
+        // A loud, uneven signal with isolated spikes and a hard clipped burst.
+        let mut left = sine(180.0, 1.8, 24_000, RATE);
+        let mut right = sine(230.0, 1.4, 24_000, RATE);
+        left[5000] = 4.0;
+        right[9000] = -6.0;
+        for sample in &mut left[14_000..14_300] {
+            *sample = 3.0 * sample.signum();
+        }
+        for chunk in 0..(24_000 / 500) {
+            let range = chunk * 500..(chunk + 1) * 500;
+            let (l, r) = (&mut left[range.clone()], &mut right[range]);
+            device.process(&mut [l, r], &[]);
+        }
+        let peak = left
+            .iter()
+            .chain(&right)
+            .fold(0.0_f32, |m, s| m.max(s.abs()));
+        assert!(
+            peak <= ceiling,
+            "peak {peak} above {ceiling} ({ceiling_db} dB)"
+        );
+        // Reduction is not wasted: the output is loud, and the first frames are the delay's
+        // silence.
+        assert!(peak > ceiling * 0.95, "peak {peak}");
+        assert!(left[..latency].iter().all(|s| *s == 0.0));
+        // A quiet passage far from any peak passes unchanged, delayed by the latency.
+        let quiet_in = sine(300.0, 0.05, 6000, RATE);
+        let mut device = limiter_with(ceiling_db.max(-6.0), 0.05, lookahead, RATE);
+        let latency = device.latency_frames() as usize;
+        let (mut l, mut r) = (quiet_in.clone(), quiet_in.clone());
+        device.process(&mut [&mut l, &mut r], &[]);
+        for i in latency..6000 {
+            assert!((l[i] - quiet_in[i - latency]).abs() < 1e-6, "{i}");
+        }
+    }
+}
+
+#[test]
+fn effects_limiter_recovers_after_a_peak() {
+    let mut device = limiter_with(-6.0, 0.02, 0.002, RATE);
+    let mut left = vec![0.1_f32; 48_000];
+    left[1000] = 2.0;
+    let mut right = left.clone();
+    device.process(&mut [&mut left, &mut right], &[]);
+    let latency = device.latency_frames() as usize;
+    // Well after the release the steady 0.1 is back at unity.
+    assert!((left[40_000] - 0.1).abs() < 1e-4, "{}", left[40_000]);
+    // The peak itself came out at the ceiling.
+    assert!((left[1000 + latency] - 0.501_187).abs() < 1e-3);
 }

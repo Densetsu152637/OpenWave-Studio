@@ -3,16 +3,32 @@
   import Lane from "./Lane.svelte";
   import PianoRoll from "./PianoRoll.svelte";
   import TrackHeader from "./TrackHeader.svelte";
+  import BusHeader from "./BusHeader.svelte";
+  import SendsPanel from "./SendsPanel.svelte";
   import DeviceChain from "./DeviceChain.svelte";
   import DevicePanel from "../devices/DevicePanel.svelte";
   import {
-    addInsert,
+    addStripInsert,
     chainOf,
     effectDescriptors,
     removeInsertCommand,
     shownEntry,
+    stripChainOf,
     toggleBypassCommand,
   } from "../devices/chain";
+  import {
+    addBus,
+    changeSend,
+    removeBus,
+    renameBus,
+    routeTargets,
+    sameStrip,
+    setSendsCommand,
+    setStripCommand,
+    stripOf,
+    withSend,
+    withoutSend,
+  } from "../mixer/mixer";
   import { loadDescriptors } from "../devices/descriptors";
   import { descriptorFor, setParamCommand } from "../devices/params";
   import { replaceNotesCommand } from "../pianoroll/notes";
@@ -40,11 +56,15 @@
     type View,
   } from "../arrange/view";
   import type { MirrorState } from "../stores";
+  import type { Strip } from "../ipc/types";
   import type {
+    Bus,
     Clip,
     Device,
     DeviceDescriptor,
+    MixerRef,
     Note,
+    StripSettings,
     ParamDescriptorDto,
     Track,
   } from "../ipc/types";
@@ -66,7 +86,7 @@
   } = $props();
 
   const HEADER_PX = 200;
-  const LANE_PX = 72;
+  const LANE_PX = 88;
   const RULER_PX = 24;
   const ZOOM_STEP = 1.25;
   const WHEEL_ZOOM = 0.002;
@@ -74,6 +94,8 @@
   let view = $state.raw<View>(DEFAULT_VIEW);
   let width = $state(800);
   let selectedTrack = $state<number | null>(null);
+  /** A bus (its id) or the master selected instead of a track; its FX and sends fill the dock. */
+  let selectedBus = $state<number | "master" | null>(null);
   let selectedClip = $state<number | null>(null);
   /** The MIDI clip open in the piano roll. */
   let openClip = $state<number | null>(null);
@@ -83,6 +105,7 @@
 
   const project = $derived(mirror.project);
   const tracks = $derived(project?.tracks ?? []);
+  const buses = $derived(project?.buses ?? []);
   const tempo = $derived(new TempoMap(project?.tempo_map ?? []));
   const signatures = $derived(new SignatureMap(project?.time_signature_map ?? []));
   const marks = $derived(rulerMarks(view, width, signatures));
@@ -111,7 +134,26 @@
   const rollTrack = $derived(rollClip ? tracks.find((t) => t.id === rollClip.track) : undefined);
   /** The track whose FX list and panel the dock shows: the open clip's, else the selected one. */
   const dockTrack = $derived(rollTrack ?? tracks.find((t) => t.id === selectedTrack));
-  const chain = $derived(dockTrack && project ? chainOf(dockTrack, project.devices) : []);
+  /** The bus or master the dock shows when no track is selected. */
+  const dockBus = $derived<MixerRef | null>(
+    dockTrack || !project
+      ? null
+      : selectedBus === "master"
+        ? "master"
+        : selectedBus !== null && buses.some((b) => b.id === selectedBus)
+          ? { bus: selectedBus }
+          : null,
+  );
+  /** What the dock is about: a track, a bus or the master. */
+  const dockRef = $derived<MixerRef | null>(dockTrack ? { track: dockTrack.id } : dockBus);
+  const dockStrip = $derived(project && dockRef ? stripOf(project, dockRef) : undefined);
+  const chain = $derived(
+    !project || !dockStrip
+      ? []
+      : dockTrack
+        ? chainOf(dockTrack, project.devices)
+        : stripChainOf(dockStrip, project.devices),
+  );
   const dockDevice = $derived(shownEntry(chain, selectedDevice)?.device);
   const dockDescriptor = $derived(dockDevice ? descriptorFor(descriptors, dockDevice) : undefined);
   const effects = $derived(effectDescriptors(descriptors));
@@ -197,9 +239,36 @@
   const setParam = (device: { id: number }, param: ParamDescriptorDto, value: number) =>
     run(() => commandsApi.edit(setParamCommand(device, param, value)));
 
-  const addEffect = (track: Track, descriptor: DeviceDescriptor) =>
+  const addEffect = (ref: MixerRef, descriptor: DeviceDescriptor) =>
     run(async () => {
-      selectedDevice = await addInsert(commandsApi, track, descriptor);
+      const strip = project ? stripOf(project, ref) : undefined;
+      if (strip) selectedDevice = await addStripInsert(commandsApi, ref, strip, descriptor);
+    });
+
+  /** Changes one strip settings (a bus or the master; tracks have `setTrackStrip`). */
+  const setStrip = (ref: MixerRef, change: Partial<StripSettings>) =>
+    run(async () => {
+      const strip = project ? stripOf(project, ref) : undefined;
+      if (strip) await commandsApi.edit(setStripCommand(ref, strip.settings, change));
+    });
+
+  const addBusStrip = () =>
+    run(async () => {
+      const id = await addBus(commandsApi, buses.length);
+      selectBus(id);
+    });
+
+  const setSends = (ref: MixerRef, change: (sends: Strip["sends"]) => Strip["sends"]) =>
+    run(async () => {
+      const strip = project ? stripOf(project, ref) : undefined;
+      if (strip) await commandsApi.edit(setSendsCommand(ref, change(strip.sends)));
+    });
+
+  const deleteBus = (bus: Bus) =>
+    run(async () => {
+      if (!project) return;
+      await removeBus(commandsApi, project, bus.id);
+      if (selectedBus === bus.id) selectedBus = null;
     });
 
   const removeEffect = (device: Device) => run(() => commandsApi.edit(removeInsertCommand(device)));
@@ -227,9 +296,19 @@
   }
 
   function selectTrack(id: number) {
-    if (selectedTrack !== id) selectedDevice = null;
+    if (selectedTrack !== id || selectedBus !== null) selectedDevice = null;
     selectedTrack = id;
+    selectedBus = null;
     selectedClip = null;
+  }
+
+  /** Selects a bus or the master: the dock shows its FX chain (and the sends of a bus). */
+  function selectBus(id: number | "master") {
+    if (selectedBus !== id) selectedDevice = null;
+    selectedBus = id;
+    selectedTrack = null;
+    selectedClip = null;
+    openClip = null;
   }
 </script>
 
@@ -242,6 +321,7 @@
       Add MIDI track
     </button>
     <button type="button" onclick={newMidiClip} disabled={!selectedMidiTrack}>New MIDI clip</button>
+    <button type="button" onclick={addBusStrip} disabled={!project}>Add bus</button>
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>
     <span class="spacer"></span>
     <button type="button" aria-label="Zoom out" title="Zoom out" onclick={() => zoomBy(1 / ZOOM_STEP)}>&minus;</button>
@@ -278,8 +358,12 @@
                 onArm={() => run(() => toggleArm(recordApi, armed, track.id))}
                 onSelect={() => selectTrack(track.id)}
                 onRename={(name) => run(() => renameTrack(commandsApi, track, name))}
+                destinations={routeTargets(project, { track: track.id })}
                 onMute={(mute) => run(() => setTrackStrip(commandsApi, track, { mute }))}
+                onSolo={(solo) => run(() => setTrackStrip(commandsApi, track, { solo }))}
                 onVolume={(gain_db) => run(() => setTrackStrip(commandsApi, track, { gain_db }))}
+                onPan={(pan) => run(() => setTrackStrip(commandsApi, track, { pan }))}
+                onOutput={(output) => run(() => setTrackStrip(commandsApi, track, { output }))}
                 onDelete={() => run(() => removeTrack(commandsApi, track.id))}
               />
             </div>
@@ -304,6 +388,52 @@
           </div>
         {/each}
 
+        {#each buses as bus (bus.id)}
+          <div class="row">
+            <div class="head" style:width="{HEADER_PX}px">
+              <BusHeader
+                name={bus.name}
+                color={bus.color}
+                master={false}
+                settings={bus.strip.settings}
+                height={LANE_PX}
+                selected={dockBus !== null && sameStrip(dockBus, { bus: bus.id })}
+                destinations={routeTargets(project, { bus: bus.id })}
+                onSelect={() => selectBus(bus.id)}
+                onRename={(name) => run(() => renameBus(commandsApi, bus, name))}
+                onMute={(mute) => setStrip({ bus: bus.id }, { mute })}
+                onVolume={(gain_db) => setStrip({ bus: bus.id }, { gain_db })}
+                onPan={(pan) => setStrip({ bus: bus.id }, { pan })}
+                onOutput={(output) => setStrip({ bus: bus.id }, { output })}
+                onDelete={() => deleteBus(bus)}
+              />
+            </div>
+            <div class="lane-cell bus-lane" style:height="{LANE_PX}px"></div>
+          </div>
+        {/each}
+
+        <div class="row">
+          <div class="head" style:width="{HEADER_PX}px">
+            <BusHeader
+              name="Master"
+              color={0}
+              master={true}
+              settings={project.master.settings}
+              height={LANE_PX}
+              selected={dockBus === "master"}
+              destinations={[]}
+              onSelect={() => selectBus("master")}
+              onRename={() => {}}
+              onMute={(mute) => setStrip("master", { mute })}
+              onVolume={(gain_db) => setStrip("master", { gain_db })}
+              onPan={(pan) => setStrip("master", { pan })}
+              onOutput={() => {}}
+              onDelete={() => {}}
+            />
+          </div>
+          <div class="lane-cell bus-lane" style:height="{LANE_PX}px"></div>
+        </div>
+
         {#if tracks.length === 0}
           <p class="empty">Add an audio or MIDI track, or import an audio file, to begin.</p>
         {/if}
@@ -313,7 +443,7 @@
         {/if}
       </div>
     </div>
-    {#if dockTrack}
+    {#if dockRef && dockStrip}
       <section class="dock" aria-label="Piano roll, FX and device panel">
         {#if rollClip && rollTrack}
           <PianoRoll
@@ -325,9 +455,13 @@
           />
         {:else}
           <p class="dock-hint">
-            {dockTrack.kind === "midi"
-              ? "Double-click a MIDI clip to edit its notes."
-              : "Add effects to the track from the FX list."}
+            {dockTrack
+              ? dockTrack.kind === "midi"
+                ? "Double-click a MIDI clip to edit its notes."
+                : "Add effects to the track from the FX list."
+              : dockRef === "master"
+                ? "Master effects process the whole mix. Put a limiter last."
+                : "Bus effects process everything routed or sent to the bus."}
           </p>
         {/if}
         <DeviceChain
@@ -335,10 +469,23 @@
           shownId={dockDevice?.id ?? null}
           {effects}
           onSelect={(device) => (selectedDevice = device.id)}
-          onAdd={(descriptor) => addEffect(dockTrack, descriptor)}
+          onAdd={(descriptor) => addEffect(dockRef, descriptor)}
           onRemove={removeEffect}
           onBypass={bypassEffect}
         />
+        {#if dockRef !== "master"}
+          <SendsPanel
+            sends={dockStrip.sends}
+            {buses}
+            targets={routeTargets(project, dockRef)}
+            onAdd={(bus) => setSends(dockRef, (sends) => withSend(sends, bus))}
+            onLevel={(index, level_db) =>
+              setSends(dockRef, (sends) => changeSend(sends, index, { level_db }))}
+            onPre={(index, pre_fader) =>
+              setSends(dockRef, (sends) => changeSend(sends, index, { pre_fader }))}
+            onRemove={(index) => setSends(dockRef, (sends) => withoutSend(sends, index))}
+          />
+        {/if}
         {#if dockDevice && dockDescriptor}
           <DevicePanel
             device={dockDevice}
@@ -444,6 +591,10 @@
     flex: 1;
     margin: 16px;
     color: var(--muted);
+  }
+  .bus-lane {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
   }
   .empty {
     margin: 24px;

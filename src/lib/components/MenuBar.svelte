@@ -23,6 +23,7 @@
     { label: "Save", run: () => file.save(), needsProject: true },
     { label: "Save As…", run: () => file.saveAs(), needsProject: true },
     { label: "Export WAV…", run: () => file.exportWav(), needsProject: true },
+    { label: "Export WAV, normalised to -14 LUFS…", run: () => file.exportNormalized(), needsProject: true },
   ];
 
   let open = $state(false);

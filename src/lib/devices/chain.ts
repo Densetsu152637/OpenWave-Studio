@@ -1,5 +1,5 @@
 import type { ArrangeApi } from "../arrange/edits";
-import type { Device, DeviceDescriptor, EditCommand, Track } from "../ipc/types";
+import type { Device, DeviceDescriptor, EditCommand, MixerRef, Strip, Track } from "../ipc/types";
 import { newDevice } from "./params";
 
 /**
@@ -45,18 +45,35 @@ export function shownEntry(
   return chain.find((entry) => entry.device.id === selected) ?? chain[0];
 }
 
-/** `InsertDevice` appending `descriptor`'s device (id `id`, default parameters) to the track. */
-export function addInsertCommand(
-  track: Pick<Track, "id" | "strip">,
+/** The inserts of a bus or the master strip (they have no instrument), in signal order. */
+export const stripChainOf = (
+  strip: Strip,
+  devices: ReadonlyMap<number, Device>,
+): ChainEntry[] => chainOf({ instrument: null, strip }, devices);
+
+/**
+ * `InsertDevice` appending `descriptor`'s device (id `id`, default parameters) to the end of the
+ * insert chain of `ref` (a track, a bus or the master), whose strip is `strip`.
+ */
+export function addStripInsertCommand(
+  ref: MixerRef,
+  strip: Pick<Strip, "inserts">,
   descriptor: DeviceDescriptor,
   id: number,
 ): EditCommand {
   return {
     command: "insert_device",
-    slot: { type: "insert", strip: { track: track.id }, index: track.strip.inserts.length },
+    slot: { type: "insert", strip: ref, index: strip.inserts.length },
     bundle: { device: newDevice(descriptor, id), lanes: [] },
   };
 }
+
+/** `InsertDevice` appending `descriptor`'s device (id `id`, default parameters) to the track. */
+export const addInsertCommand = (
+  track: Pick<Track, "id" | "strip">,
+  descriptor: DeviceDescriptor,
+  id: number,
+): EditCommand => addStripInsertCommand({ track: track.id }, track.strip, descriptor, id);
 
 /** `RemoveDevice` for an insert. */
 export const removeInsertCommand = (device: Pick<Device, "id">): EditCommand => ({
@@ -71,15 +88,23 @@ export const toggleBypassCommand = (device: Pick<Device, "id" | "enabled">): Edi
   enabled: !device.enabled,
 });
 
-/** Appends a new effect to the track's chain; resolves with the new device's id. */
-export async function addInsert(
+/** Appends a new effect to a strip's chain (a track, bus or the master); resolves with its id. */
+export async function addStripInsert(
   api: ArrangeApi,
-  track: Pick<Track, "id" | "strip">,
+  ref: MixerRef,
+  strip: Pick<Strip, "inserts">,
   descriptor: DeviceDescriptor,
 ): Promise<number> {
   if (descriptor.instrument) throw new Error(`${descriptor.name} is an instrument, not an effect`);
   const [id] = await api.allocIds(1);
   if (id === undefined) throw new Error("no id was reserved");
-  await api.edit(addInsertCommand(track, descriptor, id));
+  await api.edit(addStripInsertCommand(ref, strip, descriptor, id));
   return id;
 }
+
+/** Appends a new effect to the track's chain; resolves with the new device's id. */
+export const addInsert = (
+  api: ArrangeApi,
+  track: Pick<Track, "id" | "strip">,
+  descriptor: DeviceDescriptor,
+): Promise<number> => addStripInsert(api, { track: track.id }, track.strip, descriptor);

@@ -15,8 +15,13 @@
 //!   solo-safe; bus solo is not interpreted yet);
 //! * a bus's fader is a [`GainNode`] that sums what routes into it; the master's fader is the
 //!   stereo [`GainNode`] whose outputs are the plan output;
-//! * sends are [`GainNode`]s tapped pre- or post-fader that feed the target bus;
-//! * pan is not applied yet (the mixer stage owns the pan law);
+//! * sends are [`GainNode`]s tapped pre- or post-fader that feed the target bus (a pre-fader tap
+//!   is after the inserts and the pan stage; a bus without a source or inserts gets a unity input
+//!   stage, [`NodeKey::Input`], so its pre-fader sends have something to tap);
+//! * pan is a [`PanNode`] between the inserts and the fader ([`NodeKey::Pan`]), present when its
+//!   gains are not both 1; see [`pan_gains`] for the law. Master and bus strips carry stereo and
+//!   use balance; a track whose source is mono (mono audio media, or an instrument, which
+//!   plays the same signal on both sides) uses the constant-power law with -3 dB at the centre;
 //! * audio clips play: a track with audio clips gets a stereo [`GainNode`] as its source (key
 //!   [`NodeKey::Clips`]) that sums one [`ClipSourceNode`] per clip (key [`NodeKey::Clip`]), each
 //!   playing its media from memory at the clip's timeline position with the clip's source
@@ -64,7 +69,7 @@ use crate::clips::SourceCache;
 use crate::clips::midi::{MidiClipPlayer, schedule};
 use crate::device::DeviceNode;
 use crate::graph::clip::{ClipPlacement, ClipSourceNode};
-use crate::graph::nodes::GainNode;
+use crate::graph::nodes::{GainNode, PanNode};
 use crate::{Graph, GraphError, NodeId, RenderPlan, Timeline};
 
 /// What the compiler needs besides the project to play its audio clips.
@@ -99,6 +104,11 @@ pub enum NodeKey {
     Device(DeviceId),
     /// A strip's fader; the master's is the output gain.
     Fader(MixerRef),
+    /// A strip's pan or balance stage (absent when it would be unity).
+    Pan(MixerRef),
+    /// The unity input stage of a bus or master that has no source or inserts but needs a node
+    /// before its pan stage or pre-fader sends.
+    Input(MixerRef),
     /// A send: the `nth` send from `from` to bus `to`.
     Send {
         /// The sending strip.
@@ -276,6 +286,32 @@ fn db_to_linear(db: f64) -> f32 {
     10.0_f64.powf(db / 20.0) as f32
 }
 
+/// Left and right gains of a strip's pan stage for `pan` (-1 left to 1 right; out-of-range and
+/// non-finite values are limited and read as centre).
+///
+/// With a `mono` source the law is constant power: `left = cos(t)`, `right = sin(t)` for
+/// `t = (pan + 1) * pi / 4`, so both sides are -3.01 dB at the centre and the summed power is
+/// constant. A stereo source gets balance: the side away from the pan direction is attenuated by
+/// `cos(|pan| * pi / 2)` (silent at full pan) and the other side stays at unity, so the centre
+/// is unity.
+pub fn pan_gains(pan: f64, mono: bool) -> [f32; 2] {
+    let pan = if pan.is_finite() {
+        pan.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    if mono {
+        let angle = (pan + 1.0) * std::f64::consts::FRAC_PI_4;
+        [angle.cos() as f32, angle.sin() as f32]
+    } else {
+        let side = |amount: f64| (amount * std::f64::consts::FRAC_PI_2).cos().max(0.0) as f32;
+        [
+            if pan > 0.0 { side(pan) } else { 1.0 },
+            if pan < 0.0 { side(-pan) } else { 1.0 },
+        ]
+    }
+}
+
 /// What `build_strip` leaves for wiring.
 struct StripNodes {
     /// First node of the strip's chain, which incoming signals connect to (stereo input).
@@ -309,6 +345,19 @@ pub fn compile_project(
     compile_project_metered(project, ctx, sample_rate, max_block, None)
 }
 
+/// Like [`compile_project`] with the plan's output taken from the fader of `tap` instead of the
+/// master's: what `strip` sounds like after its fader, for analysis. The rest of the project is
+/// compiled as usual. A strip the project does not have is a model error.
+pub fn compile_project_tap(
+    project: &Project,
+    ctx: &CompileContext,
+    sample_rate: u32,
+    max_block: usize,
+    tap: MixerRef,
+) -> Result<Compiled, CompileError> {
+    compile_inner(project, ctx, sample_rate, max_block, None, tap)
+}
+
 /// Like [`compile_project`], and when `meters` is given every strip's fader publishes its peak
 /// and RMS to the bank slot [`ow_ipc::meter_slot`] assigns it (the UI reads them through the
 /// telemetry channel). Strips beyond the bank's slots are not metered.
@@ -319,7 +368,31 @@ pub fn compile_project_metered(
     max_block: usize,
     meters: Option<&Arc<TelemetryBank>>,
 ) -> Result<Compiled, CompileError> {
+    compile_inner(
+        project,
+        ctx,
+        sample_rate,
+        max_block,
+        meters,
+        MixerRef::Master,
+    )
+}
+
+fn compile_inner(
+    project: &Project,
+    ctx: &CompileContext,
+    sample_rate: u32,
+    max_block: usize,
+    meters: Option<&Arc<TelemetryBank>>,
+    tap: MixerRef,
+) -> Result<Compiled, CompileError> {
     project.validate().map_err(CompileError::Model)?;
+    if project.strip(tap).is_none() {
+        return Err(CompileError::Model(ValidationError {
+            path: "tap".into(),
+            message: format!("there is no strip {tap:?}"),
+        }));
+    }
     let timeline = Timeline::new(
         project.tempo_map.clone(),
         project.time_signature_map.clone(),
@@ -393,8 +466,7 @@ pub fn compile_project_metered(
         graph.connect(nodes_of.fader, 0, dest, 0)?;
         graph.connect(nodes_of.fader, 1, dest, 1)?;
     }
-    let master_fader = built[&MixerRef::Master].fader;
-    graph.set_master(master_fader)?;
+    graph.set_master(built[&tap].fader)?;
 
     for (_, target) in &strips {
         let strip = project.strip(*target).expect("strip exists");
@@ -463,7 +535,7 @@ fn add_audio_clip(
     project: &Project,
     clip: &Clip,
     sum: NodeId,
-) {
+) -> bool {
     let ClipContent::Audio {
         media,
         source_offset,
@@ -471,11 +543,11 @@ fn add_audio_clip(
         ..
     } = &clip.content
     else {
-        return;
+        return false;
     };
     // The model guarantees the media exists (`validate`).
     let Some(item) = project.media_pool.get(media).filter(|_| !clip.muted) else {
-        return;
+        return false;
     };
     let rate = env.sample_rate;
     let Ok(loaded) = env
@@ -484,12 +556,12 @@ fn add_audio_clip(
         .load(&env.ctx.media_root.join(&item.path), rate)
     else {
         env.missing.insert(*media);
-        return;
+        return false;
     };
     let channels = loaded.pcm.channels.len();
     let source_frames = loaded.pcm.frames() as u64;
     if channels == 0 || source_frames == 0 {
-        return;
+        return false;
     }
     // Placement in timeline samples. Source offsets count frames of the media file, which
     // `load` resampled to the engine rate, so they scale by the same ratio.
@@ -524,6 +596,7 @@ fn add_audio_clip(
         .connect(node, 0, sum, 0)
         .and_then(|()| graph.connect(node, right, sum, 1));
     debug_assert!(wired.is_ok());
+    channels > 1
 }
 
 type AddNode<'a> = dyn FnMut(&mut Graph, NodeKey, Box<dyn crate::Node>) -> NodeId + 'a;
@@ -614,6 +687,8 @@ fn build_strip(
     // Source: the track's audio clips, or its instrument playing its MIDI clips. Both are
     // stereo nodes.
     let mut source: Option<NodeId> = None;
+    // Buses and the master carry stereo; a track is mono until some audio clip says otherwise.
+    let mut mono_source = matches!(target, MixerRef::Track(_));
     if let MixerRef::Track(id) = target
         && let Some(track) = project.track(id)
         && let Some(env) = clips
@@ -628,24 +703,53 @@ fn build_strip(
                 .collect();
             if !own.is_empty() {
                 let sum = add(graph, NodeKey::Clips(id), Box::new(GainNode::new(2, 1.0)));
+                let mut stereo = false;
                 for clip in own {
-                    add_audio_clip(graph, add, env, project, clip, sum);
+                    stereo |= add_audio_clip(graph, add, env, project, clip, sum);
                 }
+                mono_source = !stereo;
                 source = Some(sum);
             }
         }
     }
 
+    // The stage that follows the inserts: pan or balance, when it would change the signal.
+    let pan = pan_gains(strip.settings.pan, mono_source);
+    let needs_pan = pan != [1.0, 1.0];
+    let pre_sends = strip.sends.iter().any(|send| send.pre_fader);
+
     // Inserts in chain order, each fed by the node before it.
     let mut previous = source;
     let mut entry: Option<NodeId> = None;
     let mut wire: Vec<(NodeId, NodeId)> = Vec::new();
+    // A bus or master with neither a source nor inserts has no node to receive what routes into
+    // it ahead of its pan stage or pre-fader sends: give it a unity one.
+    if !matches!(target, MixerRef::Track(_))
+        && source.is_none()
+        && strip.inserts.is_empty()
+        && (needs_pan || pre_sends)
+    {
+        let node = add(
+            graph,
+            NodeKey::Input(target),
+            Box::new(GainNode::new(2, 1.0)),
+        );
+        entry = Some(node);
+        previous = Some(node);
+    }
     for device in &strip.inserts {
         let node = add_insert(graph, add, project, *device, sample_rate, max_block);
         entry.get_or_insert(node);
         if let Some(from) = previous {
             wire.push((from, node));
         }
+        previous = Some(node);
+    }
+
+    if needs_pan && let Some(from) = previous {
+        let node = add(graph, NodeKey::Pan(target), Box::new(PanNode::new(pan)));
+        entry.get_or_insert(node);
+        wire.push((from, node));
         previous = Some(node);
     }
 
@@ -813,8 +917,9 @@ mod tests {
         project_level(&project, ctx)
     }
 
-    /// RMS of the 0.2-amplitude sine source.
-    const SOURCE_RMS: f32 = 0.2 * std::f32::consts::FRAC_1_SQRT_2;
+    /// RMS of the 0.2-amplitude sine source on a centred track: the sine's RMS, times the -3 dB
+    /// the constant-power pan law leaves a mono source at the centre.
+    const SOURCE_RMS: f32 = 0.2 * std::f32::consts::FRAC_1_SQRT_2 * std::f32::consts::FRAC_1_SQRT_2;
 
     #[test]
     fn compile_empty_project_renders_silence_with_the_models_timeline() {
@@ -861,13 +966,13 @@ mod tests {
         let b = audio_track(&mut ed, m, db(0.0));
         let c = audio_track(&mut ed, m, safe);
         assert_eq!(level(ed.project(), &ctx, &[a]), 0.0);
-        assert!(level(ed.project(), &ctx, &[b]) > 0.1);
+        assert!(level(ed.project(), &ctx, &[b]) > 0.05);
 
         // Soloing `b` silences `a` and `c` unless solo-safe.
         let mut soloed = ed.project().clone();
         soloed.tracks[1].strip.settings.solo = true;
-        assert!(level(&soloed, &ctx, &[b]) > 0.1);
-        assert!(level(&soloed, &ctx, &[c]) > 0.1, "solo-safe track stays");
+        assert!(level(&soloed, &ctx, &[b]) > 0.05);
+        assert!(level(&soloed, &ctx, &[c]) > 0.05, "solo-safe track stays");
         soloed.tracks[2].strip.settings.solo_safe = false;
         assert_eq!(level(&soloed, &ctx, &[c]), 0.0);
 
@@ -947,12 +1052,12 @@ mod tests {
         let mut muted = project.clone();
         muted.tracks[0].strip.settings.mute = true;
         assert_eq!(level(&muted, &ctx, &[a]), 0.0);
-        assert!(level(&muted, &ctx, &[b]) > 0.1);
+        assert!(level(&muted, &ctx, &[b]) > 0.05);
 
         // Soloing `a` silences `b`, pre-fader send included.
         let mut soloed = project.clone();
         soloed.tracks[0].strip.settings.solo = true;
-        assert!(level(&soloed, &ctx, &[a]) > 0.1);
+        assert!(level(&soloed, &ctx, &[a]) > 0.05);
         assert_eq!(level(&soloed, &ctx, &[b]), 0.0);
     }
 
@@ -1214,9 +1319,9 @@ mod tests {
         let (peak_a, rms_a) = bank.take_meter(slot(MixerRef::Track(a))).unwrap();
         let (peak_b, rms_b) = bank.take_meter(slot(MixerRef::Track(b))).unwrap();
         let (peak_master, _) = bank.take_meter(slot(MixerRef::Master)).unwrap();
-        assert!((peak_a[0] - 0.2).abs() < 0.01, "{peak_a:?}");
+        assert!((peak_a[0] - 0.1414).abs() < 0.01, "{peak_a:?}");
         assert!((rms_a[0] - SOURCE_RMS).abs() < 2e-3, "{rms_a:?}");
-        assert!((peak_b[1] - 0.1).abs() < 0.01, "{peak_b:?}");
+        assert!((peak_b[1] - 0.0707).abs() < 0.01, "{peak_b:?}");
         assert!((rms_b[0] - SOURCE_RMS / 2.0).abs() < 2e-3, "{rms_b:?}");
         assert!(peak_master[0] > peak_a[0], "the master carries both tracks");
         // Unmetered compiles leave the bank alone.
