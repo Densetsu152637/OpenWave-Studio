@@ -312,7 +312,7 @@ impl IAudioProcessorTrait for GainProcessor {
     }
 
     unsafe fn getLatencySamples(&self) -> u32 {
-        GAIN_LATENCY
+        crate::reported_latency()
     }
 
     unsafe fn setupProcessing(&self, _setup: *mut ProcessSetup) -> tresult {

@@ -336,7 +336,7 @@ impl PluginAudioPortsImpl for GainMain<'_> {
 
 impl PluginLatencyImpl for GainMain<'_> {
     fn get(&self) -> u32 {
-        GAIN_LATENCY
+        crate::reported_latency()
     }
 }
 

@@ -373,6 +373,10 @@ pub(crate) fn apply_editor_edit(
     let key = (device, edit.param);
     let command = match edit.phase {
         EditPhase::Begin => {
+            // A second begin of a gesture that is open is not another undo step.
+            if open.contains(&key) {
+                return;
+            }
             let name = plugins
                 .get(device)
                 .and_then(|plugin| plugin.info().param(edit.param).map(|p| p.name.clone()))
@@ -382,13 +386,20 @@ pub(crate) fn apply_editor_edit(
                 label: format!("Edit {name}"),
             }
         }
-        EditPhase::Change => UiCommand::Edit {
-            edit: EditCommand::SetDeviceParam {
-                device: DeviceId(device),
-                param: edit.param,
-                value: Some(edit.value),
-            },
-        },
+        EditPhase::Change => {
+            // The plugin already has this value: record it, so that applying the change to the
+            // model does not send an older value of the gesture back to the plugin.
+            if let Some(plugin) = plugins.get(device) {
+                plugin.note_applied(edit.param, edit.value);
+            }
+            UiCommand::Edit {
+                edit: EditCommand::SetDeviceParam {
+                    device: DeviceId(device),
+                    param: edit.param,
+                    value: Some(edit.value),
+                },
+            }
+        }
         EditPhase::End => {
             if !open.remove(&key) {
                 return;

@@ -132,6 +132,7 @@ impl AudioSide {
     fn run(
         &mut self,
         edits: &mut rtrb::Consumer<Edit>,
+        carry: &mut Option<Edit>,
         audio: &mut [&mut [f32]; 2],
         events: &[Event],
     ) -> bool {
@@ -151,14 +152,7 @@ impl AudioSide {
         self.params_out.clear();
         self.events_in.clear();
         self.events_out.clear();
-        let mut taken = 0;
-        while taken < MAX_EDITS_PER_BLOCK
-            && let Ok(edit) = edits.pop()
-        {
-            // The latest value of a parameter within a block wins.
-            self.params_in.set_last(edit.id, 0, edit.value);
-            taken += 1;
-        }
+        fill_params(&self.params_in, carry, edits, MAX_EDITS_PER_BLOCK);
         for event in events.iter().take(EVENT_SLOTS) {
             let offset = i32::try_from(event.offset).unwrap_or(0);
             let offset = offset.min(i32::try_from(frames - 1).unwrap_or(0));
@@ -252,6 +246,33 @@ impl AudioSide {
     }
 }
 
+/// Moves queued edits into this block's parameter list. The latest value of a parameter within a
+/// block wins. An edit that does not fit (more distinct parameters than the list holds) is kept
+/// in `carry` for the next block instead of being dropped.
+fn fill_params(
+    params: &ParamChanges,
+    carry: &mut Option<Edit>,
+    edits: &mut rtrb::Consumer<Edit>,
+    limit: usize,
+) -> usize {
+    let mut taken = 0;
+    while taken < limit {
+        let edit = match carry.take() {
+            Some(edit) => edit,
+            None => match edits.pop() {
+                Ok(edit) => edit,
+                Err(_) => break,
+            },
+        };
+        if !params.set_last(edit.id, 0, edit.value) {
+            *carry = Some(edit);
+            break;
+        }
+        taken += 1;
+    }
+    taken
+}
+
 /// `AudioBusBuffers` for `count` buses, all empty: the main bus is filled in per block, the
 /// others stay inactive.
 fn bus_buffers(count: usize) -> Vec<AudioBusBuffers> {
@@ -306,6 +327,8 @@ type VstEvent = vst3::Steinberg::Vst::Event;
 pub(super) struct AudioSlot {
     pub(super) side: Option<AudioSide>,
     pub(super) edits: rtrb::Consumer<Edit>,
+    /// An edit the last block had no room for.
+    pub(super) carry: Option<Edit>,
 }
 
 pub(super) type SharedSlot = Arc<Mutex<AudioSlot>>;
@@ -350,9 +373,50 @@ impl PluginProcessor for Vst3Processor {
 }
 
 fn run_slot(slot: &mut AudioSlot, audio: &mut [&mut [f32]; 2], events: &[Event]) -> bool {
-    let AudioSlot { side, edits } = slot;
+    let AudioSlot { side, edits, carry } = slot;
     match side.as_mut() {
-        Some(side) => side.run(edits, audio, events),
+        Some(side) => side.run(edits, carry, audio, events),
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edits_beyond_the_blocks_parameter_slots_wait_for_the_next_block() {
+        let (mut producer, mut consumer) = rtrb::RingBuffer::new(64);
+        for id in 0..10_u32 {
+            producer
+                .push(Edit {
+                    id,
+                    value: f64::from(id) / 10.0,
+                })
+                .unwrap();
+        }
+        // A block with room for four distinct parameters.
+        let list = ComWrapper::new(ParamChanges::new(4));
+        let pointer = list.to_com_ptr::<IParameterChanges>().unwrap();
+        let mut carry = None;
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            list.clear();
+            fill_params(&list, &mut carry, &mut consumer, 512);
+            // SAFETY: the list is alive; the queues it hands out live as long as it does.
+            unsafe {
+                for index in 0..pointer.getParameterCount() {
+                    let queue = vst3::ComRef::from_raw(pointer.getParameterData(index)).unwrap();
+                    let (mut offset, mut value) = (0, 0.0);
+                    queue.getPoint(0, &mut offset, &mut value);
+                    seen.push((queue.getParameterId(), value));
+                }
+            }
+        }
+        assert_eq!(seen.len(), 10, "every edit reaches a block: {seen:?}");
+        for (id, value) in seen {
+            assert_eq!(value, f64::from(id) / 10.0);
+        }
+        assert!(carry.is_none());
     }
 }

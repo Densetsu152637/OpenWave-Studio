@@ -97,6 +97,27 @@ fn a_plugin_that_hangs_times_out_and_is_blacklisted() {
 }
 
 #[test]
+fn a_helper_process_holding_the_output_pipe_does_not_hang_the_scan() {
+    // The plugin starts a helper that inherits the scanner child's standard output and outlives
+    // the plugin, which then aborts: the pipe stays open for about twenty seconds after the
+    // child is gone. The scan must judge the file by the child's end, not by the pipe's.
+    let scanner = Scanner::new(ScanCommand::new(ow_scan()))
+        .with_timeout(Duration::from_secs(10))
+        .with_env(CRASH_MODE_ENV, "orphan");
+    let started = std::time::Instant::now();
+    let record = scanner.scan_file(&ow_plugin_fixtures::crash_path());
+    assert!(
+        matches!(record.status, ScanStatus::Crashed { .. }),
+        "{record:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "the scan waited for the helper: {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn a_file_that_is_not_a_plugin_is_a_failed_record_not_a_crash() {
     let dir = tempfile::tempdir().unwrap();
     let fake = dir.path().join("fake.clap");

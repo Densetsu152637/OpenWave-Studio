@@ -88,6 +88,8 @@ struct Main {
     editor: Rc<EditorState>,
     active: bool,
     torn_down: bool,
+    /// The sample rate the plugin was last activated for (bounds its reported latency).
+    sample_rate: u32,
 }
 
 /// Runs `work` on the instance `key`. Main thread only.
@@ -135,6 +137,7 @@ fn create_main(path: &Path, id: &str, shared: Arc<Shared>) -> Result<Main, Strin
         editor: Rc::new(EditorState::default()),
         active: false,
         torn_down: false,
+        sample_rate: 48_000,
     };
     // From here on a failure drops `main`, which terminates what was initialised.
 
@@ -297,6 +300,7 @@ impl Main {
             }
         }
         self.active = true;
+        self.sample_rate = sample_rate;
         Ok(AudioSide::new(
             self.processor.clone(),
             self.layout,
@@ -317,10 +321,11 @@ impl Main {
         }
     }
 
-    /// The latency the plugin reports now, in frames.
+    /// The latency the plugin reports now, in frames, limited to ten seconds.
     fn latency(&self) -> u32 {
         // SAFETY: a live processor.
-        unsafe { self.processor.getLatencySamples() }
+        let reported = unsafe { self.processor.getLatencySamples() };
+        crate::hosted::clamp_latency(reported, self.sample_rate)
     }
 
     /// The parameter list. Main thread only.

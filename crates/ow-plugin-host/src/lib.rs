@@ -21,6 +21,7 @@ pub mod cache;
 pub mod clap;
 pub mod device;
 pub mod editor;
+mod edits;
 pub mod executor;
 pub mod hosted;
 pub mod info;
@@ -31,7 +32,8 @@ pub use cache::{DeviceEditSink, PluginCache, PluginDirectory};
 pub use device::PluginDevice;
 pub use executor::{ExecutorError, InlineExecutor, MainThreadExecutor, ThreadExecutor};
 pub use hosted::{
-    EditPhase, EditSink, EditorEdit, HostedPlugin, PluginError, PluginProcessor, Requests,
+    EditPhase, EditSink, EditorEdit, HostedPlugin, MAX_LATENCY_SECONDS, PluginError,
+    PluginProcessor, Requests, clamp_latency,
 };
 pub use info::{
     FileRecord, Format, ParamInfo, PluginInfo, ScanCache, ScanOutput, ScanStatus, is_plugin_kind,

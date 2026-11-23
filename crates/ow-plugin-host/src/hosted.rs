@@ -76,6 +76,15 @@ pub struct EditorEdit {
 /// sink hands them to another thread.
 pub type EditSink = Arc<dyn Fn(EditorEdit) + Send + Sync>;
 
+/// Longest latency a plugin may report, in seconds of audio: more is a plugin gone wrong (or a
+/// hostile one) and would make delay compensation allocate absurd delay lines.
+pub const MAX_LATENCY_SECONDS: u32 = 10;
+
+/// `frames` limited to [`MAX_LATENCY_SECONDS`] at `sample_rate`.
+pub fn clamp_latency(frames: u32, sample_rate: u32) -> u32 {
+    frames.min(sample_rate.saturating_mul(MAX_LATENCY_SECONDS))
+}
+
 /// Things a plugin asked the host for since the last [`HostedPlugin::service`] call.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Requests {
@@ -146,6 +155,13 @@ pub trait HostedPlugin: Send + Sync {
     /// Makes the instance ready for `sample_rate` and blocks of up to `max_block` frames
     /// (re-activating it when they changed). Cheap when nothing changed.
     fn configure(&self, sample_rate: u32, max_block: usize) -> Result<(), PluginError>;
+
+    /// Records that the model now holds `value` (plain) for parameter `param`, so the next
+    /// [`set_params`](Self::set_params) with that value sends nothing. The app calls it when it
+    /// applies a change that came from the plugin's own editor, just before the edit; recording
+    /// it earlier (when the plugin reported it) let older values of a gesture, still waiting to
+    /// be applied, travel back to the plugin.
+    fn note_applied(&self, param: u32, value: f64);
 
     /// Sets where parameter changes made in the plugin's editor go (replacing an earlier sink).
     /// The values arrive as plain values, the same as `set_params` takes. Changes the host

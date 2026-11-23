@@ -25,7 +25,7 @@
 //! code around the plugin and leaves the plugin's own allocations (which we cannot change) alone.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -51,6 +51,7 @@ use clack_host::prelude::*;
 use ow_dsp::{Event, EventKind};
 
 use crate::editor::{self, EditorWindow, WindowEvent};
+use crate::edits::{Edit, EditSender};
 use crate::executor::{self, MainThreadExecutor};
 use crate::hosted::{
     EditPhase, EditSink, EditorEdit, HostedPlugin, PluginError, PluginProcessor, Requests,
@@ -255,6 +256,8 @@ impl HostHandlers for ClapHost {
 struct Main {
     instance: PluginInstance<ClapHost>,
     extensions: Extensions,
+    /// The sample rate the plugin was last activated for (bounds its reported latency).
+    sample_rate: u32,
 }
 
 /// What activation needs and produces.
@@ -327,6 +330,7 @@ fn create_instance(
     let main = Main {
         instance,
         extensions,
+        sample_rate: 48_000,
     };
     Ok((main, flags))
 }
@@ -418,11 +422,15 @@ impl Main {
         let Some(extension) = self.extensions.latency else {
             return 0;
         };
-        extension.get(&self.instance.plugin_handle())
+        crate::hosted::clamp_latency(
+            extension.get(&self.instance.plugin_handle()),
+            self.sample_rate,
+        )
     }
 
     /// Activates the plugin and builds its audio side. Main thread only.
     fn activate(&mut self, sample_rate: u32, max_block: usize) -> Result<AudioSide, String> {
+        self.sample_rate = sample_rate;
         let layout = self.layout();
         let configuration = PluginAudioConfiguration {
             sample_rate: f64::from(sample_rate),
@@ -614,13 +622,6 @@ fn poll_gui(key: u64, main: &mut Main) -> bool {
 /// Reports the plugin made in one block that the queue holds before the control side serves them.
 const REPORT_QUEUE: usize = 1024;
 
-/// A parameter value queued for the next block.
-#[derive(Debug, Clone, Copy)]
-struct ParamEdit {
-    id: u32,
-    value: f64,
-}
-
 struct AudioSide {
     processor: PluginAudioProcessor<ClapHost>,
     input_events: EventBuffer,
@@ -664,7 +665,7 @@ impl AudioSide {
 /// `try_lock`ed by the audio thread.
 struct AudioSlot {
     side: Option<AudioSide>,
-    edits: rtrb::Consumer<ParamEdit>,
+    edits: rtrb::Consumer<Edit>,
     /// Parameter changes the plugin reported while processing (its editor's gestures).
     reports: rtrb::Producer<EditorEdit>,
 }
@@ -888,13 +889,32 @@ impl PluginProcessor for ClapProcessor {
 // ---------------------------------------------------------------------------------------------
 // Control side
 
+/// The caller gave up waiting for the creation job. The job may still run (or already ran) on the
+/// main thread; a cleanup job queued behind it releases whatever it made.
+fn abandon(
+    executor: &Arc<dyn MainThreadExecutor>,
+    key: u64,
+    handoff: Arc<Mutex<Option<AudioSide>>>,
+) {
+    let _ = executor.dispatch(Box::new(move || {
+        let main = INSTANCES.with(|instances| instances.borrow_mut().remove(&key));
+        let side = lock(&handoff).take();
+        if let (Some(mut main), Some(side)) = (main, side) {
+            main.instance.deactivate(side.processor.into_stopped());
+        }
+    }));
+}
+
 /// One CLAP plugin instance.
 pub struct ClapPlugin {
     key: u64,
     info: PluginInfo,
     executor: Arc<dyn MainThreadExecutor>,
     slot: SharedSlot,
-    edits: Mutex<rtrb::Producer<ParamEdit>>,
+    edits: Mutex<EditSender>,
+    /// Parameters whose editor gesture has begun and not ended, and the last value reported.
+    gestures: Mutex<HashSet<u32>>,
+    last_reported: Mutex<HashMap<u32, f64>>,
     /// The values this host last sent (or the editor last reported), by parameter id.
     applied: Mutex<HashMap<u32, f64>>,
     /// What the plugin's editor did, as the audio thread saw it.
@@ -922,8 +942,12 @@ impl ClapPlugin {
         let (report_producer, report_consumer) = rtrb::RingBuffer::new(REPORT_QUEUE);
         let path = PathBuf::from(&info.path);
         let id = info.id.clone();
+        // The audio side travels through a slot, not the answer: when the caller gives up
+        // waiting, the job (which may still run later) leaves its instance for `abandon`.
+        let handoff: Arc<Mutex<Option<AudioSide>>> = Arc::new(Mutex::new(None));
         let created = {
             let executor = Arc::clone(&executor);
+            let handoff = Arc::clone(&handoff);
             executor::call(executor.clone().as_ref(), move || {
                 let (mut main, flags) = create_instance(&executor, &path, &id, key)?;
                 if let (Some(state), Some(extension)) = (&state, main.extensions.state) {
@@ -933,11 +957,21 @@ impl ClapPlugin {
                 }
                 let side = main.activate(sample_rate, max_block)?;
                 let latency = main.latency();
+                *lock(&handoff) = Some(side);
                 INSTANCES.with(|instances| instances.borrow_mut().insert(key, main));
-                Ok::<_, String>((side, flags, latency))
-            })?
+                Ok::<_, String>((flags, latency))
+            })
         };
-        let (side, flags, latency) = created.map_err(PluginError::Plugin)?;
+        let (flags, latency) = match created {
+            Ok(created) => created.map_err(PluginError::Plugin)?,
+            Err(error) => {
+                abandon(&executor, key, handoff);
+                return Err(error.into());
+            }
+        };
+        let side = lock(&handoff)
+            .take()
+            .ok_or_else(|| PluginError::Plugin("the plugin instance went missing".into()))?;
         let slot = Arc::new(Mutex::new(AudioSlot {
             side: Some(side),
             edits: consumer,
@@ -952,7 +986,9 @@ impl ClapPlugin {
             info,
             executor,
             slot,
-            edits: Mutex::new(producer),
+            edits: Mutex::new(EditSender::new(producer)),
+            gestures: Mutex::new(HashSet::new()),
+            last_reported: Mutex::new(HashMap::new()),
             applied: Mutex::new(HashMap::new()),
             reports: Mutex::new(report_consumer),
             sink: Mutex::new(None),
@@ -978,21 +1014,21 @@ impl ClapPlugin {
         }
         let sink = lock(&self.sink).clone();
         for mut report in reports {
-            {
-                let mut applied = lock(&self.applied);
-                match report.phase {
-                    EditPhase::Change => {
-                        // The model gets this value back through `set_params`: remembering it
-                        // makes that a no-op instead of an echo.
-                        applied.insert(report.param, report.value);
+            match report.phase {
+                EditPhase::Change => {
+                    lock(&self.last_reported).insert(report.param, report.value);
+                }
+                EditPhase::Begin => {
+                    if !lock(&self.gestures).insert(report.param) {
+                        continue;
                     }
-                    EditPhase::Begin | EditPhase::End => {
-                        report.value = applied
-                            .get(&report.param)
-                            .copied()
-                            .or_else(|| self.info.param(report.param).map(|p| p.default))
-                            .unwrap_or(0.0);
+                    report.value = self.known_value(report.param);
+                }
+                EditPhase::End => {
+                    if !lock(&self.gestures).remove(&report.param) {
+                        continue;
                     }
+                    report.value = self.known_value(report.param);
                 }
             }
             if let Some(sink) = &sink {
@@ -1001,8 +1037,36 @@ impl ClapPlugin {
         }
     }
 
+    /// The newest value of `param` the editor reported, else what the host sent, else its default.
+    fn known_value(&self, param: u32) -> f64 {
+        lock(&self.last_reported)
+            .get(&param)
+            .copied()
+            .or_else(|| lock(&self.applied).get(&param).copied())
+            .or_else(|| self.info.param(param).map(|p| p.default))
+            .unwrap_or(0.0)
+    }
+
+    /// Ends every gesture that is still open (the editor closed, the plugin is released, the
+    /// project was replaced), so the app closes the undo step it opened for it.
+    fn close_gestures(&self) {
+        self.serve_reports();
+        let open: Vec<u32> = lock(&self.gestures).drain().collect();
+        let sink = lock(&self.sink).clone();
+        for param in open {
+            if let Some(sink) = &sink {
+                sink(EditorEdit {
+                    param,
+                    phase: EditPhase::End,
+                    value: self.known_value(param),
+                });
+            }
+        }
+    }
+
     fn queue(&self, id: u32, value: f64) -> bool {
-        lock(&self.edits).push(ParamEdit { id, value }).is_ok()
+        lock(&self.edits).send(Edit { id, value });
+        true
     }
 
     fn call<T: Send + 'static>(
@@ -1112,6 +1176,8 @@ impl HostedPlugin for ClapPlugin {
             return Requests::default();
         }
         self.serve_reports();
+        // Values that waited for room in the edit queue go in now.
+        lock(&self.edits).flush();
         let editor = self.editor_open.load(Ordering::Acquire);
         let flags = Arc::clone(&self.flags);
         let pending = [
@@ -1134,11 +1200,14 @@ impl HostedPlugin for ClapPlugin {
         let config = *lock(&self.config);
         let slot = Arc::clone(&self.slot);
         let editor_open = Arc::clone(&self.editor_open);
+        let closed_by_user = Arc::new(AtomicBool::new(false));
+        let closed_flag = Arc::clone(&closed_by_user);
         let served = self.call(move || {
             let mut requests = Requests::default();
             let _ = with_main(key, |main| {
                 if editor && !poll_gui(key, main) {
                     editor_open.store(false, Ordering::Release);
+                    closed_flag.store(true, Ordering::Release);
                 }
                 if flags.callback.swap(false, Ordering::AcqRel) {
                     main.instance.call_on_main_thread_callback();
@@ -1166,6 +1235,9 @@ impl HostedPlugin for ClapPlugin {
             });
             requests
         });
+        if closed_by_user.load(Ordering::Acquire) {
+            self.close_gestures();
+        }
         served.unwrap_or_default()
     }
 
@@ -1197,6 +1269,10 @@ impl HostedPlugin for ClapPlugin {
         })?
     }
 
+    fn note_applied(&self, param: u32, value: f64) {
+        lock(&self.applied).insert(param, value);
+    }
+
     fn set_edit_sink(&self, sink: EditSink) {
         *lock(&self.sink) = Some(sink);
     }
@@ -1222,6 +1298,7 @@ impl HostedPlugin for ClapPlugin {
             let _ = with_main(key, |main| close_gui(key, main));
         });
         self.editor_open.store(false, Ordering::Release);
+        self.close_gestures();
     }
 
     fn editor_open(&self) -> bool {
@@ -1258,6 +1335,7 @@ impl HostedPlugin for ClapPlugin {
             }
         });
         self.editor_open.store(false, Ordering::Release);
+        self.close_gestures();
         if torn_down.is_err() {
             eprintln!(
                 "[openwave] a plugin instance could not be released: the main thread is gone"
@@ -1349,4 +1427,36 @@ pub fn describe_file(
         });
     }
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executor::{SlowExecutor, ThreadExecutor};
+
+    /// Creation that outlasts the caller's patience leaves no instance behind.
+    #[test]
+    fn an_instance_created_after_the_caller_gave_up_is_released() {
+        let infos = crate::scan::scan_in_process(&ow_plugin_fixtures::gain_path()).unwrap();
+        let info = infos.into_iter().find(|i| !i.instrument).unwrap();
+        let inner = Arc::new(ThreadExecutor::new());
+        let slow: Arc<dyn MainThreadExecutor> = Arc::new(SlowExecutor {
+            inner: Arc::clone(&inner),
+            delay: std::time::Duration::from_millis(400),
+            timeout: std::time::Duration::from_millis(100),
+        });
+        let before =
+            executor::call(inner.as_ref(), || INSTANCES.with(|i| i.borrow().len())).unwrap();
+        let result = ClapPlugin::create(slow, info, 48_000, 256, None);
+        assert!(matches!(
+            result,
+            Err(PluginError::Executor(
+                crate::executor::ExecutorError::TimedOut
+            ))
+        ));
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+        let after =
+            executor::call(inner.as_ref(), || INSTANCES.with(|i| i.borrow().len())).unwrap();
+        assert_eq!(after, before, "the late instance was destroyed");
+    }
 }

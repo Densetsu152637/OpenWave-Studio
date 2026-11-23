@@ -26,6 +26,9 @@ use crate::{clap, vst3};
 /// The scanner's timeout per file.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long the scanner waits for a finished child's output pipe to close.
+const PIPE_GRACE: Duration = Duration::from_secs(2);
+
 /// What precedes the JSON result on the child's standard output.
 pub const RESULT_MARKER: &str = "OW-SCAN-RESULT ";
 
@@ -217,14 +220,17 @@ impl Scanner {
                 );
             }
         };
-        // Read the pipe on its own thread so a chatty plugin cannot fill it and stall.
+        // Read the pipe on its own thread so a chatty plugin cannot fill it and stall. The thread
+        // is never joined: a helper process the plugin started may inherit the pipe and keep it
+        // open long after the child itself is gone, and waiting for its end would hang the scan.
         let mut stdout = child.stdout.take();
-        let reader = std::thread::spawn(move || {
+        let (answer, bytes_arrive) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
             let mut bytes = Vec::new();
             if let Some(stdout) = stdout.as_mut() {
                 let _ = stdout.take(4 << 20).read_to_end(&mut bytes);
             }
-            bytes
+            let _ = answer.send(bytes);
         });
         let deadline = Instant::now() + self.timeout;
         let exit = loop {
@@ -243,10 +249,12 @@ impl Scanner {
                 }
             }
         };
-        let bytes = reader.join().unwrap_or_default();
         let Some(exit) = exit else {
             return (ScanStatus::TimedOut, Vec::new());
         };
+        // The child is gone, so its output is complete unless a helper still holds the pipe: give
+        // the reader a moment, then judge by what it has not delivered (nothing).
+        let bytes = bytes_arrive.recv_timeout(PIPE_GRACE).unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes);
         let result = text
             .lines()

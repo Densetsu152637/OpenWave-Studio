@@ -134,9 +134,33 @@ fn check_gesture(format: &str, cache: &PluginCache, kind: &str) {
         "{format}: {seen:?}"
     );
     assert!(seen.iter().all(|edit| edit.param == PARAM_GAIN));
-    // The model hands the value back as SetDeviceParam: the plugin already has it.
+    // The app applies the gesture's changes to the model one at a time, after the plugin has
+    // moved on. An older value of the gesture, applied late, must not travel back: neither to
+    // the processor nor to the controller (`setParamNormalized`).
+    plugin.note_applied(PARAM_GAIN, 0.5);
+    assert_eq!(plugin.set_params(&BTreeMap::from([(PARAM_GAIN, 0.5)])), 0);
+    let (left, _) = run(processor.as_mut(), &impulse(), &impulse(), &[]);
+    assert_eq!(
+        left[GAIN_LATENCY as usize], 0.75,
+        "{format}: the stale value did not arrive"
+    );
+    assert_eq!(plugin.param_value(PARAM_GAIN).unwrap(), Some(0.75));
+    plugin.note_applied(PARAM_GAIN, 0.75);
     assert_eq!(plugin.set_params(&BTreeMap::from([(PARAM_GAIN, 0.75)])), 0);
     assert_eq!(plugin.param_value(PARAM_GAIN).unwrap(), Some(0.75));
+    // A gesture that never ends is ended when the editor goes away.
+    edits.lock().unwrap().clear();
+    simulate(cache, module_of(kind), hooks::PHASE_BEGIN, 0.0);
+    run(processor.as_mut(), &impulse(), &impulse(), &[]);
+    plugin.service();
+    plugin.close_editor();
+    let seen = edits.lock().unwrap().clone();
+    let phases: Vec<EditPhase> = seen.iter().map(|e| e.phase).collect();
+    assert_eq!(
+        phases,
+        [EditPhase::Begin, EditPhase::End],
+        "{format}: {seen:?}"
+    );
     cache.clear();
 }
 
@@ -202,6 +226,7 @@ fn check_editor(format: &str, cache: &PluginCache, kind: &str) {
     );
     assert!(seen.iter().all(|edit| edit.param == PARAM_GAIN));
     // The model hands the value back as SetDeviceParam: nothing to do for the plugin.
+    plugin.note_applied(PARAM_GAIN, 0.5);
     assert_eq!(plugin.set_params(&BTreeMap::from([(PARAM_GAIN, 0.5)])), 0);
     // The service pass also notices window events; none happened.
     plugin.service();

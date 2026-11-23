@@ -11,7 +11,7 @@ use vst3::ComWrapper;
 use vst3::Steinberg::FUnknown;
 use vst3::Steinberg::Vst::*;
 
-use super::audio::{AudioSlot, SharedSlot, Vst3Processor};
+use super::audio::{AudioSide, AudioSlot, SharedSlot, Vst3Processor};
 use super::host::{Edit, HostApp, Shared, lock};
 use super::module::{self, AUDIO_CATEGORY, ClassInfo, cid_text};
 use super::{EDIT_QUEUE, INSTANCES, Main, NEXT_KEY, create_main, with_main};
@@ -47,8 +47,12 @@ impl Vst3Plugin {
         let shared = Shared::new(producer);
         let path = PathBuf::from(&info.path);
         let id = info.id.clone();
+        // The audio side travels through a slot, not the answer: when the caller gives up
+        // waiting, the job (which may still run later) leaves its instance for `abandon`.
+        let handoff: Arc<Mutex<Option<AudioSide>>> = Arc::new(Mutex::new(None));
         let created = {
             let shared = Arc::clone(&shared);
+            let handoff = Arc::clone(&handoff);
             executor::call(executor.as_ref(), move || {
                 let mut main = create_main(&path, &id, shared)?;
                 if let Some(state) = &state {
@@ -57,14 +61,25 @@ impl Vst3Plugin {
                 }
                 let side = main.activate(sample_rate, max_block)?;
                 let latency = main.latency();
+                *lock(&handoff) = Some(side);
                 INSTANCES.with(|instances| instances.borrow_mut().insert(key, main));
-                Ok::<_, String>((side, latency))
-            })?
+                Ok::<_, String>(latency)
+            })
         };
-        let (side, latency) = created.map_err(PluginError::Plugin)?;
+        let latency = match created {
+            Ok(created) => created.map_err(PluginError::Plugin)?,
+            Err(error) => {
+                abandon(&executor, key, handoff);
+                return Err(error.into());
+            }
+        };
+        let side = lock(&handoff)
+            .take()
+            .ok_or_else(|| PluginError::Plugin("the plugin instance went missing".into()))?;
         let slot = Arc::new(Mutex::new(AudioSlot {
             side: Some(side),
             edits: consumer,
+            carry: None,
         }));
         // On macOS the standard mutex allocates its pthread mutex the first time it is locked.
         // Lock it once here, on the control thread, so the audio thread's first `try_lock`
@@ -92,6 +107,23 @@ impl Vst3Plugin {
         }
         Ok(executor::call(self.executor.as_ref(), work)?)
     }
+}
+
+/// The caller gave up waiting for the creation job. The job may still run (or already ran) on the
+/// main thread; a cleanup job queued behind it releases whatever it made.
+fn abandon(
+    executor: &Arc<dyn MainThreadExecutor>,
+    key: u64,
+    handoff: Arc<Mutex<Option<AudioSide>>>,
+) {
+    let _ = executor.dispatch(Box::new(move || {
+        let main = INSTANCES.with(|instances| instances.borrow_mut().remove(&key));
+        let side = lock(&handoff).take();
+        if let Some(mut main) = main {
+            main.deactivate(side);
+            main.teardown();
+        }
+    }));
 }
 
 /// Re-activates the instance for the given configuration: stops the audio side, sets the plugin
@@ -164,7 +196,7 @@ impl HostedPlugin for Vst3Plugin {
                         // SAFETY: a live controller.
                         unsafe { controller.setParamNormalized(id, normalized) };
                     }
-                    let _ = lock(&shared.edits).push(Edit {
+                    lock(&shared.edits).send(Edit {
                         id,
                         value: normalized,
                     });
@@ -202,6 +234,8 @@ impl HostedPlugin for Vst3Plugin {
         if self.destroyed.load(Ordering::Acquire) {
             return Requests::default();
         }
+        // Values that waited for room in the edit queue go in now.
+        lock(&self.shared.edits).flush();
         let editor = self.editor_open.load(Ordering::Acquire);
         if !self.shared.flags.any() && !editor {
             // Nothing was asked: no main-thread call.
@@ -218,6 +252,7 @@ impl HostedPlugin for Vst3Plugin {
             let _ = with_main(key, |main| {
                 if editor && !super::view::poll(&main.editor) {
                     editor_open.store(false, Ordering::Release);
+                    shared.close_gestures();
                 }
                 if shared.flags.restart.swap(false, Ordering::AcqRel) {
                     // The plugin's buses or latency changed: set it up again.
@@ -263,6 +298,10 @@ impl HostedPlugin for Vst3Plugin {
         })?
     }
 
+    fn note_applied(&self, param: u32, value: f64) {
+        lock(&self.shared.applied).insert(param, value);
+    }
+
     fn set_edit_sink(&self, sink: EditSink) {
         *lock(&self.shared.sink) = Some(sink);
     }
@@ -295,6 +334,7 @@ impl HostedPlugin for Vst3Plugin {
             let _ = with_main(key, |main| super::view::close(&main.editor));
         });
         self.editor_open.store(false, Ordering::Release);
+        self.shared.close_gestures();
     }
 
     fn editor_open(&self) -> bool {
@@ -325,6 +365,7 @@ impl HostedPlugin for Vst3Plugin {
             }
         });
         self.editor_open.store(false, Ordering::Release);
+        self.shared.close_gestures();
         if torn_down.is_err() {
             eprintln!(
                 "[openwave] a plugin instance could not be released: the main thread is gone"
@@ -424,4 +465,37 @@ fn describe_class(path: &Path, class: &ClassInfo) -> Result<PluginInfo, String> 
             .to_string_lossy()
             .into_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executor::{SlowExecutor, ThreadExecutor};
+
+    /// Creation that outlasts the caller's patience leaves no instance behind.
+    #[test]
+    fn an_instance_created_after_the_caller_gave_up_is_released() {
+        let infos = crate::scan::scan_in_process(&ow_plugin_fixtures::vst3_path()).unwrap();
+        let info = infos.into_iter().find(|i| !i.instrument).unwrap();
+        let inner = Arc::new(ThreadExecutor::new());
+        let slow: Arc<dyn MainThreadExecutor> = Arc::new(SlowExecutor {
+            inner: Arc::clone(&inner),
+            delay: std::time::Duration::from_millis(400),
+            timeout: std::time::Duration::from_millis(100),
+        });
+        let before =
+            executor::call(inner.as_ref(), || INSTANCES.with(|i| i.borrow().len())).unwrap();
+        let result = Vst3Plugin::create(slow, info, 48_000, 256, None);
+        assert!(matches!(
+            result,
+            Err(PluginError::Executor(
+                crate::executor::ExecutorError::TimedOut
+            ))
+        ));
+        // The creation job runs late, and the cleanup queued behind it releases the instance.
+        std::thread::sleep(std::time::Duration::from_millis(1200));
+        let after =
+            executor::call(inner.as_ref(), || INSTANCES.with(|i| i.borrow().len())).unwrap();
+        assert_eq!(after, before, "the late instance was destroyed");
+    }
 }

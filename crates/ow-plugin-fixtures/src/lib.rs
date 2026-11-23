@@ -62,8 +62,22 @@ pub const PARAM_POLARITY: u32 = 2;
 /// Parameter id of the tone instrument's level (0 to 1, default 0.5).
 pub const PARAM_LEVEL: u32 = 1;
 
+/// Environment variable read by the gain fixtures: the latency they report, in frames, instead of
+/// [`GAIN_LATENCY`] (they still delay by `GAIN_LATENCY`). A host must not trust it: tests set it
+/// to `u32::MAX`.
+pub const LATENCY_ENV: &str = "OW_FIXTURE_LATENCY";
+
+/// The latency a gain fixture reports: [`LATENCY_ENV`] when set, else [`GAIN_LATENCY`].
+pub fn reported_latency() -> u32 {
+    std::env::var(LATENCY_ENV)
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .unwrap_or(GAIN_LATENCY)
+}
+
 /// Environment variable read by the crash fixture: `hang` makes it sleep forever instead of
-/// aborting.
+/// aborting; `orphan` first starts a helper process that inherits the scanner's output pipe and
+/// outlives the plugin (about 20 seconds), then aborts.
 pub const CRASH_MODE_ENV: &str = "OW_FIXTURE_CRASH_MODE";
 
 /// Names of the functions every fixture library exports for the host tests, which stand in for

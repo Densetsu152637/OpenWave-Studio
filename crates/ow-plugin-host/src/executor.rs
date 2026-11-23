@@ -54,6 +54,11 @@ pub trait MainThreadExecutor: Send + Sync + 'static {
 
     /// True when the calling thread is the main thread.
     fn is_main_thread(&self) -> bool;
+
+    /// How long [`call`] waits for this main thread (tests shorten it).
+    fn call_timeout(&self) -> Duration {
+        CALL_TIMEOUT
+    }
 }
 
 /// Runs `work` on the main thread and returns its result. On the main thread itself the work
@@ -73,7 +78,7 @@ pub fn call<T: Send + 'static>(
         let _ = sender.send(work());
     }))?;
     receiver
-        .recv_timeout(CALL_TIMEOUT)
+        .recv_timeout(executor.call_timeout())
         .map_err(|error| match error {
             mpsc::RecvTimeoutError::Timeout => ExecutorError::TimedOut,
             mpsc::RecvTimeoutError::Disconnected => ExecutorError::Gone,
@@ -164,6 +169,36 @@ impl MainThreadExecutor for InlineExecutor {
 
     fn is_main_thread(&self) -> bool {
         thread::current().id() == self.thread
+    }
+}
+
+/// An executor whose main thread is slow to start each job and whose callers give up quickly:
+/// what a plugin that takes too long to instantiate looks like.
+#[cfg(test)]
+pub(crate) struct SlowExecutor {
+    pub(crate) inner: std::sync::Arc<ThreadExecutor>,
+    pub(crate) delay: Duration,
+    pub(crate) timeout: Duration,
+}
+
+#[cfg(test)]
+impl MainThreadExecutor for SlowExecutor {
+    fn dispatch(&self, job: Job) -> Result<(), ExecutorError> {
+        let inner = std::sync::Arc::clone(&self.inner);
+        let delay = self.delay;
+        thread::spawn(move || {
+            thread::sleep(delay);
+            let _ = inner.dispatch(job);
+        });
+        Ok(())
+    }
+
+    fn is_main_thread(&self) -> bool {
+        self.inner.is_main_thread()
+    }
+
+    fn call_timeout(&self) -> Duration {
+        self.timeout
     }
 }
 

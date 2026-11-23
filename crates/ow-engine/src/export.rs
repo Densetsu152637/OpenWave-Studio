@@ -106,6 +106,13 @@ pub fn render_strip(
         compile_project_tap(project, ctx, project.settings.sample_rate, MAX_BLOCK, strip)
             .map_err(ExportError::Compile)?;
     let latency = compiled.plan.output_latency() as usize;
+    // The latency is rendered on top of the project (and then dropped): it counts against the
+    // limit too, so a plugin that reports an absurd latency cannot ask for an endless render.
+    if frames.saturating_add(latency) > MAX_EXPORT_FRAMES {
+        return Err(ExportError::TooLong {
+            frames: (frames as u64).saturating_add(latency as u64),
+        });
+    }
     let mut renderer = OfflineRenderer::new(compiled.plan, 2);
     // A fresh renderer's queues have room for these.
     let queued = renderer.link().swap_timeline(compiled.timeline).is_ok()

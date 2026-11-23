@@ -294,6 +294,12 @@ fn a_gesture_is_one_undo_step(kind: &str, module: std::path::PathBuf) {
     while let Ok((device, edit)) = receiver.try_recv() {
         crate::plugins::apply_editor_edit(&state, &target, &cache, device, edit, &mut open);
         applied += 1;
+        if applied == 2 {
+            // The plugin is already at 0.75; the first change (0.5) is applied to the model
+            // only now. It must not travel back to the plugin: not to the processor, not to the
+            // controller (which the editor shows).
+            assert_eq!(value_after_a_block(&plugin, PARAM_GAIN), 0.75);
+        }
     }
     assert_eq!(applied, 4, "begin, two changes, end");
     assert!(open.is_empty());
@@ -378,4 +384,68 @@ fn plugin_state_a_vst3_plugin_is_saved_with_the_project_and_restored_on_open() {
     assert_eq!(restored.param_value(PARAM_GAIN).unwrap(), Some(0.25));
     assert_eq!(restored.param_value(PARAM_POLARITY).unwrap(), Some(1.0));
     assert_eq!(restored.save_state().unwrap(), bytes);
+}
+
+/// A gesture that begins and never ends (the editor is closed in the middle of a drag) is ended
+/// by the plugin when its editor closes, so the undo step does not stay open.
+fn an_open_gesture_ends_when_the_editor_closes(kind: &str, module: std::path::PathBuf) {
+    use ow_plugin_fixtures::hooks::{PHASE_BEGIN, PHASE_CHANGE};
+    let cache = fixture_cache();
+    let state = IpcState::with_plugins(cache.clone());
+    let target = CompilingTarget::default();
+    let device = add_plugin_track(&state, &target, kind);
+    let plugin = cache.get(device.0).unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    cache.set_edit_sink(Arc::new(move |device, edit| {
+        let _ = sender.send((device, edit));
+    }));
+    hook(&cache, module.clone(), PHASE_BEGIN, 0.0);
+    hook(&cache, module.clone(), PHASE_CHANGE, 0.5);
+    // A second begin of the open gesture is not another one.
+    hook(&cache, module.clone(), PHASE_BEGIN, 0.0);
+    value_after_a_block(&plugin, PARAM_GAIN);
+    plugin.close_editor();
+
+    let mut open = std::collections::HashSet::new();
+    while let Ok((device, edit)) = receiver.try_recv() {
+        crate::plugins::apply_editor_edit(&state, &target, &cache, device, edit, &mut open);
+    }
+    assert!(open.is_empty(), "the gesture was ended");
+    let snapshot = lock(&state.control).snapshot();
+    assert!(!snapshot.history.in_transaction);
+    assert_eq!(
+        snapshot.project.devices[&device].params.get(&PARAM_GAIN),
+        Some(&0.5)
+    );
+
+    // Undo works and takes the whole gesture; a later edit is a step of its own.
+    set_param(&state, &target, device, PARAM_GAIN, 1.5);
+    lock(&state.control)
+        .command(UiCommand::Undo, &target)
+        .unwrap();
+    let snapshot = lock(&state.control).snapshot();
+    assert_eq!(
+        snapshot.project.devices[&device].params.get(&PARAM_GAIN),
+        Some(&0.5)
+    );
+    lock(&state.control)
+        .command(UiCommand::Undo, &target)
+        .unwrap();
+    let snapshot = lock(&state.control).snapshot();
+    assert_eq!(
+        snapshot.project.devices[&device].params.get(&PARAM_GAIN),
+        None
+    );
+}
+
+#[test]
+fn plugin_state_a_clap_gesture_left_open_ends_with_the_editor() {
+    let _serial = serial();
+    an_open_gesture_ends_when_the_editor_closes(KIND, ow_plugin_fixtures::gain_path());
+}
+
+#[test]
+fn plugin_state_a_vst3_gesture_left_open_ends_with_the_editor() {
+    let _serial = serial();
+    an_open_gesture_ends_when_the_editor_closes(VST3_KIND, ow_plugin_fixtures::vst3_path());
 }

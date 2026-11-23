@@ -47,6 +47,22 @@ impl PluginFactoryImpl for CrashFactory {
         _host_info: HostInfo<'a>,
         _plugin_id: &CStr,
     ) -> Option<PluginInstance<'a>> {
+        if std::env::var(CRASH_MODE_ENV).as_deref() == Ok("orphan") {
+            // A helper that holds this process's standard output (as vendors' helper programs
+            // sometimes do) and keeps running after the plugin has died.
+            let helper = if cfg!(windows) {
+                std::process::Command::new("ping")
+                    .args(["-n", "20", "127.0.0.1"])
+                    .stdin(std::process::Stdio::null())
+                    .spawn()
+            } else {
+                std::process::Command::new("sleep")
+                    .arg("20")
+                    .stdin(std::process::Stdio::null())
+                    .spawn()
+            };
+            drop(helper);
+        }
         if std::env::var(CRASH_MODE_ENV).as_deref() == Ok("hang") {
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(60));
