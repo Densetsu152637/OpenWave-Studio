@@ -182,8 +182,7 @@ impl Node for PanNode {
         2
     }
     fn process(&mut self, ctx: &mut ProcessContext<'_>) {
-        for channel in 0..2 {
-            let gain = self.gains[channel];
+        for (channel, gain) in self.gains.into_iter().enumerate() {
             let input = ctx.inputs.channel(channel);
             for (out, sample) in ctx.outputs.channel_mut(channel).iter_mut().zip(input) {
                 *out = sample * gain;
