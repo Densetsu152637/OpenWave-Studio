@@ -8,6 +8,7 @@
 //! Everything on the processing path is allocation-free and lock-free.
 
 pub mod device;
+pub mod effects;
 pub mod instruments;
 pub mod registry;
 

@@ -3,7 +3,16 @@
   import Lane from "./Lane.svelte";
   import PianoRoll from "./PianoRoll.svelte";
   import TrackHeader from "./TrackHeader.svelte";
+  import DeviceChain from "./DeviceChain.svelte";
   import DevicePanel from "../devices/DevicePanel.svelte";
+  import {
+    addInsert,
+    chainOf,
+    effectDescriptors,
+    removeInsertCommand,
+    shownEntry,
+    toggleBypassCommand,
+  } from "../devices/chain";
   import { loadDescriptors } from "../devices/descriptors";
   import { descriptorFor, setParamCommand } from "../devices/params";
   import { replaceNotesCommand } from "../pianoroll/notes";
@@ -31,7 +40,14 @@
     type View,
   } from "../arrange/view";
   import type { MirrorState } from "../stores";
-  import type { Clip, DeviceDescriptor, Note, ParamDescriptorDto, Track } from "../ipc/types";
+  import type {
+    Clip,
+    Device,
+    DeviceDescriptor,
+    Note,
+    ParamDescriptorDto,
+    Track,
+  } from "../ipc/types";
 
   let {
     mirror,
@@ -61,6 +77,8 @@
   let selectedClip = $state<number | null>(null);
   /** The MIDI clip open in the piano roll. */
   let openClip = $state<number | null>(null);
+  /** The chain device whose panel is shown; the first one is shown when it is gone. */
+  let selectedDevice = $state<number | null>(null);
   let descriptors = $state.raw<readonly DeviceDescriptor[]>([]);
 
   const project = $derived(mirror.project);
@@ -91,14 +109,12 @@
     return clip?.content.type === "midi" ? clip : undefined;
   });
   const rollTrack = $derived(rollClip ? tracks.find((t) => t.id === rollClip.track) : undefined);
-  /** The MIDI track whose instrument the device panel shows: the open clip's, else the selected one. */
-  const dockTrack = $derived(
-    rollTrack ?? tracks.find((t) => t.id === selectedTrack && t.kind === "midi"),
-  );
-  const dockDevice = $derived(
-    dockTrack?.instrument == null ? undefined : project?.devices.get(dockTrack.instrument),
-  );
+  /** The track whose FX list and panel the dock shows: the open clip's, else the selected one. */
+  const dockTrack = $derived(rollTrack ?? tracks.find((t) => t.id === selectedTrack));
+  const chain = $derived(dockTrack && project ? chainOf(dockTrack, project.devices) : []);
+  const dockDevice = $derived(shownEntry(chain, selectedDevice)?.device);
   const dockDescriptor = $derived(dockDevice ? descriptorFor(descriptors, dockDevice) : undefined);
+  const effects = $derived(effectDescriptors(descriptors));
   const selectedMidiTrack = $derived(
     tracks.find((t) => t.id === selectedTrack && t.kind === "midi"),
   );
@@ -181,8 +197,18 @@
   const setParam = (device: { id: number }, param: ParamDescriptorDto, value: number) =>
     run(() => commandsApi.edit(setParamCommand(device, param, value)));
 
+  const addEffect = (track: Track, descriptor: DeviceDescriptor) =>
+    run(async () => {
+      selectedDevice = await addInsert(commandsApi, track, descriptor);
+    });
+
+  const removeEffect = (device: Device) => run(() => commandsApi.edit(removeInsertCommand(device)));
+
+  const bypassEffect = (device: Device) => run(() => commandsApi.edit(toggleBypassCommand(device)));
+
   function openRoll(clip: Clip) {
     if (clip.content.type !== "midi") return;
+    if (selectedTrack !== clip.track) selectedDevice = null;
     selectedTrack = clip.track;
     selectedClip = clip.id;
     openClip = clip.id;
@@ -195,11 +221,13 @@
   });
 
   function selectClip(track: Track, id: number) {
+    if (selectedTrack !== track.id) selectedDevice = null;
     selectedTrack = track.id;
     selectedClip = id;
   }
 
   function selectTrack(id: number) {
+    if (selectedTrack !== id) selectedDevice = null;
     selectedTrack = id;
     selectedClip = null;
   }
@@ -286,7 +314,7 @@
       </div>
     </div>
     {#if dockTrack}
-      <section class="dock" aria-label="Instrument and piano roll">
+      <section class="dock" aria-label="Piano roll, FX and device panel">
         {#if rollClip && rollTrack}
           <PianoRoll
             clip={rollClip}
@@ -296,8 +324,21 @@
             onClose={() => (openClip = null)}
           />
         {:else}
-          <p class="dock-hint">Double-click a MIDI clip to edit its notes.</p>
+          <p class="dock-hint">
+            {dockTrack.kind === "midi"
+              ? "Double-click a MIDI clip to edit its notes."
+              : "Add effects to the track from the FX list."}
+          </p>
         {/if}
+        <DeviceChain
+          {chain}
+          shownId={dockDevice?.id ?? null}
+          {effects}
+          onSelect={(device) => (selectedDevice = device.id)}
+          onAdd={(descriptor) => addEffect(dockTrack, descriptor)}
+          onRemove={removeEffect}
+          onBypass={bypassEffect}
+        />
         {#if dockDevice && dockDescriptor}
           <DevicePanel
             device={dockDevice}

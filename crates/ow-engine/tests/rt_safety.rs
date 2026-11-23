@@ -566,14 +566,16 @@ fn the_record_tap_is_allocation_free() {
     assert_eq!(stats.dropped_frames, 0);
 }
 
-/// The MIDI-clip player and the synth run under the allocation guard: note events from a dense
-/// clip, a loop wrap every pass, locates and stop/play (each of which releases sounding notes)
-/// and more simultaneous notes than the synth has voices (so voice stealing runs too).
+/// The MIDI-clip player, the synth and the three built-in effects as inserts run under the
+/// allocation guard: note events from a dense clip, a loop wrap every pass, locates and stop/play
+/// (each of which releases sounding notes) and more simultaneous notes than the synth has voices
+/// (so voice stealing runs too).
 #[test]
 fn the_midi_clip_player_and_synth_are_allocation_free() {
     let mut editor = Editor::new(Project::new("midi"));
     let track = editor.alloc_id().unwrap();
     let synth = editor.alloc_id().unwrap();
+    let effects: Vec<ow_model::DeviceId> = (0..3).map(|_| editor.alloc_id().unwrap()).collect();
     let clip = editor.alloc_id().unwrap();
     let notes: Vec<ow_model::Note> = (0..400)
         .map(|i| ow_model::Note {
@@ -592,7 +594,10 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
                     name: "Keys".into(),
                     color: 0,
                     kind: TrackKind::Midi,
-                    strip: Strip::default(),
+                    strip: Strip {
+                        inserts: effects.clone(),
+                        ..Strip::default()
+                    },
                     instrument: Some(synth),
                 },
                 clips: vec![Clip {
@@ -607,15 +612,28 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
                         controllers: vec![],
                     },
                 }],
-                devices: vec![ow_model::Device {
-                    id: synth,
-                    kind: "builtin.synth".into(),
-                    name: "Synth".into(),
-                    enabled: true,
-                    params: Default::default(),
-                    state: vec![],
-                    sidechain: None,
-                }],
+                devices: std::iter::once((synth, "builtin.synth"))
+                    .chain(effects.iter().copied().zip([
+                        "builtin.eq",
+                        "builtin.compressor",
+                        "builtin.reverb",
+                    ]))
+                    .map(|(id, kind)| ow_model::Device {
+                        id,
+                        kind: kind.into(),
+                        name: kind.into(),
+                        enabled: true,
+                        // Effects with audible settings: a boosted band, a low threshold, a tail.
+                        params: match kind {
+                            "builtin.eq" => [(1, 6.0), (4, 6.0), (7, -6.0)].into_iter().collect(),
+                            "builtin.compressor" => [(0, -30.0)].into_iter().collect(),
+                            "builtin.reverb" => [(2, 50.0)].into_iter().collect(),
+                            _ => Default::default(),
+                        },
+                        state: vec![],
+                        sidechain: None,
+                    })
+                    .collect(),
                 lanes: vec![],
             }),
         })
@@ -629,6 +647,9 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
     )
     .unwrap();
     assert!(compiled.nodes.get(NodeKey::Device(synth)).is_some());
+    for effect in &effects {
+        assert!(compiled.nodes.get(NodeKey::Device(*effect)).is_some());
+    }
     let (mut link, mut core) = builder().build();
     link.swap_timeline(compiled.timeline).unwrap();
     link.swap_plan(compiled.plan).unwrap();
