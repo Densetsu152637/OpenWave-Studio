@@ -72,4 +72,27 @@ describe("telemetry store", () => {
     await store.setVisibleStrips([1]);
     expect(invoke).not.toHaveBeenCalled();
   });
+
+  it("a stop right after a start waits for the start, so the bridge cannot outlive it", async () => {
+    const order: string[] = [];
+    const transport: IpcTransport = {
+      available: true,
+      channel: <T>(handler: (message: T) => void) => ({ onmessage: handler }),
+      invoke: (async (command: string) => {
+        order.push(`${command}:begin`);
+        await new Promise((resolve) => setTimeout(resolve, command === "telemetry_start" ? 20 : 0));
+        order.push(`${command}:end`);
+      }) as IpcTransport["invoke"],
+    };
+    const store = new TelemetryStore(transport);
+    const started = store.start();
+    const stopped = store.stop(); // not awaited in between
+    await Promise.all([started, stopped]);
+    expect(order).toEqual([
+      "telemetry_start:begin",
+      "telemetry_start:end",
+      "telemetry_stop:begin",
+      "telemetry_stop:end",
+    ]);
+  });
 });

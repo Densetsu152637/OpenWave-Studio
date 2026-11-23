@@ -17,6 +17,7 @@ export class TelemetryStore {
   readonly #subscribers = new Set<Subscriber>();
   #frame: TelemetryFrame | null = null;
   #running = false;
+  #starting: Promise<void> | null = null;
   #dropped = 0;
 
   constructor(transport: IpcTransport = tauriTransport) {
@@ -44,19 +45,27 @@ export class TelemetryStore {
   async start(hz: number = TELEMETRY_HZ): Promise<void> {
     if (!this.#transport.available || this.#running) return;
     this.#running = true;
-    try {
-      await this.#transport.invoke<void>("telemetry_start", {
+    const starting = this.#transport
+      .invoke<void>("telemetry_start", {
         frames: this.#transport.channel<ArrayBuffer | number[]>((raw) => this.receive(raw)),
         hz,
+      })
+      .catch((error) => {
+        this.#running = false;
+        throw error;
       });
-    } catch (error) {
-      this.#running = false;
-      throw error;
-    }
+    this.#starting = starting.then(
+      () => undefined,
+      () => undefined,
+    );
+    await starting;
   }
 
   async stop(): Promise<void> {
-    if (!this.#transport.available || !this.#running) return;
+    if (!this.#transport.available) return;
+    // A start still in flight must reach the backend first, or its bridge would outlive this stop.
+    await this.#starting;
+    if (!this.#running) return;
     this.#running = false;
     await this.#transport.invoke<void>("telemetry_stop");
   }

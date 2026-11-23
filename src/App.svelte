@@ -13,7 +13,7 @@
 
   let status = $state<EngineStatus>(offlineStatus);
   let settingsOpen = $state(false);
-  let mirror = $state<MirrorState>(modelMirror.state);
+  let mirror = $state.raw<MirrorState>(modelMirror.state);
 
   async function refresh() {
     try {

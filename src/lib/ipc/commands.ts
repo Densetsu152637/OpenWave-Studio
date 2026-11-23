@@ -21,12 +21,29 @@ export function ipcSnapshot(transport: IpcTransport = tauriTransport): Promise<S
   return transport.invoke<Snapshot>("ipc_snapshot");
 }
 
-/** Sends one command. Rejects with the reason when the model refused it. */
+/** Per transport: the tail of the command chain. */
+const queues = new WeakMap<IpcTransport, Promise<unknown>>();
+
+function queued<T>(transport: IpcTransport, work: () => Promise<T>): Promise<T> {
+  const previous = queues.get(transport) ?? Promise.resolve();
+  const run = previous.then(work);
+  queues.set(
+    transport,
+    run.catch(() => undefined),
+  );
+  return run;
+}
+
+/**
+ * Sends one command. Rejects with the reason when the model refused it. Commands are serialized:
+ * each is invoked only after the previous one settled, so begin, edit, end, undo and redo reach the
+ * control thread in the order they were issued. A failed command does not block the ones after it.
+ */
 export function ipcCommand(
   command: UiCommand,
   transport: IpcTransport = tauriTransport,
 ): Promise<CommandReply> {
-  return transport.invoke<CommandReply>("ipc_command", { command });
+  return queued(transport, () => transport.invoke<CommandReply>("ipc_command", { command }));
 }
 
 /** Applies an edit as one undo step (or as part of the open transaction). */
@@ -47,6 +64,9 @@ export function beginTransaction(label: string, transport?: IpcTransport): Promi
 
 /** Reserves `count` fresh entity ids for the entities the next edits create. */
 export async function allocIds(count: number, transport: IpcTransport = tauriTransport): Promise<number[]> {
-  const reply = await transport.invoke<CommandReply>("ipc_alloc_ids", { count });
+  // Same queue as the other commands, so ids are reserved in issue order too.
+  const reply = await queued(transport, () =>
+    transport.invoke<CommandReply>("ipc_alloc_ids", { count }),
+  );
   return reply.ids;
 }
