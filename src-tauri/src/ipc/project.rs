@@ -22,10 +22,14 @@ use super::control::PlanTarget;
 /// Extension of a project bundle.
 pub const BUNDLE_EXTENSION: &str = "owave";
 
-/// `path` as an absolute bundle path with the `.owave` extension added when it has none.
+/// `path` as an absolute bundle path with `.owave` appended unless that is already its
+/// extension (compared ignoring case): `song.v2` becomes `song.v2.owave`.
 pub fn bundle_path(path: &Path) -> PathBuf {
     let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-    if path.extension().is_some() {
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(BUNDLE_EXTENSION))
+    {
         path
     } else {
         let mut name = path.into_os_string();
@@ -165,5 +169,26 @@ impl IpcState {
         for build in builds {
             build.join().unwrap().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod bundle_path_tests {
+    use super::*;
+
+    #[test]
+    fn owave_is_appended_unless_it_is_already_the_extension() {
+        let name = |p: &str| {
+            bundle_path(Path::new(p))
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(name("song"), "song.owave");
+        assert_eq!(name("song.v2"), "song.v2.owave");
+        assert_eq!(name("song.owave"), "song.owave");
+        assert_eq!(name("song.OWAVE"), "song.OWAVE");
+        assert_eq!(name("song.wav"), "song.wav.owave");
     }
 }

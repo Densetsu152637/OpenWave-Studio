@@ -7,7 +7,7 @@ use std::thread;
 use ow_engine::{Engine, EngineConfig, MidiInputSelection, TransportCommand};
 use ow_io::{AudioSelection, AudioState, DEFAULT_DEVICE, DeviceInfo, StreamRequest};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::paths::Paths;
 use crate::prefs::{self, Loaded, Preferences};
@@ -325,9 +325,19 @@ pub struct DeviceLists {
     pub default_device: &'static str,
 }
 
+/// Runs `work` on the blocking pool: the engine's locks can be held for a long time while a
+/// project is compiled (media decode), which must not freeze the main thread.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
-pub fn engine_status(state: State<'_, EngineState>) -> EngineStatus {
-    state.status()
+pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
+    blocking(move || Ok(app.state::<EngineState>().status())).await
 }
 
 #[tauri::command]
@@ -347,20 +357,26 @@ fn send_transport(state: &EngineState, command: TransportCommand) -> Result<(), 
 
 /// Starts playback from the current position.
 #[tauri::command]
-pub fn transport_play(state: State<'_, EngineState>) -> Result<(), String> {
-    send_transport(&state, TransportCommand::Play)
+pub async fn transport_play(app: AppHandle) -> Result<(), String> {
+    blocking(move || send_transport(&app.state::<EngineState>(), TransportCommand::Play)).await
 }
 
 /// Stops playback; the position holds.
 #[tauri::command]
-pub fn transport_stop(state: State<'_, EngineState>) -> Result<(), String> {
-    send_transport(&state, TransportCommand::Stop)
+pub async fn transport_stop(app: AppHandle) -> Result<(), String> {
+    blocking(move || send_transport(&app.state::<EngineState>(), TransportCommand::Stop)).await
 }
 
 /// Moves the position to `beats` (during playback too).
 #[tauri::command]
-pub fn transport_locate(state: State<'_, EngineState>, beats: f64) -> Result<(), String> {
-    send_transport(&state, TransportCommand::LocateBeats(beats))
+pub async fn transport_locate(app: AppHandle, beats: f64) -> Result<(), String> {
+    blocking(move || {
+        send_transport(
+            &app.state::<EngineState>(),
+            TransportCommand::LocateBeats(beats),
+        )
+    })
+    .await
 }
 
 #[tauri::command]

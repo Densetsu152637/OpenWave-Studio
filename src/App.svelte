@@ -44,8 +44,20 @@
     framePosition === null ? locatedBeat : tempo.samplesToBeats(framePosition, sampleRate),
   );
   const projectName = $derived(mirror.project?.name ?? "No project");
+  // A new or opened project replaces the one that was playing: stop, so Play is usable again.
+  const stopAfter = (op: () => Promise<unknown>) => async () => {
+    const result = await op();
+    playing = false;
+    await transportStop().catch(() => {});
+    return result;
+  };
   const files = fileActions(
-    { projectNew, projectOpen, projectSave, exportWav },
+    {
+      projectNew: stopAfter(projectNew) as typeof projectNew,
+      projectOpen: (path) => stopAfter(() => projectOpen(path))() as ReturnType<typeof projectOpen>,
+      projectSave,
+      exportWav,
+    },
     nativeDialogs,
     () => ({
       dirty: mirror.history?.dirty ?? false,
@@ -61,6 +73,7 @@
       await transportPlay();
       playing = true;
     } catch (error) {
+      playing = false;
       fail(error);
     }
   }
@@ -70,6 +83,8 @@
       await transportStop();
       playing = false;
     } catch (error) {
+      // Whatever the engine is doing, Play must stay usable.
+      playing = false;
       fail(error);
     }
   }
@@ -79,6 +94,7 @@
     try {
       await transportLocate(beat);
     } catch (error) {
+      playing = false;
       fail(error);
     }
   }
