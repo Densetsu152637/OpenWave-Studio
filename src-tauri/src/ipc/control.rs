@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use ow_engine::{CompileContext, Engine};
 use ow_ipc::{CommandReply, ModelPatch, PatchOp, Project, Session, Snapshot, UiCommand};
+use ow_model::{TrackId, TrackKind};
 
 /// Where patches go (the UI's `ipc::Channel`).
 pub trait PatchSink: Send {
@@ -47,6 +48,9 @@ pub struct Control {
     pub(super) ctx: CompileContext,
     /// The temporary media folder of a project that was never saved.
     pub(super) temp: Option<tempfile::TempDir>,
+    /// Counts the projects this control has swapped in (open, new), so a recording can tell
+    /// that the project it started in is gone.
+    epoch: u64,
 }
 
 /// True when an operation changes what the engine plays; renaming the project or reserving ids
@@ -69,6 +73,70 @@ impl Control {
             engine_error: None,
             ctx: CompileContext::default(),
             temp: None,
+            epoch: 0,
+        }
+    }
+
+    /// Changes whenever another project replaces the current one.
+    pub(super) fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// Arms or disarms an audio track for recording. Session state: no undo step, no dirty
+    /// flag; the UI sees it through the mirror's `history.armedTracks`.
+    pub(super) fn set_armed(&mut self, track: u64, armed: bool) -> Result<(), String> {
+        let is_audio = self
+            .session
+            .project()
+            .tracks
+            .iter()
+            .any(|t| t.id == TrackId(track) && t.kind == TrackKind::Audio);
+        if armed && !is_audio {
+            return Err("only an audio track can be armed for recording".into());
+        }
+        let mut next: Vec<u64> = self.session.armed_tracks().to_vec();
+        next.retain(|id| *id != track);
+        if armed {
+            next.push(track);
+            next.sort_unstable();
+        }
+        if let Some(patch) = self.session.set_armed_tracks(next) {
+            self.deliver(&patch);
+        }
+        Ok(())
+    }
+
+    /// The armed tracks that still exist as audio tracks, in project order.
+    pub(super) fn armed_audio_tracks(&self) -> Vec<TrackId> {
+        let armed = self.session.armed_tracks();
+        self.session
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Audio && armed.contains(&t.id.0))
+            .map(|t| t.id)
+            .collect()
+    }
+
+    /// Disarms tracks an edit removed (or turned into something that cannot record).
+    fn prune_armed(&mut self) {
+        let live: Vec<u64> = self
+            .session
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Audio)
+            .map(|t| t.id.0)
+            .collect();
+        let kept: Vec<u64> = self
+            .session
+            .armed_tracks()
+            .iter()
+            .copied()
+            .filter(|id| live.contains(id))
+            .collect();
+        if let Some(patch) = self.session.set_armed_tracks(kept) {
+            self.deliver(&patch);
         }
     }
 
@@ -140,6 +208,9 @@ impl Control {
         if let Some(patch) = &outcome.patch {
             self.deliver(patch);
         }
+        if !self.session.armed_tracks().is_empty() {
+            self.prune_armed();
+        }
         if changed || self.engine_error.is_some() {
             self.apply_to_engine(target);
         }
@@ -196,6 +267,7 @@ impl Control {
         target: &dyn PlanTarget,
     ) {
         let patch = self.session.replace_project(project, project_path);
+        self.epoch += 1;
         self.deliver(&patch);
         self.apply_to_engine(target);
     }

@@ -17,6 +17,7 @@ pub mod midi_hub;
 pub mod offline;
 pub mod pdc;
 pub mod plan;
+pub mod record;
 pub mod rings;
 pub mod sched;
 pub mod transport;
@@ -24,6 +25,7 @@ pub mod workgroup;
 
 use std::f32::consts::TAU;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::{Duration, Instant};
@@ -33,7 +35,7 @@ use ow_io::{
     MidirBackend, Opener, RecoveryPolicy, StreamInfo, Supervisor,
 };
 use ow_ipc::{Overflow, TelemetryBank};
-use ow_model::{MediaId, Project};
+use ow_model::{MediaId, Project, TrackId};
 
 use crate::midi_hub::MidiRings;
 
@@ -46,8 +48,8 @@ pub use graph::clip::{ClipPlacement, ClipSourceNode};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
-    Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, SwapError, Telemetry,
-    default_worker_count,
+    Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, RecordSwapError, SwapError,
+    Telemetry, default_worker_count,
 };
 pub use midi_hub::{
     MIDI_RING_CAPACITY, MIDI_RINGS, MidiHub, MidiInputSelection, MidiPortState, MidiStatus,
@@ -55,6 +57,7 @@ pub use midi_hub::{
 pub use offline::OfflineRenderer;
 pub use pdc::DelayNode;
 pub use plan::RenderPlan;
+pub use record::{FinishedTake, RecordError, RecordSet, RecordShared, Recording, Stopped};
 pub use rings::{ProducerRing, RingSender, producer_ring};
 pub use transport::{
     BlockTiming, Click, MetronomeNode, Span, Spans, Timeline, TimelineSwapError, Transport,
@@ -70,6 +73,8 @@ const TEST_TONE_GAIN: f32 = 0.2;
 const FADE_SECONDS: f32 = 0.01;
 /// Tries (1 ms apart) before a control message is reported as not sent.
 const SEND_ATTEMPTS: u32 = 5;
+/// How long [`Engine::stop_recording`] waits for the audio thread to end the recording.
+pub const STOP_WAIT: Duration = Duration::from_secs(2);
 /// Weight of the newest block in the smoothed CPU load.
 const CPU_SMOOTHING: f32 = 0.1;
 
@@ -145,6 +150,10 @@ struct Live {
     /// The project the live plan was compiled from.
     project: Option<Arc<Project>>,
     sample_rate: u32,
+    /// Input channels the stream delivers (0 when it has no input).
+    input_channels: u16,
+    /// Round-trip latency of the stream in frames (`StreamInfo::latency_frames`).
+    latency_frames: u32,
     /// A timeline that did not fit its ring when its plan was swapped in; retried first at the
     /// next swap, so tempo never stays behind the plan for longer than one edit.
     pending_timeline: Option<Box<Timeline>>,
@@ -468,19 +477,88 @@ impl Engine {
         let Some(live) = guard.as_mut() else {
             return false;
         };
-        let mut message = Message::Transport(command);
+        send_message(live, Message::Transport(command))
+    }
+
+    /// Starts recording one take per `(track, wav path)`: creates the files, hands the record
+    /// tap to the audio thread, and arms and starts the transport from where it is. The takes
+    /// are 32-bit float WAVs at the stream's sample rate, mono when the input has one channel
+    /// and stereo (input channels 0 and 1) otherwise. Fails when no stream or no input is open,
+    /// when `takes` is empty, or when a file cannot be created. See [`record`] for how takes are
+    /// placed. Runs on the control thread; creates files and threads.
+    pub fn start_recording(&self, takes: &[(TrackId, PathBuf)]) -> Result<Recording, RecordError> {
+        let mut guard = lock(&self.live);
+        let live = guard.as_mut().ok_or(RecordError::NoStream)?;
+        if live.input_channels == 0 {
+            return Err(RecordError::NoInput);
+        }
+        let (recording, set) = Recording::begin(
+            takes,
+            live.sample_rate,
+            live.input_channels.min(2),
+            live.latency_frames,
+        )?;
+        let mut pending = set;
         for attempt in 0..SEND_ATTEMPTS {
-            match live.control.try_send(message) {
-                Ok(()) => return true,
-                Err(returned) => {
-                    message = returned;
-                    if attempt + 1 < SEND_ATTEMPTS {
-                        std::thread::sleep(Duration::from_millis(1));
+            match live.control.swap_record(pending) {
+                Ok(()) => break,
+                Err(RecordSwapError(returned)) => {
+                    if attempt + 1 == SEND_ATTEMPTS {
+                        return Err(RecordError::Busy);
                     }
+                    pending = *returned;
+                    std::thread::sleep(Duration::from_millis(1));
                 }
             }
         }
-        false
+        let started = send_message(
+            live,
+            Message::Transport(TransportCommand::SetRecordArm(true)),
+        ) && send_message(live, Message::Transport(TransportCommand::Play));
+        if !started {
+            // Take the tap back out (best effort); the writers finish when `recording` drops.
+            send_message(live, Message::EndRecording);
+            send_message(
+                live,
+                Message::Transport(TransportCommand::SetRecordArm(false)),
+            );
+            return Err(RecordError::Busy);
+        }
+        Ok(recording)
+    }
+
+    /// Stops the transport, ends `recording` and finishes its take files. The audio thread
+    /// confirms it will push no more frames before the files are finished, so each take holds
+    /// every frame that was captured ([`RecordShared::captured`]). Waits up to
+    /// [`STOP_WAIT`] for that confirmation (an audio stream that was closed meanwhile counts as
+    /// confirmed); [`Stopped::complete`] is false when it did not arrive.
+    pub fn stop_recording(&self, recording: Recording) -> Result<Stopped, RecordError> {
+        {
+            let mut guard = lock(&self.live);
+            if let Some(live) = guard.as_mut() {
+                send_message(live, Message::Transport(TransportCommand::Stop));
+                send_message(
+                    live,
+                    Message::Transport(TransportCommand::SetRecordArm(false)),
+                );
+                send_message(live, Message::EndRecording);
+            }
+        }
+        let deadline = Instant::now() + STOP_WAIT;
+        let complete = loop {
+            // Only the tap holds the other reference: gone means the stream was closed.
+            if recording.shared.done() || Arc::strong_count(&recording.shared) == 1 {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        if let Some(live) = lock(&self.live).as_mut() {
+            live.control.collect_retired();
+        }
+        recording.finish().map(|takes| Stopped { takes, complete })
     }
 
     pub fn test_tone(&self) -> bool {
@@ -501,6 +579,22 @@ impl Engine {
     pub fn cpu_load(&self) -> f32 {
         f32::from_bits(self.shared.cpu.load(Ordering::Relaxed))
     }
+}
+
+/// Sends one control message to the audio thread, retrying briefly while its ring is full.
+fn send_message(live: &mut Live, mut message: Message) -> bool {
+    for attempt in 0..SEND_ATTEMPTS {
+        match live.control.try_send(message) {
+            Ok(()) => return true,
+            Err(returned) => {
+                message = returned;
+                if attempt + 1 < SEND_ATTEMPTS {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Compiles `project` for the live stream and sends plan and timeline to the audio thread.
@@ -627,6 +721,8 @@ fn make_callback(
                     nodes,
                     project: wanted.as_ref().map(|w| Arc::clone(&w.project)),
                     sample_rate: info.sample_rate,
+                    input_channels: info.input_channels,
+                    latency_frames: info.latency_frames,
                     pending_timeline: None,
                 },
                 MidiRings {
@@ -758,6 +854,8 @@ mod tests {
             nodes: NodeMap::default(),
             project: None,
             sample_rate: 48_000,
+            input_channels: 0,
+            latency_frames: 0,
             pending_timeline: None,
         };
         (live, core)

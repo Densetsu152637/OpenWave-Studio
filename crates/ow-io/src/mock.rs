@@ -299,6 +299,12 @@ impl AudioBackend for MockBackend {
         let in_channels = usize::from(config.input_channels);
         let out_channels = usize::from(config.output_channels);
         let frames = config.buffer_frames.max(1) as usize;
+        // The loopback line is the whole round trip: a frame rendered now is heard this many
+        // frames later (never less than one buffer).
+        let latency_frames = match (config.loopback_latency_frames, in_channels) {
+            (Some(latency), channels) if channels > 0 => latency.max(config.buffer_frames.max(1)),
+            _ => 0,
+        };
         let info = StreamInfo {
             backend: MOCK_BACKEND_ID.into(),
             device_id: MOCK_DEVICE_ID.into(),
@@ -308,6 +314,7 @@ impl AudioBackend for MockBackend {
             input_channels: config.input_channels,
             buffer_frames: Some(config.buffer_frames),
             exclusive: false,
+            latency_frames,
         };
         let callback = factory(&info);
         let loopback = match (config.loopback_latency_frames, in_channels) {

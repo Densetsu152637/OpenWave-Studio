@@ -53,7 +53,8 @@
       "inTransaction": false,
       "dirty": false,
       "engineError": null,
-      "missingMedia": []
+      "missingMedia": [],
+      "armedTracks": []
     },
     "projectPath": null
   },
@@ -74,11 +75,30 @@
         "inTransaction": false,
         "dirty": false,
         "engineError": null,
-        "missingMedia": []
+        "missingMedia": [],
+        "armedTracks": []
       }
     },
     {
       "seq": 2,
+      "ops": [],
+      "history": {
+        "canUndo": false,
+        "canRedo": false,
+        "undoLabel": null,
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [],
+        "armedTracks": [
+          1,
+          3
+        ]
+      }
+    },
+    {
+      "seq": 3,
       "ops": [
         {
           "op": "set_next_id",
@@ -93,11 +113,15 @@
         "inTransaction": false,
         "dirty": false,
         "engineError": null,
-        "missingMedia": []
+        "missingMedia": [],
+        "armedTracks": [
+          1,
+          3
+        ]
       }
     },
     {
-      "seq": 3,
+      "seq": 4,
       "ops": [
         {
           "op": "set_project_path",
@@ -112,11 +136,15 @@
         "inTransaction": false,
         "dirty": false,
         "engineError": null,
-        "missingMedia": []
+        "missingMedia": [],
+        "armedTracks": [
+          1,
+          3
+        ]
       }
     },
     {
-      "seq": 4,
+      "seq": 5,
       "ops": [
         {
           "op": "set_next_id",
@@ -131,11 +159,15 @@
         "inTransaction": false,
         "dirty": false,
         "engineError": null,
-        "missingMedia": []
+        "missingMedia": [],
+        "armedTracks": [
+          1,
+          3
+        ]
       }
     },
     {
-      "seq": 5,
+      "seq": 6,
       "ops": [
         {
           "op": "set_next_id",
@@ -150,11 +182,15 @@
         "inTransaction": false,
         "dirty": false,
         "engineError": null,
-        "missingMedia": []
+        "missingMedia": [],
+        "armedTracks": [
+          1,
+          3
+        ]
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
       "ops": [
         {
           "op": "set_time_signature_map",
@@ -175,11 +211,15 @@
         "inTransaction": false,
         "dirty": true,
         "engineError": null,
-        "missingMedia": []
+        "missingMedia": [],
+        "armedTracks": [
+          1,
+          3
+        ]
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -192,11 +232,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 8,
+      "seq": 9,
       "ops": [
         {
           "op": "set_next_id",
@@ -214,11 +258,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 9,
+      "seq": 10,
       "ops": [
         {
           "op": "set_next_id",
@@ -236,11 +284,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "ops": [
         {
           "op": "set_tempo_map",
@@ -264,11 +316,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -281,11 +337,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "ops": [
         {
           "op": "set_next_id",
@@ -303,11 +363,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 13,
+      "seq": 14,
       "ops": [
         {
           "op": "set_next_id",
@@ -325,11 +389,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 14,
+      "seq": 15,
       "ops": [
         {
           "op": "upsert_bus",
@@ -364,11 +432,36 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       }
     },
     {
-      "seq": 15,
+      "seq": 16,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ],
+        "armedTracks": [
+          43,
+          45
+        ]
+      }
+    },
+    {
+      "seq": 17,
       "ops": [
         {
           "op": "set_next_id",
@@ -386,11 +479,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "ops": [
         {
           "op": "set_project_path",
@@ -408,11 +505,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "ops": [
         {
           "op": "set_next_id",
@@ -430,11 +531,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "ops": [
         {
           "op": "upsert_track",
@@ -529,11 +634,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "ops": [
         {
           "op": "set_next_id",
@@ -551,11 +660,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "ops": [
         {
           "op": "upsert_media",
@@ -581,11 +694,15 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -598,11 +715,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 22,
+      "seq": 24,
       "ops": [
         {
           "op": "set_next_id",
@@ -620,11 +741,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 23,
+      "seq": 25,
       "ops": [
         {
           "op": "set_next_id",
@@ -642,11 +767,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 24,
+      "seq": 26,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -659,11 +788,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 25,
+      "seq": 27,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -676,11 +809,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 26,
+      "seq": 28,
       "ops": [
         {
           "op": "set_next_id",
@@ -698,11 +835,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 27,
+      "seq": 29,
       "ops": [
         {
           "op": "upsert_track",
@@ -739,11 +880,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 28,
+      "seq": 30,
       "ops": [
         {
           "op": "set_next_id",
@@ -761,11 +906,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 29,
+      "seq": 31,
       "ops": [
         {
           "op": "upsert_track",
@@ -852,11 +1001,36 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       }
     },
     {
-      "seq": 30,
+      "seq": 32,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ],
+        "armedTracks": [
+          85,
+          87
+        ]
+      }
+    },
+    {
+      "seq": 33,
       "ops": [
         {
           "op": "set_next_id",
@@ -874,11 +1048,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 31,
+      "seq": 34,
       "ops": [
         {
           "op": "set_project_path",
@@ -896,11 +1074,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 32,
+      "seq": 35,
       "ops": [
         {
           "op": "set_next_id",
@@ -918,11 +1100,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 33,
+      "seq": 36,
       "ops": [
         {
           "op": "set_next_id",
@@ -940,11 +1126,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 34,
+      "seq": 37,
       "ops": [
         {
           "op": "upsert_pattern",
@@ -975,11 +1165,15 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 35,
+      "seq": 38,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -992,11 +1186,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 36,
+      "seq": 39,
       "ops": [
         {
           "op": "set_next_id",
@@ -1014,11 +1212,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 37,
+      "seq": 40,
       "ops": [
         {
           "op": "set_next_id",
@@ -1036,11 +1238,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 38,
+      "seq": 41,
       "ops": [
         {
           "op": "set_settings",
@@ -1062,11 +1268,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 39,
+      "seq": 42,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -1079,11 +1289,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 40,
+      "seq": 43,
       "ops": [
         {
           "op": "set_next_id",
@@ -1101,11 +1315,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 41,
+      "seq": 44,
       "ops": [
         {
           "op": "set_next_id",
@@ -1123,11 +1341,36 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       }
     },
     {
-      "seq": 42,
+      "seq": 45,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ],
+        "armedTracks": [
+          127,
+          129
+        ]
+      }
+    },
+    {
+      "seq": 46,
       "ops": [
         {
           "op": "set_next_id",
@@ -1145,11 +1388,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 43,
+      "seq": 47,
       "ops": [
         {
           "op": "set_next_id",
@@ -1167,11 +1414,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 44,
+      "seq": 48,
       "ops": [
         {
           "op": "set_project_path",
@@ -1189,11 +1440,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 45,
+      "seq": 49,
       "ops": [
         {
           "op": "set_next_id",
@@ -1211,11 +1466,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 46,
+      "seq": 50,
       "ops": [
         {
           "op": "upsert_track",
@@ -1254,11 +1513,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 47,
+      "seq": 51,
       "ops": [
         {
           "op": "set_project_path",
@@ -1276,11 +1539,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 48,
+      "seq": 52,
       "ops": [
         {
           "op": "set_next_id",
@@ -1298,11 +1565,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 49,
+      "seq": 53,
       "ops": [
         {
           "op": "set_next_id",
@@ -1320,11 +1591,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 50,
+      "seq": 54,
       "ops": [
         {
           "op": "order_tracks",
@@ -1346,11 +1621,15 @@
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 51,
+      "seq": 55,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -1363,11 +1642,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 52,
+      "seq": 56,
       "ops": [
         {
           "op": "set_next_id",
@@ -1385,11 +1668,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 53,
+      "seq": 57,
       "ops": [
         {
           "op": "upsert_track",
@@ -1426,11 +1713,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 54,
+      "seq": 58,
       "ops": [
         {
           "op": "set_next_id",
@@ -1448,11 +1739,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 55,
+      "seq": 59,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -1465,11 +1760,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 56,
+      "seq": 60,
       "ops": [
         {
           "op": "set_next_id",
@@ -1487,11 +1786,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 57,
+      "seq": 61,
       "ops": [
         {
           "op": "upsert_media",
@@ -1517,11 +1820,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 58,
+      "seq": 62,
       "ops": [
         {
           "op": "set_next_id",
@@ -1539,11 +1846,36 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       }
     },
     {
-      "seq": 59,
+      "seq": 63,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ],
+        "armedTracks": [
+          176,
+          178
+        ]
+      }
+    },
+    {
+      "seq": 64,
       "ops": [
         {
           "op": "set_next_id",
@@ -1561,11 +1893,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 60,
+      "seq": 65,
       "ops": [
         {
           "op": "set_project_path",
@@ -1583,11 +1919,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 61,
+      "seq": 66,
       "ops": [
         {
           "op": "set_next_id",
@@ -1605,11 +1945,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 62,
+      "seq": 67,
       "ops": [
         {
           "op": "set_next_id",
@@ -1627,11 +1971,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 63,
+      "seq": 68,
       "ops": [
         {
           "op": "remove_track",
@@ -1649,11 +1997,15 @@
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 64,
+      "seq": 69,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -1666,11 +2018,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 65,
+      "seq": 70,
       "ops": [
         {
           "op": "set_next_id",
@@ -1688,11 +2044,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 66,
+      "seq": 71,
       "ops": [
         {
           "op": "set_next_id",
@@ -1710,11 +2070,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 67,
+      "seq": 72,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -1727,11 +2091,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 68,
+      "seq": 73,
       "ops": [
         {
           "op": "set_next_id",
@@ -1749,11 +2117,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 69,
+      "seq": 74,
       "ops": [
         {
           "op": "set_master",
@@ -1783,11 +2155,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 70,
+      "seq": 75,
       "ops": [
         {
           "op": "set_next_id",
@@ -1805,11 +2181,36 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       }
     },
     {
-      "seq": 71,
+      "seq": 76,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ],
+        "armedTracks": [
+          218,
+          220
+        ]
+      }
+    },
+    {
+      "seq": 77,
       "ops": [
         {
           "op": "set_next_id",
@@ -1827,11 +2228,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 72,
+      "seq": 78,
       "ops": [
         {
           "op": "upsert_bus",
@@ -1866,11 +2271,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 73,
+      "seq": 79,
       "ops": [
         {
           "op": "set_project_path",
@@ -1888,11 +2297,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 74,
+      "seq": 80,
       "ops": [
         {
           "op": "set_next_id",
@@ -1910,11 +2323,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 75,
+      "seq": 81,
       "ops": [
         {
           "op": "upsert_media",
@@ -1940,11 +2357,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 76,
+      "seq": 82,
       "ops": [
         {
           "op": "set_next_id",
@@ -1962,11 +2383,15 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 77,
+      "seq": 83,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -1979,11 +2404,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 78,
+      "seq": 84,
       "ops": [
         {
           "op": "set_next_id",
@@ -2001,11 +2430,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 79,
+      "seq": 85,
       "ops": [
         {
           "op": "upsert_track",
@@ -2042,11 +2475,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 80,
+      "seq": 86,
       "ops": [
         {
           "op": "set_next_id",
@@ -2064,11 +2501,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 81,
+      "seq": 87,
       "ops": [
         {
           "op": "upsert_track",
@@ -2163,11 +2604,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 82,
+      "seq": 88,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -2180,11 +2625,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 83,
+      "seq": 89,
       "ops": [
         {
           "op": "set_next_id",
@@ -2202,11 +2651,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 84,
+      "seq": 90,
       "ops": [
         {
           "op": "remove_clip",
@@ -2224,11 +2677,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 85,
+      "seq": 91,
       "ops": [
         {
           "op": "set_next_id",
@@ -2246,11 +2703,36 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       }
     },
     {
-      "seq": 86,
+      "seq": 92,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ],
+        "armedTracks": [
+          260,
+          262
+        ]
+      }
+    },
+    {
+      "seq": 93,
       "ops": [
         {
           "op": "set_next_id",
@@ -2268,11 +2750,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 87,
+      "seq": 94,
       "ops": [
         {
           "op": "upsert_lane",
@@ -2307,11 +2793,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 88,
+      "seq": 95,
       "ops": [
         {
           "op": "set_project_path",
@@ -2329,11 +2819,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 89,
+      "seq": 96,
       "ops": [
         {
           "op": "set_next_id",
@@ -2351,11 +2845,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 90,
+      "seq": 97,
       "ops": [
         {
           "op": "remove_media",
@@ -2373,11 +2871,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 91,
+      "seq": 98,
       "ops": [
         {
           "op": "set_next_id",
@@ -2395,11 +2897,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 92,
+      "seq": 99,
       "ops": [
         {
           "op": "set_name",
@@ -2426,11 +2932,15 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 93,
+      "seq": 100,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -2443,11 +2953,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 94,
+      "seq": 101,
       "ops": [
         {
           "op": "set_next_id",
@@ -2465,11 +2979,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 95,
+      "seq": 102,
       "ops": [
         {
           "op": "set_next_id",
@@ -2487,11 +3005,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 96,
+      "seq": 103,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -2504,11 +3026,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 97,
+      "seq": 104,
       "ops": [
         {
           "op": "set_next_id",
@@ -2526,11 +3052,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 98,
+      "seq": 105,
       "ops": [
         {
           "op": "set_settings",
@@ -2552,11 +3082,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 99,
+      "seq": 106,
       "ops": [
         {
           "op": "set_next_id",
@@ -2574,11 +3108,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 100,
+      "seq": 107,
       "ops": [
         {
           "op": "set_name",
@@ -2734,11 +3272,36 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       }
     },
     {
-      "seq": 101,
+      "seq": 108,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ],
+        "armedTracks": [
+          302,
+          304
+        ]
+      }
+    },
+    {
+      "seq": 109,
       "ops": [
         {
           "op": "set_next_id",
@@ -2756,11 +3319,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 102,
+      "seq": 110,
       "ops": [
         {
           "op": "set_project_path",
@@ -2778,11 +3345,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 103,
+      "seq": 111,
       "ops": [
         {
           "op": "set_next_id",
@@ -2800,11 +3371,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 104,
+      "seq": 112,
       "ops": [
         {
           "op": "set_master",
@@ -2834,11 +3409,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 105,
+      "seq": 113,
       "ops": [
         {
           "op": "set_next_id",
@@ -2856,11 +3435,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 106,
+      "seq": 114,
       "ops": [
         {
           "op": "set_next_id",
@@ -2878,11 +3461,15 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 107,
+      "seq": 115,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -2895,11 +3482,15 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 108,
+      "seq": 116,
       "ops": [
         {
           "op": "set_next_id",
@@ -2917,11 +3508,15 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 109,
+      "seq": 117,
       "ops": [
         {
           "op": "upsert_track",
@@ -2958,11 +3553,15 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 110,
+      "seq": 118,
       "ops": [
         {
           "op": "set_project_path",
@@ -2980,11 +3579,15 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 111,
+      "seq": 119,
       "ops": [
         {
           "op": "set_next_id",
@@ -3002,11 +3605,15 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 112,
+      "seq": 120,
       "ops": [
         {
           "op": "set_next_id",
@@ -3024,11 +3631,15 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 113,
+      "seq": 121,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -3041,11 +3652,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 114,
+      "seq": 122,
       "ops": [
         {
           "op": "set_next_id",
@@ -3063,11 +3678,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 115,
+      "seq": 123,
       "ops": [
         {
           "op": "upsert_lane",
@@ -3102,11 +3721,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 116,
+      "seq": 124,
       "ops": [
         {
           "op": "set_next_id",
@@ -3124,11 +3747,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 117,
+      "seq": 125,
       "ops": [
         {
           "op": "upsert_track",
@@ -3223,11 +3850,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 118,
+      "seq": 126,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -3240,11 +3871,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 119,
+      "seq": 127,
       "ops": [
         {
           "op": "set_next_id",
@@ -3262,11 +3897,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 120,
+      "seq": 128,
       "ops": [
         {
           "op": "remove_track",
@@ -3300,11 +3939,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 121,
+      "seq": 129,
       "ops": [
         {
           "op": "set_next_id",
@@ -3322,11 +3965,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 122,
+      "seq": 130,
       "ops": [
         {
           "op": "upsert_track",
@@ -3371,11 +4018,36 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       }
     },
     {
-      "seq": 123,
+      "seq": 131,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Remove device",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ],
+        "armedTracks": [
+          365,
+          367
+        ]
+      }
+    },
+    {
+      "seq": 132,
       "ops": [
         {
           "op": "set_next_id",
@@ -3393,11 +4065,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 124,
+      "seq": 133,
       "ops": [
         {
           "op": "set_project_path",
@@ -3415,11 +4091,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 125,
+      "seq": 134,
       "ops": [
         {
           "op": "set_next_id",
@@ -3437,11 +4117,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 126,
+      "seq": 135,
       "ops": [
         {
           "op": "set_next_id",
@@ -3459,11 +4143,15 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 127,
+      "seq": 136,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -3476,11 +4164,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 128,
+      "seq": 137,
       "ops": [
         {
           "op": "set_next_id",
@@ -3498,11 +4190,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 129,
+      "seq": 138,
       "ops": [
         {
           "op": "set_next_id",
@@ -3520,11 +4216,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 130,
+      "seq": 139,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -3537,11 +4237,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 131,
+      "seq": 140,
       "ops": [
         {
           "op": "set_next_id",
@@ -3559,11 +4263,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 132,
+      "seq": 141,
       "ops": [
         {
           "op": "remove_media",
@@ -3581,11 +4289,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 133,
+      "seq": 142,
       "ops": [
         {
           "op": "set_next_id",
@@ -3603,11 +4315,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 134,
+      "seq": 143,
       "ops": [
         {
           "op": "upsert_clip",
@@ -3637,11 +4353,36 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       }
     },
     {
-      "seq": 135,
+      "seq": 144,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ],
+        "armedTracks": [
+          407,
+          409
+        ]
+      }
+    },
+    {
+      "seq": 145,
       "ops": [
         {
           "op": "set_next_id",
@@ -3659,11 +4400,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 136,
+      "seq": 146,
       "ops": [
         {
           "op": "set_project_path",
@@ -3681,11 +4426,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 137,
+      "seq": 147,
       "ops": [
         {
           "op": "set_next_id",
@@ -3703,11 +4452,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 138,
+      "seq": 148,
       "ops": [
         {
           "op": "set_next_id",
@@ -3725,11 +4478,15 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 139,
+      "seq": 149,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -3742,11 +4499,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 140,
+      "seq": 150,
       "ops": [
         {
           "op": "set_next_id",
@@ -3764,11 +4525,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 141,
+      "seq": 151,
       "ops": [
         {
           "op": "upsert_bus",
@@ -3803,11 +4568,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 142,
+      "seq": 152,
       "ops": [
         {
           "op": "set_next_id",
@@ -3825,11 +4594,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 143,
+      "seq": 153,
       "ops": [
         {
           "op": "set_settings",
@@ -3851,11 +4624,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 144,
+      "seq": 154,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -3868,11 +4645,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 145,
+      "seq": 155,
       "ops": [
         {
           "op": "set_next_id",
@@ -3890,11 +4671,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 146,
+      "seq": 156,
       "ops": [
         {
           "op": "upsert_track",
@@ -3937,11 +4722,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 147,
+      "seq": 157,
       "ops": [
         {
           "op": "set_next_id",
@@ -3959,11 +4748,36 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       }
     },
     {
-      "seq": 148,
+      "seq": 158,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change sends",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ],
+        "armedTracks": [
+          449,
+          451
+        ]
+      }
+    },
+    {
+      "seq": 159,
       "ops": [
         {
           "op": "set_next_id",
@@ -3981,11 +4795,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 149,
+      "seq": 160,
       "ops": [
         {
           "op": "set_project_path",
@@ -4003,11 +4821,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 150,
+      "seq": 161,
       "ops": [
         {
           "op": "set_next_id",
@@ -4025,11 +4847,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 151,
+      "seq": 162,
       "ops": [
         {
           "op": "set_next_id",
@@ -4047,11 +4873,15 @@
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 152,
+      "seq": 163,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4064,11 +4894,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 153,
+      "seq": 164,
       "ops": [
         {
           "op": "set_next_id",
@@ -4086,11 +4920,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 154,
+      "seq": 165,
       "ops": [
         {
           "op": "set_name",
@@ -4117,11 +4955,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 155,
+      "seq": 166,
       "ops": [
         {
           "op": "set_next_id",
@@ -4139,11 +4981,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 156,
+      "seq": 167,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4156,11 +5002,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 157,
+      "seq": 168,
       "ops": [
         {
           "op": "set_next_id",
@@ -4178,11 +5028,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 158,
+      "seq": 169,
       "ops": [
         {
           "op": "set_next_id",
@@ -4200,11 +5054,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 159,
+      "seq": 170,
       "ops": [
         {
           "op": "set_next_id",
@@ -4222,11 +5080,36 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       }
     },
     {
-      "seq": 160,
+      "seq": 171,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ],
+        "armedTracks": [
+          491,
+          493
+        ]
+      }
+    },
+    {
+      "seq": 172,
       "ops": [
         {
           "op": "set_next_id",
@@ -4244,11 +5127,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          491,
+          493
         ]
       }
     },
     {
-      "seq": 161,
+      "seq": 173,
       "ops": [
         {
           "op": "set_tempo_map",
@@ -4272,11 +5159,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          491,
+          493
         ]
       }
     },
     {
-      "seq": 162,
+      "seq": 174,
       "ops": [
         {
           "op": "set_next_id",
@@ -4294,11 +5185,36 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          491,
+          493
         ]
       }
     },
     {
-      "seq": 163,
+      "seq": 175,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ],
+        "armedTracks": [
+          505,
+          507
+        ]
+      }
+    },
+    {
+      "seq": 176,
       "ops": [
         {
           "op": "set_next_id",
@@ -4316,11 +5232,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 164,
+      "seq": 177,
       "ops": [
         {
           "op": "set_name",
@@ -4347,11 +5267,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 165,
+      "seq": 178,
       "ops": [
         {
           "op": "set_project_path",
@@ -4369,11 +5293,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 166,
+      "seq": 179,
       "ops": [
         {
           "op": "set_next_id",
@@ -4391,11 +5319,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 167,
+      "seq": 180,
       "ops": [
         {
           "op": "set_next_id",
@@ -4413,11 +5345,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 168,
+      "seq": 181,
       "ops": [
         {
           "op": "remove_clip",
@@ -4435,11 +5371,15 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 169,
+      "seq": 182,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4452,11 +5392,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 170,
+      "seq": 183,
       "ops": [
         {
           "op": "set_next_id",
@@ -4474,11 +5418,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 171,
+      "seq": 184,
       "ops": [
         {
           "op": "set_next_id",
@@ -4496,11 +5444,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 172,
+      "seq": 185,
       "ops": [
         {
           "op": "set_master",
@@ -4530,11 +5482,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 173,
+      "seq": 186,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4547,11 +5503,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 174,
+      "seq": 187,
       "ops": [
         {
           "op": "set_next_id",
@@ -4569,11 +5529,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 175,
+      "seq": 188,
       "ops": [
         {
           "op": "set_next_id",
@@ -4591,11 +5555,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 176,
+      "seq": 189,
       "ops": [
         {
           "op": "set_tempo_map",
@@ -4619,11 +5587,36 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       }
     },
     {
-      "seq": 177,
+      "seq": 190,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ],
+        "armedTracks": [
+          547,
+          549
+        ]
+      }
+    },
+    {
+      "seq": 191,
       "ops": [
         {
           "op": "set_next_id",
@@ -4641,11 +5634,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 178,
+      "seq": 192,
       "ops": [
         {
           "op": "set_project_path",
@@ -4663,11 +5660,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 179,
+      "seq": 193,
       "ops": [
         {
           "op": "set_next_id",
@@ -4685,11 +5686,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 180,
+      "seq": 194,
       "ops": [
         {
           "op": "upsert_track",
@@ -4726,11 +5731,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 181,
+      "seq": 195,
       "ops": [
         {
           "op": "set_next_id",
@@ -4748,11 +5757,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 182,
+      "seq": 196,
       "ops": [
         {
           "op": "set_master",
@@ -4782,11 +5795,15 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 183,
+      "seq": 197,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4799,11 +5816,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 184,
+      "seq": 198,
       "ops": [
         {
           "op": "set_next_id",
@@ -4821,11 +5842,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 185,
+      "seq": 199,
       "ops": [
         {
           "op": "set_next_id",
@@ -4843,11 +5868,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 186,
+      "seq": 200,
       "ops": [
         {
           "op": "upsert_track",
@@ -4884,11 +5913,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 187,
+      "seq": 201,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4901,11 +5934,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 188,
+      "seq": 202,
       "ops": [
         {
           "op": "set_next_id",
@@ -4923,11 +5960,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 189,
+      "seq": 203,
       "ops": [
         {
           "op": "set_name",
@@ -4954,11 +5995,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 190,
+      "seq": 204,
       "ops": [
         {
           "op": "set_next_id",
@@ -4976,11 +6021,36 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       }
     },
     {
-      "seq": 191,
+      "seq": 205,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ],
+        "armedTracks": [
+          589,
+          591
+        ]
+      }
+    },
+    {
+      "seq": 206,
       "ops": [
         {
           "op": "set_next_id",
@@ -4998,11 +6068,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 192,
+      "seq": 207,
       "ops": [
         {
           "op": "upsert_track",
@@ -5048,11 +6122,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 193,
+      "seq": 208,
       "ops": [
         {
           "op": "set_project_path",
@@ -5070,11 +6148,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 194,
+      "seq": 209,
       "ops": [
         {
           "op": "set_next_id",
@@ -5092,11 +6174,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 195,
+      "seq": 210,
       "ops": [
         {
           "op": "set_next_id",
@@ -5114,11 +6200,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 196,
+      "seq": 211,
       "ops": [
         {
           "op": "upsert_marker",
@@ -5141,11 +6231,15 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 197,
+      "seq": 212,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -5158,11 +6252,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 198,
+      "seq": 213,
       "ops": [
         {
           "op": "set_next_id",
@@ -5180,11 +6278,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 199,
+      "seq": 214,
       "ops": [
         {
           "op": "set_next_id",
@@ -5202,11 +6304,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 200,
+      "seq": 215,
       "ops": [
         {
           "op": "upsert_track",
@@ -5253,11 +6359,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 201,
+      "seq": 216,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -5270,11 +6380,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 202,
+      "seq": 217,
       "ops": [
         {
           "op": "set_next_id",
@@ -5292,11 +6406,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 203,
+      "seq": 218,
       "ops": [
         {
           "op": "set_next_id",
@@ -5314,11 +6432,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 204,
+      "seq": 219,
       "ops": [
         {
           "op": "upsert_media",
@@ -5344,11 +6466,36 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       }
     },
     {
-      "seq": 205,
+      "seq": 220,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ],
+        "armedTracks": [
+          631,
+          633
+        ]
+      }
+    },
+    {
+      "seq": 221,
       "ops": [
         {
           "op": "set_next_id",
@@ -5366,11 +6513,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 206,
+      "seq": 222,
       "ops": [
         {
           "op": "set_project_path",
@@ -5388,11 +6539,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 207,
+      "seq": 223,
       "ops": [
         {
           "op": "set_next_id",
@@ -5410,11 +6565,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 208,
+      "seq": 224,
       "ops": [
         {
           "op": "upsert_track",
@@ -5462,11 +6621,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 209,
+      "seq": 225,
       "ops": [
         {
           "op": "set_next_id",
@@ -5484,11 +6647,15 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 210,
+      "seq": 226,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -5501,11 +6668,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 211,
+      "seq": 227,
       "ops": [
         {
           "op": "set_next_id",
@@ -5523,11 +6694,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 212,
+      "seq": 228,
       "ops": [
         {
           "op": "set_next_id",
@@ -5545,11 +6720,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 213,
+      "seq": 229,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -5562,11 +6741,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 214,
+      "seq": 230,
       "ops": [
         {
           "op": "set_next_id",
@@ -5584,11 +6767,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 215,
+      "seq": 231,
       "ops": [
         {
           "op": "remove_marker",
@@ -5606,11 +6793,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 216,
+      "seq": 232,
       "ops": [
         {
           "op": "set_next_id",
@@ -5628,11 +6819,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 217,
+      "seq": 233,
       "ops": [
         {
           "op": "upsert_marker",
@@ -5655,11 +6850,36 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       }
     },
     {
-      "seq": 218,
+      "seq": 234,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Delete marker",
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ],
+        "armedTracks": [
+          673,
+          675
+        ]
+      }
+    },
+    {
+      "seq": 235,
       "ops": [
         {
           "op": "set_next_id",
@@ -5677,11 +6897,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 219,
+      "seq": 236,
       "ops": [
         {
           "op": "set_project_path",
@@ -5699,11 +6923,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 220,
+      "seq": 237,
       "ops": [
         {
           "op": "set_next_id",
@@ -5721,11 +6949,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 221,
+      "seq": 238,
       "ops": [
         {
           "op": "order_tracks",
@@ -5750,11 +6982,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 222,
+      "seq": 239,
       "ops": [
         {
           "op": "set_next_id",
@@ -5772,11 +7008,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 223,
+      "seq": 240,
       "ops": [
         {
           "op": "upsert_clip",
@@ -5813,11 +7053,15 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 224,
+      "seq": 241,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -5830,11 +7074,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 225,
+      "seq": 242,
       "ops": [
         {
           "op": "set_next_id",
@@ -5852,11 +7100,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 226,
+      "seq": 243,
       "ops": [
         {
           "op": "upsert_lane",
@@ -5891,11 +7143,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 227,
+      "seq": 244,
       "ops": [
         {
           "op": "set_next_id",
@@ -5913,11 +7169,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 228,
+      "seq": 245,
       "ops": [
         {
           "op": "remove_clip",
@@ -5935,11 +7195,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 229,
+      "seq": 246,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -5952,11 +7216,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 230,
+      "seq": 247,
       "ops": [
         {
           "op": "set_next_id",
@@ -5974,11 +7242,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 231,
+      "seq": 248,
       "ops": [
         {
           "op": "set_next_id",
@@ -5996,11 +7268,36 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       }
     },
     {
-      "seq": 232,
+      "seq": 249,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ],
+        "armedTracks": [
+          715,
+          717
+        ]
+      }
+    },
+    {
+      "seq": 250,
       "ops": [
         {
           "op": "set_next_id",
@@ -6018,11 +7315,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 233,
+      "seq": 251,
       "ops": [
         {
           "op": "set_project_path",
@@ -6040,11 +7341,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 234,
+      "seq": 252,
       "ops": [
         {
           "op": "set_next_id",
@@ -6062,11 +7367,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 235,
+      "seq": 253,
       "ops": [
         {
           "op": "set_next_id",
@@ -6084,11 +7393,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 236,
+      "seq": 254,
       "ops": [
         {
           "op": "upsert_track",
@@ -6137,11 +7450,15 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 237,
+      "seq": 255,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -6154,11 +7471,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 238,
+      "seq": 256,
       "ops": [
         {
           "op": "set_next_id",
@@ -6176,11 +7497,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 239,
+      "seq": 257,
       "ops": [
         {
           "op": "set_next_id",
@@ -6198,11 +7523,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 240,
+      "seq": 258,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -6215,11 +7544,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 241,
+      "seq": 259,
       "ops": [
         {
           "op": "set_next_id",
@@ -6237,11 +7570,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 242,
+      "seq": 260,
       "ops": [
         {
           "op": "set_next_id",
@@ -6259,11 +7596,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 243,
+      "seq": 261,
       "ops": [
         {
           "op": "remove_track",
@@ -6281,11 +7622,36 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       }
     },
     {
-      "seq": 244,
+      "seq": 262,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Delete clip",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ],
+        "armedTracks": [
+          757,
+          759
+        ]
+      }
+    },
+    {
+      "seq": 263,
       "ops": [
         {
           "op": "set_next_id",
@@ -6303,11 +7669,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 245,
+      "seq": 264,
       "ops": [
         {
           "op": "set_project_path",
@@ -6325,11 +7695,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 246,
+      "seq": 265,
       "ops": [
         {
           "op": "set_next_id",
@@ -6347,11 +7721,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 247,
+      "seq": 266,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -6364,11 +7742,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 248,
+      "seq": 267,
       "ops": [
         {
           "op": "set_next_id",
@@ -6386,11 +7768,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 249,
+      "seq": 268,
       "ops": [
         {
           "op": "set_next_id",
@@ -6408,11 +7794,15 @@
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 250,
+      "seq": 269,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -6425,11 +7815,15 @@
         "missingMedia": [
           775,
           776
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     },
     {
-      "seq": 251,
+      "seq": 270,
       "ops": [
         {
           "op": "set_next_id",
@@ -6447,6 +7841,10 @@
         "missingMedia": [
           775,
           776
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       }
     }
@@ -6496,7 +7894,7 @@
         "devices": [],
         "automation": [],
         "markers": [],
-        "next_id": 31
+        "next_id": 25
       },
       "history": {
         "canUndo": true,
@@ -6509,6 +7907,10 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          1,
+          3
         ]
       },
       "projectPath": "/projects/p7.owave"
@@ -6576,7 +7978,7 @@
         "devices": [],
         "automation": [],
         "markers": [],
-        "next_id": 55
+        "next_id": 49
       },
       "history": {
         "canUndo": true,
@@ -6589,9 +7991,13 @@
         "missingMedia": [
           19,
           20
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       },
-      "projectPath": "/projects/p49.owave"
+      "projectPath": "/projects/p7.owave"
     },
     {
       "seq": 24,
@@ -6736,19 +8142,23 @@
           }
         ],
         "markers": [],
-        "next_id": 79
+        "next_id": 73
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
         "undoLabel": "Add media",
         "redoLabel": null,
-        "inTransaction": true,
+        "inTransaction": false,
         "dirty": true,
         "engineError": null,
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          43,
+          45
         ]
       },
       "projectPath": "/projects/p49.owave"
@@ -6969,7 +8379,7 @@
           }
         ],
         "markers": [],
-        "next_id": 103
+        "next_id": 91
       },
       "history": {
         "canUndo": true,
@@ -6982,9 +8392,13 @@
         "missingMedia": [
           61,
           62
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       },
-      "projectPath": "/projects/p91.owave"
+      "projectPath": "/projects/p49.owave"
     },
     {
       "seq": 40,
@@ -6993,7 +8407,7 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 0
         },
         "tempo_map": [
           {
@@ -7217,7 +8631,7 @@
           }
         ],
         "markers": [],
-        "next_id": 127
+        "next_id": 121
       },
       "history": {
         "canUndo": true,
@@ -7225,11 +8639,15 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": false,
+        "dirty": true,
         "engineError": null,
         "missingMedia": [
           103,
           104
+        ],
+        "armedTracks": [
+          85,
+          87
         ]
       },
       "projectPath": "/projects/p91.owave"
@@ -7265,7 +8683,7 @@
             "kind": "midi",
             "strip": {
               "settings": {
-                "gain_db": -21.5,
+                "gain_db": 0.0,
                 "pan": 0.0,
                 "mute": false,
                 "solo": false,
@@ -7465,7 +8883,259 @@
           }
         ],
         "markers": [],
-        "next_id": 152
+        "next_id": 140
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ],
+        "armedTracks": [
+          127,
+          129
+        ]
+      },
+      "projectPath": "/projects/p133.owave"
+    },
+    {
+      "seq": 56,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 6
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 85,
+            "name": "Owner 85",
+            "color": 1193046,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                86
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": -21.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 79,
+            "name": "Track 79",
+            "color": 77183,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "Bus 43",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [
+          {
+            "id": 103,
+            "name": "Pattern 103",
+            "color": 65280,
+            "length": 4.0,
+            "notes": [
+              {
+                "start": 0.5,
+                "length": 0.5,
+                "key": 64,
+                "velocity": 90
+              }
+            ]
+          }
+        ],
+        "media_pool": [
+          {
+            "id": 61,
+            "name": "Media 61",
+            "path": "audio/m61.wav",
+            "hash": "0000003d",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1061
+          }
+        ],
+        "devices": [
+          {
+            "id": 56,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          },
+          {
+            "id": 86,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          }
+        ],
+        "automation": [
+          {
+            "id": 57,
+            "target": {
+              "type": "device",
+              "device": 56,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          },
+          {
+            "id": 87,
+            "target": {
+              "type": "device",
+              "device": 86,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 88,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 85
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          }
+        ],
+        "markers": [],
+        "next_id": 164
       },
       "history": {
         "canUndo": true,
@@ -7476,14 +9146,18 @@
         "dirty": true,
         "engineError": null,
         "missingMedia": [
-          103,
-          104
+          152,
+          153
+        ],
+        "armedTracks": [
+          127,
+          129
         ]
       },
       "projectPath": "/projects/p140.owave"
     },
     {
-      "seq": 56,
+      "seq": 64,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -7644,6 +9318,15 @@
             "sample_rate": 48000,
             "channels": 2,
             "frames": 1061
+          },
+          {
+            "id": 170,
+            "name": "Media 170",
+            "path": "audio/m170.wav",
+            "hash": "000000aa",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1170
           }
         ],
         "devices": [
@@ -7713,7 +9396,7 @@
           }
         ],
         "markers": [],
-        "next_id": 176
+        "next_id": 188
       },
       "history": {
         "canUndo": true,
@@ -7721,17 +9404,21 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": false,
+        "dirty": true,
         "engineError": null,
         "missingMedia": [
           152,
           153
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       },
       "projectPath": "/projects/p140.owave"
     },
     {
-      "seq": 64,
+      "seq": 72,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -7950,7 +9637,7 @@
           }
         ],
         "markers": [],
-        "next_id": 200
+        "next_id": 212
       },
       "history": {
         "canUndo": true,
@@ -7958,17 +9645,21 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
+        "dirty": false,
         "engineError": null,
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          176,
+          178
         ]
       },
       "projectPath": "/projects/p182.owave"
     },
     {
-      "seq": 72,
+      "seq": 80,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -8187,7 +9878,7 @@
           }
         ],
         "markers": [],
-        "next_id": 230
+        "next_id": 236
       },
       "history": {
         "canUndo": true,
@@ -8200,12 +9891,16 @@
         "missingMedia": [
           194,
           195
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       },
-      "projectPath": "/projects/p182.owave"
+      "projectPath": "/projects/p224.owave"
     },
     {
-      "seq": 80,
+      "seq": 88,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -8291,6 +9986,28 @@
               "inserts": []
             },
             "instrument": null
+          },
+          {
+            "id": 248,
+            "name": "Owner 248",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                249
+              ]
+            },
+            "instrument": null
           }
         ],
         "buses": [
@@ -8330,6 +10047,19 @@
           {
             "id": 59,
             "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          },
+          {
+            "id": 252,
+            "track": 248,
             "name": "Owned clip",
             "start": 1.0,
             "length": 2.0,
@@ -8404,6 +10134,15 @@
             "params": {},
             "state": [],
             "sidechain": null
+          },
+          {
+            "id": 249,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
           }
         ],
         "automation": [
@@ -8450,6 +10189,28 @@
             },
             "points": [],
             "enabled": false
+          },
+          {
+            "id": 250,
+            "target": {
+              "type": "device",
+              "device": 249,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 251,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 248
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
           }
         ],
         "markers": [],
@@ -8461,17 +10222,21 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
+        "dirty": false,
         "engineError": null,
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          218,
+          220
         ]
       },
       "projectPath": "/projects/p224.owave"
     },
     {
-      "seq": 88,
+      "seq": 96,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -8778,7 +10543,7 @@
           }
         ],
         "markers": [],
-        "next_id": 272
+        "next_id": 278
       },
       "history": {
         "canUndo": true,
@@ -8791,12 +10556,16 @@
         "missingMedia": [
           236,
           237
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       },
       "projectPath": "/projects/p266.owave"
     },
     {
-      "seq": 96,
+      "seq": 104,
       "project": {
         "name": "Batch 278",
         "settings": {
@@ -9101,7 +10870,7 @@
             "color": 0
           }
         ],
-        "next_id": 296
+        "next_id": 302
       },
       "history": {
         "canUndo": true,
@@ -9114,12 +10883,16 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          260,
+          262
         ]
       },
       "projectPath": "/projects/p266.owave"
     },
     {
-      "seq": 104,
+      "seq": 112,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -9274,12 +11047,16 @@
         "missingMedia": [
           278,
           279
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       },
       "projectPath": "/projects/p308.owave"
     },
     {
-      "seq": 112,
+      "seq": 120,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -9454,12 +11231,16 @@
         "missingMedia": [
           320,
           321
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       },
       "projectPath": "/projects/p329.owave"
     },
     {
-      "seq": 120,
+      "seq": 128,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -9640,12 +11421,16 @@
         "missingMedia": [
           341,
           342
+        ],
+        "armedTracks": [
+          302,
+          304
         ]
       },
       "projectPath": "/projects/p329.owave"
     },
     {
-      "seq": 128,
+      "seq": 136,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -9791,7 +11576,7 @@
           }
         ],
         "markers": [],
-        "next_id": 395
+        "next_id": 389
       },
       "history": {
         "canUndo": true,
@@ -9804,12 +11589,16 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          365,
+          367
         ]
       },
       "projectPath": "/projects/p371.owave"
     },
     {
-      "seq": 136,
+      "seq": 144,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -9945,7 +11734,7 @@
           }
         ],
         "markers": [],
-        "next_id": 419
+        "next_id": 413
       },
       "history": {
         "canUndo": true,
@@ -9958,18 +11747,22 @@
         "missingMedia": [
           383,
           384
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       },
-      "projectPath": "/projects/p413.owave"
+      "projectPath": "/projects/p371.owave"
     },
     {
-      "seq": 144,
+      "seq": 152,
       "project": {
         "name": "Fixture",
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 0
         },
         "tempo_map": [
           {
@@ -10104,20 +11897,24 @@
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Change project settings",
+        "undoLabel": "Rename",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": false,
+        "dirty": true,
         "engineError": null,
         "missingMedia": [
           425,
           426
+        ],
+        "armedTracks": [
+          407,
+          409
         ]
       },
       "projectPath": "/projects/p413.owave"
     },
     {
-      "seq": 152,
+      "seq": 160,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -10259,7 +12056,7 @@
           }
         ],
         "markers": [],
-        "next_id": 473
+        "next_id": 461
       },
       "history": {
         "canUndo": true,
@@ -10270,14 +12067,18 @@
         "dirty": true,
         "engineError": null,
         "missingMedia": [
-          467,
-          468
+          425,
+          426
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       },
       "projectPath": "/projects/p455.owave"
     },
     {
-      "seq": 160,
+      "seq": 168,
       "project": {
         "name": "Batch 473",
         "settings": {
@@ -10426,7 +12227,7 @@
             "color": 0
           }
         ],
-        "next_id": 505
+        "next_id": 491
       },
       "history": {
         "canUndo": true,
@@ -10439,12 +12240,187 @@
         "missingMedia": [
           467,
           468
+        ],
+        "armedTracks": [
+          449,
+          451
         ]
       },
       "projectPath": "/projects/p455.owave"
     },
     {
-      "seq": 168,
+      "seq": 176,
+      "project": {
+        "name": "Batch 473",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 13
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 252.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 329,
+            "name": "Track 329",
+            "color": 321433,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [
+                {
+                  "target": 43,
+                  "level_db": -35.0,
+                  "pre_fader": false
+                }
+              ],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "n254",
+            "color": 254000,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -11.5,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 25.0,
+            "length": 2.0,
+            "muted": true,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [
+              {
+                "beat": 1.0,
+                "value": 40.0,
+                "curve": 0.5
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [
+          {
+            "id": 473,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          }
+        ],
+        "next_id": 517
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ],
+        "armedTracks": [
+          505,
+          507
+        ]
+      },
+      "projectPath": "/projects/p455.owave"
+    },
+    {
+      "seq": 184,
       "project": {
         "name": "Batch 511",
         "settings": {
@@ -10585,7 +12561,7 @@
             "color": 0
           }
         ],
-        "next_id": 529
+        "next_id": 541
       },
       "history": {
         "canUndo": true,
@@ -10596,14 +12572,18 @@
         "dirty": true,
         "engineError": null,
         "missingMedia": [
-          467,
-          468
+          523,
+          524
+        ],
+        "armedTracks": [
+          505,
+          507
         ]
       },
       "projectPath": "/projects/p511.owave"
     },
     {
-      "seq": 176,
+      "seq": 192,
       "project": {
         "name": "Batch 511",
         "settings": {
@@ -10744,7 +12724,7 @@
             "color": 0
           }
         ],
-        "next_id": 553
+        "next_id": 559
       },
       "history": {
         "canUndo": true,
@@ -10757,12 +12737,16 @@
         "missingMedia": [
           523,
           524
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       },
-      "projectPath": "/projects/p511.owave"
+      "projectPath": "/projects/p553.owave"
     },
     {
-      "seq": 184,
+      "seq": 200,
       "project": {
         "name": "Batch 511",
         "settings": {
@@ -10827,6 +12811,26 @@
                   "pre_fader": false
                 }
               ],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 577,
+            "name": "Track 577",
+            "color": 563729,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
               "inserts": []
             },
             "instrument": null
@@ -10903,12 +12907,12 @@
             "color": 0
           }
         ],
-        "next_id": 577
+        "next_id": 583
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Change mixer",
+        "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
@@ -10916,12 +12920,16 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          547,
+          549
         ]
       },
       "projectPath": "/projects/p553.owave"
     },
     {
-      "seq": 192,
+      "seq": 208,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -11121,12 +13129,16 @@
         "missingMedia": [
           565,
           566
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       },
-      "projectPath": "/projects/p553.owave"
+      "projectPath": "/projects/p595.owave"
     },
     {
-      "seq": 200,
+      "seq": 216,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -11347,17 +13359,21 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
+        "dirty": false,
         "engineError": null,
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          589,
+          591
         ]
       },
       "projectPath": "/projects/p595.owave"
     },
     {
-      "seq": 208,
+      "seq": 224,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -11613,12 +13629,16 @@
         "missingMedia": [
           607,
           608
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       },
       "projectPath": "/projects/p637.owave"
     },
     {
-      "seq": 216,
+      "seq": 232,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -11868,12 +13888,16 @@
         "missingMedia": [
           649,
           650
+        ],
+        "armedTracks": [
+          631,
+          633
         ]
       },
       "projectPath": "/projects/p637.owave"
     },
     {
-      "seq": 224,
+      "seq": 240,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -12148,14 +14172,18 @@
         "dirty": true,
         "engineError": null,
         "missingMedia": [
-          691,
-          692
+          649,
+          650
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       },
       "projectPath": "/projects/p679.owave"
     },
     {
-      "seq": 232,
+      "seq": 248,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -12416,7 +14444,7 @@
             "color": 16711680
           }
         ],
-        "next_id": 727
+        "next_id": 721
       },
       "history": {
         "canUndo": true,
@@ -12429,12 +14457,16 @@
         "missingMedia": [
           691,
           692
+        ],
+        "armedTracks": [
+          673,
+          675
         ]
       },
       "projectPath": "/projects/p679.owave"
     },
     {
-      "seq": 240,
+      "seq": 256,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -12715,7 +14747,7 @@
             "color": 16711680
           }
         ],
-        "next_id": 751
+        "next_id": 745
       },
       "history": {
         "canUndo": true,
@@ -12723,17 +14755,21 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": false,
+        "dirty": true,
         "engineError": null,
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          715,
+          717
         ]
       },
       "projectPath": "/projects/p721.owave"
     },
     {
-      "seq": 248,
+      "seq": 264,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -12994,26 +15030,30 @@
             "color": 16711680
           }
         ],
-        "next_id": 781
+        "next_id": 769
       },
       "history": {
         "canUndo": true,
         "canRedo": true,
         "undoLabel": "Delete clip",
         "redoLabel": "Add track",
-        "inTransaction": true,
+        "inTransaction": false,
         "dirty": true,
         "engineError": null,
         "missingMedia": [
           733,
           734
+        ],
+        "armedTracks": [
+          757,
+          759
         ]
       },
       "projectPath": "/projects/p763.owave"
     }
   ],
   "last": {
-    "seq": 251,
+    "seq": 270,
     "project": {
       "name": "Batch 583",
       "settings": {
@@ -13287,6 +15327,10 @@
       "missingMedia": [
         775,
         776
+      ],
+      "armedTracks": [
+        757,
+        759
       ]
     },
     "projectPath": "/projects/p763.owave"

@@ -779,6 +779,7 @@ pub fn run(session: &mut Session, action: &Action, mut deliver: impl FnMut(&Sess
             0 => session.set_project_path(Some(format!("/projects/p{id}.owave"))),
             3 => session.mark_saved(),
             5 => session.set_missing_media(vec![id, id + 1]),
+            1 => session.set_armed_tracks(vec![id, id + 2]),
             _ => None,
         };
         if let Some(patch) = patch {

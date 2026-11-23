@@ -520,3 +520,48 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
     assert!(bank.position() > 0, "the transport position was published");
     assert_eq!(bank.cpu_load(), 0.25);
 }
+
+/// The record tap (installing a set, pushing the input of every cycle into the takes, ending and
+/// retiring the set) runs under the allocation guard, for an input wider than the take (so the
+/// channel-selecting scratch path runs too). The writer thread drains the ring outside it.
+#[test]
+fn the_record_tap_is_allocation_free() {
+    const CYCLES: u64 = 500;
+    const FRAMES: u64 = 64;
+    const LATENCY: u32 = 100;
+    let dir = tempfile::tempdir().unwrap();
+    let (writer, producer) = ow_media::RecordWriter::start(
+        &dir.path().join("take.wav"),
+        2,
+        SAMPLE_RATE,
+        SAMPLE_RATE as usize,
+    )
+    .unwrap();
+    let (set, shared) = ow_engine::RecordSet::new(vec![producer], 2, LATENCY);
+    let (mut link, mut core) = builder().build();
+    link.swap_plan(plan(0).0).unwrap();
+    link.swap_record(set).unwrap();
+    assert!(link.send(Message::Transport(TransportCommand::SetRecordArm(true))));
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+
+    let mut output = vec![0.0_f32; FRAMES as usize * 2];
+    let input = vec![0.25_f32; FRAMES as usize * 3];
+    for _ in 0..CYCLES {
+        core.process(&mut output, 2, Some(&input));
+    }
+    assert!(shared.started());
+    // Recording began at position 0, so the first `LATENCY` frames belong before the timeline.
+    assert_eq!(shared.captured(), CYCLES * FRAMES - u64::from(LATENCY));
+    assert_eq!(shared.start_sample(), 0);
+
+    assert!(link.send(Message::EndRecording));
+    core.process(&mut output, 2, Some(&input));
+    assert!(shared.done());
+    // Ending is final: later cycles push nothing.
+    core.process(&mut output, 2, Some(&input));
+    assert_eq!(shared.captured(), CYCLES * FRAMES - u64::from(LATENCY));
+    link.collect_retired();
+    let stats = writer.finish().unwrap();
+    assert_eq!(stats.frames, shared.captured());
+    assert_eq!(stats.dropped_frames, 0);
+}

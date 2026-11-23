@@ -12,6 +12,7 @@
     renameTrack,
     setTrackStrip,
   } from "../arrange/edits";
+  import { armedSet, recordApi, toggleArm } from "../arrange/record";
   import { SignatureMap, TempoMap } from "../arrange/time";
   import {
     DEFAULT_VIEW,
@@ -28,10 +29,13 @@
   let {
     mirror,
     playheadBeat,
+    recording,
     onLocate,
     onError,
   }: {
     mirror: MirrorState;
+    /** A recording is running: arming is locked. */
+    recording: boolean;
     /** Playhead position in beats. */
     playheadBeat: number;
     onLocate: (beat: number) => void;
@@ -55,6 +59,7 @@
   const signatures = $derived(new SignatureMap(project?.time_signature_map ?? []));
   const marks = $derived(rulerMarks(view, width, signatures));
   const missing = $derived(new Set(mirror.history?.missingMedia ?? []));
+  const armed = $derived(armedSet(mirror.history));
   const clipsByTrack = $derived.by(() => {
     const byTrack = new Map<number, Clip[]>();
     for (const clip of project?.clips.values() ?? []) {
@@ -176,6 +181,9 @@
                 {track}
                 height={LANE_PX}
                 selected={trackSelected(track.id)}
+                armed={armed.has(track.id)}
+                armLocked={recording}
+                onArm={() => run(() => toggleArm(recordApi, armed, track.id))}
                 onSelect={() => selectTrack(track.id)}
                 onRename={(name) => run(() => renameTrack(commandsApi, track, name))}
                 onMute={(mute) => run(() => setTrackStrip(commandsApi, track, { mute }))}

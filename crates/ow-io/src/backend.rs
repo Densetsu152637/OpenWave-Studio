@@ -108,6 +108,13 @@ pub struct StreamInfo {
     pub buffer_frames: Option<u32>,
     /// True for WASAPI exclusive (the device is not shared with other applications).
     pub exclusive: bool,
+    /// Round-trip latency in frames at `sample_rate`: how long after the engine renders a frame
+    /// a sound it produced would be heard back on the input (input plus output latency). 0 when
+    /// no input is open. The recorder places a take earlier by this amount. The mock backend
+    /// reports its configured loopback latency; cpal and the other real backends report a
+    /// conservative estimate of two callback buffers, since hosts do not expose the true value
+    /// portably.
+    pub latency_frames: u32,
 }
 
 /// The audio callback: fill the interleaved `f32` output; `input` holds the interleaved input

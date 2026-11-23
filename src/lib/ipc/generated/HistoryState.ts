@@ -38,4 +38,9 @@ engineError: string | null,
  * missing or unreadable); their clips play silence. A warning, not an error: the plan is
  * live. Ids in ascending order.
  */
-missingMedia: Array<number>, };
+missingMedia: Array<number>, 
+/**
+ * Audio tracks armed for recording, ascending ids. Transient session state: not saved, not
+ * part of the model, no undo and no dirty flag; cleared when another project is loaded.
+ */
+armedTracks: Array<number>, };

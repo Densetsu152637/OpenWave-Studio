@@ -17,6 +17,9 @@
 //!   are plain methods on [`IpcState`] (testable without a window); the commands below only
 //!   hand them the engine as the [`control::PlanTarget`].
 //!
+//! * `record_set_arm` / `record_start` ([`record`]): arming audio tracks (session state shown in
+//!   the mirror) and recording on them; `transport_stop` ends a recording and adds the takes.
+//!
 //! What is not wired yet: fine-grained updates that skip the recompile (fader and mute changes
 //! could travel as `Message::SetParam` using `ow_engine::fader_gain`) and telemetry for strips
 //! beyond the 256 meter slots.
@@ -27,9 +30,12 @@ pub mod export;
 pub mod media;
 pub mod peaks;
 pub mod project;
+pub mod record;
 
 #[cfg(test)]
 mod mvp;
+#[cfg(test)]
+mod mvp_record;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -58,6 +64,8 @@ pub struct IpcState {
     peaks: peaks::PeakStore,
     /// Peak files being built in the background after an open or save.
     builds: Mutex<Vec<JoinHandle<std::io::Result<()>>>>,
+    /// The recording in progress, if any (see [`record`]).
+    recording: Mutex<Option<record::ActiveRecording>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -75,6 +83,7 @@ impl IpcState {
             bridge: Mutex::new(None),
             peaks: peaks::PeakStore::default(),
             builds: Mutex::new(Vec::new()),
+            recording: Mutex::new(None),
         }
     }
 }

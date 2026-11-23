@@ -9,18 +9,26 @@
     track,
     selected,
     height,
+    armed,
+    armLocked,
     onSelect,
     onRename,
     onMute,
+    onArm,
     onVolume,
     onDelete,
   }: {
     track: Track;
     selected: boolean;
     height: number;
+    /** The track is armed for recording. */
+    armed: boolean;
+    /** Arming cannot change now (a recording is running). */
+    armLocked: boolean;
     onSelect: () => void;
     onRename: (name: string) => void;
     onMute: (mute: boolean) => void;
+    onArm: () => void;
     /** Called once the slider is released, with the new gain in dB. */
     onVolume: (gainDb: number) => void;
     onDelete: () => void;
@@ -65,6 +73,20 @@
       onblur={commitName}
       onkeydown={onNameKey}
     />
+    {#if track.kind === "audio"}
+      <button
+        type="button"
+        class="arm"
+        class:on={armed}
+        aria-pressed={armed}
+        disabled={armLocked}
+        title="Arm for recording"
+        aria-label="Arm for recording"
+        onclick={onArm}
+      >
+        R
+      </button>
+    {/if}
     <button
       type="button"
       class="mute"
@@ -135,8 +157,13 @@
     outline: none;
   }
   .mute,
+  .arm,
   .delete {
     padding: 1px 6px;
+  }
+  .arm.on {
+    background: var(--danger);
+    color: var(--bg);
   }
   .mute.on {
     background: var(--accent);

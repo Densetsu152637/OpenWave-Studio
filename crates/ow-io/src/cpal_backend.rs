@@ -364,7 +364,14 @@ fn build_streams(
             BufferSize::Default => None,
         },
         exclusive: false,
+        latency_frames: 0,
     };
+    if input_channels > 0 {
+        // Two callback buffers (one on the input side, one on the output side); the hosts do
+        // not report the real figure portably. Without a fixed size, assume 10 ms buffers.
+        let buffer = info.buffer_frames.unwrap_or(info.sample_rate / 100);
+        info.latency_frames = buffer.saturating_mul(2);
+    }
 
     let mut input_ring = None;
     let mut input_stream = None;

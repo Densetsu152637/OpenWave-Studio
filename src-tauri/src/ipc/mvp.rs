@@ -38,7 +38,7 @@ impl PlanTarget for CompilingTarget {
 }
 
 #[derive(Clone, Default)]
-struct Collect(Arc<Mutex<Vec<ModelPatch>>>);
+pub(super) struct Collect(Arc<Mutex<Vec<ModelPatch>>>);
 
 impl PatchSink for Collect {
     fn send(&self, patch: &ModelPatch) -> bool {
@@ -48,14 +48,14 @@ impl PatchSink for Collect {
 }
 
 /// A UI: attached to the control, replaying every patch into a mirror.
-struct Ui {
+pub(super) struct Ui {
     sink: Collect,
-    mirror: Mirror,
+    pub(super) mirror: Mirror,
     seen: usize,
 }
 
 impl Ui {
-    fn attach(state: &IpcState) -> Self {
+    pub(super) fn attach(state: &IpcState) -> Self {
         let sink = Collect::default();
         let snapshot = lock(&state.control).attach(Box::new(sink.clone()));
         Self {
@@ -67,7 +67,7 @@ impl Ui {
 
     /// Applies the patches that arrived since the last call and checks the mirror equals the
     /// control's state, returning that state.
-    fn sync(&mut self, state: &IpcState) -> Snapshot {
+    pub(super) fn sync(&mut self, state: &IpcState) -> Snapshot {
         let patches = self.sink.0.lock().unwrap().clone();
         for patch in &patches[self.seen..] {
             self.mirror.apply(patch).expect("patches arrive in order");
@@ -106,11 +106,11 @@ fn write_fixture(path: &Path) {
     writer.finalize().unwrap();
 }
 
-fn command(state: &IpcState, target: &dyn PlanTarget, command: UiCommand) -> Vec<u64> {
+pub(super) fn command(state: &IpcState, target: &dyn PlanTarget, command: UiCommand) -> Vec<u64> {
     lock(&state.control).command(command, target).unwrap().ids
 }
 
-fn edit(state: &IpcState, target: &dyn PlanTarget, edit: EditCommand) {
+pub(super) fn edit(state: &IpcState, target: &dyn PlanTarget, edit: EditCommand) {
     command(state, target, UiCommand::Edit { edit });
 }
 

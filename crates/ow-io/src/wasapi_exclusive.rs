@@ -423,6 +423,7 @@ impl Opened {
             input_channels: 0,
             buffer_frames: Some(buffer_frames as u32),
             exclusive: true,
+            latency_frames: 0,
         };
         let callback = factory(&info);
         Ok(Self {

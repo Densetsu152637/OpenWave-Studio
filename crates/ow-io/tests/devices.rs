@@ -105,6 +105,47 @@ fn mock_loopback_returns_the_output_after_the_set_latency() {
 }
 
 #[test]
+fn mock_streams_report_their_round_trip_latency() {
+    let open = |config: MockConfig| {
+        let backend = MockBackend::new(config);
+        let stream = registry(&backend)
+            .open(&selection(), Box::new(silent))
+            .unwrap();
+        stream.info().latency_frames
+    };
+    let looped = MockConfig {
+        input_channels: 2,
+        buffer_frames: 64,
+        loopback_latency_frames: Some(192),
+        ..MockConfig::default()
+    };
+    assert_eq!(open(looped.clone()), 192);
+    // Never less than one buffer, like the loopback itself.
+    assert_eq!(
+        open(MockConfig {
+            loopback_latency_frames: Some(1),
+            ..looped.clone()
+        }),
+        64
+    );
+    // No input, or an input without a loopback: nothing to report.
+    assert_eq!(
+        open(MockConfig {
+            input_channels: 0,
+            ..looped.clone()
+        }),
+        0
+    );
+    assert_eq!(
+        open(MockConfig {
+            loopback_latency_frames: None,
+            ..looped
+        }),
+        0
+    );
+}
+
+#[test]
 fn mock_loopback_latency_is_at_least_one_buffer() {
     let backend = MockBackend::new(MockConfig {
         input_channels: 1,

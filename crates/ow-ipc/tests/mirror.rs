@@ -206,6 +206,29 @@ fn mirror_follows_the_project_path_and_the_missing_media_list() {
 }
 
 #[test]
+fn mirror_follows_the_armed_tracks_which_are_session_state_not_edits() {
+    let (mut session, mut mirror) = fresh();
+    let patch = session.set_armed_tracks(vec![4, 7]).unwrap();
+    assert!(patch.ops.is_empty());
+    mirror.apply(&patch).unwrap();
+    assert_eq!(mirror.history.armed_tracks, [4, 7]);
+    assert!(session.set_armed_tracks(vec![4, 7]).is_none());
+    // Not an edit: no undo step, no dirty flag.
+    assert!(!session.snapshot().history.can_undo);
+    assert!(!session.snapshot().history.dirty);
+    assert_same(&session, &mirror);
+
+    // Disarming, and opening another project clears the set.
+    let patch = session.set_armed_tracks(vec![7]).unwrap();
+    mirror.apply(&patch).unwrap();
+    assert_eq!(mirror.history.armed_tracks, [7]);
+    let reset = session.replace_project(Project::new("Other"), None);
+    mirror.apply(&reset).unwrap();
+    assert!(mirror.history.armed_tracks.is_empty());
+    assert_same(&session, &mirror);
+}
+
+#[test]
 fn mirror_random_sequences_really_change_things() {
     // Guards the property tests against vacuity: a fixed rich sequence produces many patches.
     let (mut session, mut mirror) = fresh();

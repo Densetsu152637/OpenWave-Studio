@@ -12,6 +12,7 @@ use assert_no_alloc::assert_no_alloc;
 
 use super::NodeId;
 use crate::plan::RenderPlan;
+use crate::record::RecordSet;
 use crate::rings::{ProducerRing, RingSender, producer_ring};
 use crate::sched::AbortOnPanic;
 use crate::sched::denormal::DenormalGuard;
@@ -21,6 +22,10 @@ use crate::workgroup::AudioWorkgroup;
 
 /// Capacity of the timeline ring (and, plus two, of its retire ring).
 const TIMELINE_QUEUE: usize = 4;
+
+/// Capacity of the record-set ring (and, plus two, of its retire ring): at most one recording is
+/// live, so a few slots are plenty.
+const RECORD_QUEUE: usize = 2;
 
 /// Largest worker count [`CoreBuilder::workers`] accepts.
 pub const MAX_WORKERS: usize = 64;
@@ -61,6 +66,9 @@ pub enum Message {
     },
     /// Change the transport.
     Transport(TransportCommand),
+    /// Finish the recording in progress: the audio thread pushes no more frames to it and hands
+    /// it back to the control thread (see [`crate::record`]). Harmless when none is running.
+    EndRecording,
     /// Deliver MIDI to a node.
     Midi {
         /// Target node.
@@ -292,6 +300,9 @@ impl CoreBuilder {
         let (timeline_tx, timeline_rx) = producer_ring::<Box<Timeline>>(TIMELINE_QUEUE);
         let (timeline_retire_tx, timeline_retire_rx) =
             producer_ring::<Box<Timeline>>(TIMELINE_QUEUE + 2);
+        let (record_tx, record_rx) = producer_ring::<Box<RecordSet>>(RECORD_QUEUE);
+        let (record_retire_tx, record_retire_rx) =
+            producer_ring::<Box<RecordSet>>(RECORD_QUEUE + 2);
         let telemetry = Arc::new(Telemetry::new(self.pool.workers + 1));
         let pool = Pool::spawn(&self.pool, &telemetry);
         let mut rings = Vec::with_capacity(self.rings.len() + 1);
@@ -304,6 +315,8 @@ impl CoreBuilder {
                 messages: control_tx,
                 timelines: timeline_tx,
                 retired_timelines: timeline_retire_rx,
+                records: record_tx,
+                retired_records: record_retire_rx,
                 telemetry: Arc::clone(&telemetry),
                 sched: Arc::clone(pool.shared()),
             },
@@ -317,6 +330,10 @@ impl CoreBuilder {
                 retire_timelines: timeline_retire_tx,
                 timeline: Box::new(self.timeline),
                 pending_retire_timeline: None,
+                records: record_rx,
+                retire_records: record_retire_tx,
+                record: None,
+                pending_retire_record: None,
                 transport: TransportState::new(),
                 telemetry,
                 pool,
@@ -338,9 +355,28 @@ pub struct ControlLink {
     messages: RingSender<Message>,
     timelines: RingSender<Box<Timeline>>,
     retired_timelines: ProducerRing<Box<Timeline>>,
+    records: RingSender<Box<RecordSet>>,
+    retired_records: ProducerRing<Box<RecordSet>>,
     telemetry: Arc<Telemetry>,
     sched: Arc<Shared>,
 }
+
+/// The record ring was full; the set is handed back so the caller can retry.
+pub struct RecordSwapError(pub Box<RecordSet>);
+
+impl std::fmt::Debug for RecordSwapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RecordSwapError(record ring full)")
+    }
+}
+
+impl std::fmt::Display for RecordSwapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the record ring is full")
+    }
+}
+
+impl std::error::Error for RecordSwapError {}
 
 impl ControlLink {
     /// Queues a plan for the audio thread to swap in at its next cycle boundary. Also frees any
@@ -361,12 +397,25 @@ impl ControlLink {
             .map_err(TimelineSwapError)
     }
 
-    /// Drops timelines and plans the audio thread has retired (this is where their memory is
-    /// freed) and returns how many plans. A DSP worker may still be leaving a just-retired plan; this waits
+    /// Queues a recording for the audio thread to tap the input into from its next cycle on (it
+    /// records while the transport is recording). Collects finished recordings first. Returns
+    /// the set if the ring is full. End it with [`Message::EndRecording`].
+    pub fn swap_record(&mut self, set: RecordSet) -> Result<(), RecordSwapError> {
+        self.collect_retired();
+        self.records
+            .try_push(Box::new(set))
+            .map_err(RecordSwapError)
+    }
+
+    /// Drops timelines, recordings and plans the audio thread has retired (this is where their
+    /// memory is freed) and returns how many plans. A DSP worker may still be leaving a just-retired plan; this waits
     /// (yielding) until none is, which takes at most a few instructions of the worker's time.
     pub fn collect_retired(&mut self) -> usize {
         while let Some(timeline) = self.retired_timelines.pop() {
             drop(timeline);
+        }
+        while let Some(set) = self.retired_records.pop() {
+            drop(set);
         }
         let mut dropped = 0;
         while let Some(plan) = self.retired.pop() {
@@ -419,6 +468,12 @@ pub struct AudioCore {
     retire_timelines: RingSender<Box<Timeline>>,
     timeline: Box<Timeline>,
     pending_retire_timeline: Option<Box<Timeline>>,
+    records: ProducerRing<Box<RecordSet>>,
+    retire_records: RingSender<Box<RecordSet>>,
+    /// The recording the input tap feeds, until it ends.
+    record: Option<Box<RecordSet>>,
+    /// A recording that ended and waits for room in the retire ring.
+    pending_retire_record: Option<Box<RecordSet>>,
     transport: TransportState,
     telemetry: Arc<Telemetry>,
     pool: Pool,
@@ -451,28 +506,31 @@ impl AudioCore {
     /// samples are written as 0.0 so a faulty node cannot send NaN or infinity to the device.
     ///
     /// `input` is the device's interleaved input audio for this cycle (same frame count as
-    /// `out`), or `None` when there is none. It is accepted for the stage 9 mock backend and
-    /// stage 14 recording and is currently ignored.
+    /// `out`), or `None` when there is none. While the transport is recording and a
+    /// [`RecordSet`] is installed, the input is pushed into its takes (see [`crate::record`]);
+    /// otherwise it is ignored.
     pub fn process(&mut self, out: &mut [f32], channels: usize, input: Option<&[f32]>) {
-        let _ = input;
         // A panicking node aborts the process rather than leaving workers and the device
         // callback in an inconsistent cycle.
         let _abort = AbortOnPanic;
         assert_no_alloc(|| {
             let _denormals = DenormalGuard::new();
-            self.cycle(out, channels);
+            self.cycle(out, channels, input);
         });
     }
 
-    fn cycle(&mut self, out: &mut [f32], channels: usize) {
+    fn cycle(&mut self, out: &mut [f32], channels: usize, input: Option<&[f32]>) {
         self.telemetry.cycles.fetch_add(1, Ordering::Relaxed);
         self.flush_retired();
         self.swap_pending_plan();
         self.swap_pending_timeline();
+        self.swap_pending_record();
         self.drain_rings();
+        self.flush_record();
         out.fill(0.0);
         let channels = channels.max(1);
         let total = out.len() / channels;
+        self.capture_input(total, input);
         let mut done = 0;
         while done < total {
             let Some(plan) = self.current.as_deref() else {
@@ -557,6 +615,48 @@ impl AudioCore {
         }
     }
 
+    /// Installs a queued recording (an earlier one that ended is retired first).
+    fn swap_pending_record(&mut self) {
+        if self.pending_retire_record.is_some() {
+            return;
+        }
+        if let Some(new) = self.records.pop() {
+            if let Some(mut old) = self.record.replace(new) {
+                old.end();
+                self.pending_retire_record = Some(old);
+            }
+            self.flush_record();
+        }
+    }
+
+    /// Hands an ended recording back to the control thread; keeps it for the next cycle when the
+    /// retire ring is full, so the audio thread never frees it.
+    fn flush_record(&mut self) {
+        if self.pending_retire_record.is_none()
+            && self.record.as_deref().is_some_and(RecordSet::is_ended)
+        {
+            self.pending_retire_record = self.record.take();
+        }
+        if let Some(set) = self.pending_retire_record.take()
+            && let Err(set) = self.retire_records.try_push(set)
+        {
+            self.pending_retire_record = Some(set);
+        }
+    }
+
+    /// The input tap: while the transport is recording, pushes this cycle's input into the
+    /// recording's takes. Allocation free.
+    fn capture_input(&mut self, frames: usize, input: Option<&[f32]>) {
+        let (Some(set), Some(input)) = (self.record.as_deref_mut(), input) else {
+            return;
+        };
+        let transport = self.transport.summary();
+        if frames == 0 || !transport.recording || input.len() % frames != 0 {
+            return;
+        }
+        set.capture(transport.position, input, input.len() / frames);
+    }
+
     fn drain_rings(&mut self) {
         let Self {
             rings,
@@ -564,6 +664,7 @@ impl AudioCore {
             transport,
             telemetry,
             timeline,
+            record,
             ..
         } = self;
         for ring in rings.iter_mut() {
@@ -578,6 +679,12 @@ impl AudioCore {
                         .is_some_and(|plan| unsafe { plan.data().midi(node, message) }),
                     Message::Transport(command) => {
                         transport.apply(command, timeline);
+                        true
+                    }
+                    Message::EndRecording => {
+                        if let Some(set) = record.as_deref_mut() {
+                            set.end();
+                        }
                         true
                     }
                 };

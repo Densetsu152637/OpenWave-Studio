@@ -72,6 +72,10 @@ pub struct HistoryState {
     /// live. Ids in ascending order.
     #[ts(type = "Array<number>")]
     pub missing_media: Vec<u64>,
+    /// Audio tracks armed for recording, ascending ids. Transient session state: not saved, not
+    /// part of the model, no undo and no dirty flag; cleared when another project is loaded.
+    #[ts(type = "Array<number>")]
+    pub armed_tracks: Vec<u64>,
 }
 
 /// One change to the mirrored project. Applying a patch's operations in order to the mirror

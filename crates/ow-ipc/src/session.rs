@@ -32,6 +32,7 @@ pub struct Session {
     history: HistoryState,
     engine_error: Option<String>,
     missing_media: Vec<u64>,
+    armed_tracks: Vec<u64>,
     project_path: Option<String>,
 }
 
@@ -39,13 +40,14 @@ impl Session {
     /// A session over `project`, at sequence 0.
     pub fn new(project: Project) -> Self {
         let editor = Editor::new(project);
-        let history = history_of(&editor, None, &[]);
+        let history = history_of(&editor, None, &[], &[]);
         Self {
             editor,
             seq: 0,
             history,
             engine_error: None,
             missing_media: Vec::new(),
+            armed_tracks: Vec::new(),
             project_path: None,
         }
     }
@@ -99,6 +101,22 @@ impl Session {
         self.finish(Vec::new())
     }
 
+    /// The tracks armed for recording (ascending ids).
+    pub fn armed_tracks(&self) -> &[u64] {
+        &self.armed_tracks
+    }
+
+    /// Records which tracks are armed for recording (the caller passes ascending, de-duplicated
+    /// ids); yields a patch (no operations, new history) only when the set changed. Arming is
+    /// session state, not an edit: no undo step, no dirty flag.
+    pub fn set_armed_tracks(&mut self, armed: Vec<u64>) -> Option<ModelPatch> {
+        if self.armed_tracks == armed {
+            return None;
+        }
+        self.armed_tracks = armed;
+        self.finish(Vec::new())
+    }
+
     /// Records that the current state is what is on disk, and reports the dirty flag change.
     pub fn mark_saved(&mut self) -> Option<ModelPatch> {
         self.editor.mark_saved();
@@ -128,8 +146,14 @@ impl Session {
         self.editor = Editor::new(project);
         self.project_path = project_path.clone();
         self.missing_media.clear();
+        self.armed_tracks.clear();
         self.seq += 1;
-        self.history = history_of(&self.editor, self.engine_error.clone(), &self.missing_media);
+        self.history = history_of(
+            &self.editor,
+            self.engine_error.clone(),
+            &self.missing_media,
+            &self.armed_tracks,
+        );
         ModelPatch {
             seq: self.seq,
             ops: vec![
@@ -200,7 +224,12 @@ impl Session {
 
     /// Wraps `ops` into the next patch when there is anything to report.
     fn finish(&mut self, ops: Vec<PatchOp>) -> Option<ModelPatch> {
-        let history = history_of(&self.editor, self.engine_error.clone(), &self.missing_media);
+        let history = history_of(
+            &self.editor,
+            self.engine_error.clone(),
+            &self.missing_media,
+            &self.armed_tracks,
+        );
         if ops.is_empty() && history == self.history {
             return None;
         }
@@ -218,6 +247,7 @@ fn history_of(
     editor: &Editor,
     engine_error: Option<String>,
     missing_media: &[u64],
+    armed_tracks: &[u64],
 ) -> HistoryState {
     HistoryState {
         can_undo: editor.can_undo(),
@@ -228,5 +258,6 @@ fn history_of(
         dirty: editor.is_dirty(),
         engine_error,
         missing_media: missing_media.to_vec(),
+        armed_tracks: armed_tracks.to_vec(),
     }
 }

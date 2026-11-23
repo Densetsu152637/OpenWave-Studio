@@ -9,6 +9,7 @@ use ow_io::{AudioSelection, AudioState, DEFAULT_DEVICE, DeviceInfo, StreamReques
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::ipc::IpcState;
 use crate::paths::Paths;
 use crate::prefs::{self, Loaded, Preferences};
 
@@ -361,10 +362,15 @@ pub async fn transport_play(app: AppHandle) -> Result<(), String> {
     blocking(move || send_transport(&app.state::<EngineState>(), TransportCommand::Play)).await
 }
 
-/// Stops playback; the position holds.
+/// Stops playback; the position holds. While recording, also ends the recording and adds the
+/// takes to the project (see `ipc::record`).
 #[tauri::command]
 pub async fn transport_stop(app: AppHandle) -> Result<(), String> {
-    blocking(move || send_transport(&app.state::<EngineState>(), TransportCommand::Stop)).await
+    blocking(move || {
+        let engine = app.state::<EngineState>();
+        app.state::<IpcState>().transport_stop(engine.engine())
+    })
+    .await
 }
 
 /// Moves the position to `beats` (during playback too).

@@ -8,6 +8,7 @@
   import { nativeDialogs } from "./lib/arrange/dialogs";
   import { fileActions } from "./lib/arrange/files";
   import { positionLabel, transportLocate, transportPlay, transportStop } from "./lib/arrange/playback";
+  import { armedSet, canRecord, recordApi, startRecording } from "./lib/arrange/record";
   import { SignatureMap, TempoMap } from "./lib/arrange/time";
   import {
     engineStatus,
@@ -32,6 +33,8 @@
   let mirror = $state.raw<MirrorState>(modelMirror.state);
   let notice = $state<string | null>(null);
   let playing = $state(false);
+  /** A recording is running: Stop ends it and the takes arrive as clips. */
+  let recording = $state(false);
   /** The last transport position, in samples, from telemetry; null before the first frame. */
   let framePosition = $state<number | null>(null);
   /** Where the playhead was last placed by a click, used until telemetry reports a position. */
@@ -48,6 +51,7 @@
   const stopAfter = (op: () => Promise<unknown>) => async () => {
     const result = await op();
     playing = false;
+    recording = false;
     await transportStop().catch(() => {});
     return result;
   };
@@ -78,14 +82,27 @@
     }
   }
 
+  async function record() {
+    try {
+      await startRecording(recordApi, armedSet(mirror.history));
+      recording = true;
+      playing = true;
+    } catch (error) {
+      recording = false;
+      fail(error);
+    }
+  }
+
   async function stop() {
     try {
+      // While recording this also finishes the takes and adds them to the project.
       await transportStop();
-      playing = false;
     } catch (error) {
+      fail(error);
+    } finally {
       // Whatever the engine is doing, Play must stay usable.
       playing = false;
-      fail(error);
+      recording = false;
     }
   }
 
@@ -166,10 +183,13 @@
     onToggle={toggleTone}
     {playing}
     position={positionLabel(playheadBeat, signatures)}
+    {recording}
+    canRecord={canRecord(armedSet(mirror.history), recording)}
     onPlay={play}
+    onRecord={record}
     onStop={stop}
   />
-  <Arrangement {mirror} {playheadBeat} onLocate={locate} onError={fail} />
+  <Arrangement {mirror} {playheadBeat} {recording} onLocate={locate} onError={fail} />
   <StatusBar {status} engineError={mirror.history?.engineError ?? null} />
 </div>
 

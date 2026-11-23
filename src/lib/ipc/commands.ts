@@ -129,3 +129,25 @@ export function mediaImport(
 export function exportWav(path: string, transport: IpcTransport = tauriTransport): Promise<string> {
   return queued(transport, () => transport.invoke<string>("export_wav", { path }));
 }
+
+/**
+ * Arms or disarms an audio track for recording. Arming is session state: the mirror's
+ * `history.armedTracks` follows as a patch; it is not an edit (no undo, no dirty flag). Rejects
+ * for a track that cannot record and while a recording is running.
+ */
+export function recordSetArm(
+  track: number,
+  armed: boolean,
+  transport: IpcTransport = tauriTransport,
+): Promise<void> {
+  return queued(transport, () => transport.invoke<void>("record_set_arm", { track, armed }));
+}
+
+/**
+ * Starts recording on the armed tracks from the playhead. Stop with `transportStop`, which adds
+ * the takes to the project as clips (one undo step). Rejects when no track is armed or no audio
+ * input is open.
+ */
+export function recordStart(transport: IpcTransport = tauriTransport): Promise<void> {
+  return queued(transport, () => transport.invoke<void>("record_start"));
+}
