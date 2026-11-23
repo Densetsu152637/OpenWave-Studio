@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import AiPanel from "./AiPanel.svelte";
   import AppearancePanel from "./AppearancePanel.svelte";
   import AudioPanel from "./AudioPanel.svelte";
   import MidiPanel from "./MidiPanel.svelte";
@@ -20,7 +21,7 @@
   } from "../../lib/ipc";
   import { applyTheme, samePrefs } from "../../lib/prefs";
 
-  type Tab = "audio" | "midi" | "folders" | "appearance" | "shortcuts" | "about";
+  type Tab = "audio" | "midi" | "folders" | "appearance" | "ai" | "shortcuts" | "about";
 
   let {
     onClose,
@@ -38,6 +39,7 @@
     { id: "midi", label: "MIDI" },
     { id: "folders", label: "Folders" },
     { id: "appearance", label: "Appearance" },
+    { id: "ai", label: "AI control" },
     { id: "shortcuts", label: "Shortcuts" },
     { id: "about", label: "About" },
   ];
@@ -160,7 +162,7 @@
     <div class="panel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
       {#if tab === "about"}
         <UpdatePanel />
-      {:else if loading && tab !== "appearance" && tab !== "shortcuts" && tab !== "folders"}
+      {:else if loading && tab !== "appearance" && tab !== "ai" && tab !== "shortcuts" && tab !== "folders"}
         <p class="hint">Loading devices...</p>
       {:else if tab === "audio"}
         <AudioPanel bind:prefs={draft} {lists} {status} onRetry={retry} />
@@ -170,6 +172,8 @@
         <PathsPanel bind:prefs={draft} />
       {:else if tab === "appearance"}
         <AppearancePanel bind:prefs={draft} />
+      {:else if tab === "ai"}
+        <AiPanel bind:prefs={draft} />
       {:else}
         <ShortcutsPanel bind:prefs={draft} />
       {/if}

@@ -10,6 +10,7 @@ description = "IPC contract between the OpenWave Studio engine and its UI: DTOs,
 ow-dsp = { path = "../ow-dsp" }
 ow-model = { path = "../ow-model", features = ["ts"] }
 serde = { version = "1.0.229", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 # TypeScript bindings for the DTOs (MIT); written to src/lib/ipc/generated/ by the tests.
 ts-rs = "12.0.1"
 

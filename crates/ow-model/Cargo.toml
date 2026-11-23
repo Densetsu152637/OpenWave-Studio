@@ -7,8 +7,10 @@ repository.workspace = true
 description = "Project model for OpenWave Studio: timeline math, tracks, clips, edit commands"
 
 [dependencies]
+schemars = { version = "1.2.3", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+strum = { version = "0.28.0", features = ["derive"] }
 # Generates the UI's TypeScript types (optional, see the `ts` feature).
 ts-rs = { version = "12.0.1", optional = true, features = ["no-serde-warnings"] }
 # `.owz` archives (project sharing and templates); deflate only, no encryption or other codecs.
@@ -17,6 +19,8 @@ zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2
 [features]
 # TypeScript bindings (ts-rs derives only; serialization is unchanged). Enabled by `ow-ipc`.
 ts = ["dep:ts-rs"]
+# JSON Schemas of the edit commands for the MCP tool catalog (derives only; serialization unchanged).
+schema = ["dep:schemars"]
 
 [dev-dependencies]
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }

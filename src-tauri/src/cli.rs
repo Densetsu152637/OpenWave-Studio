@@ -27,12 +27,39 @@ pub fn handle_args<I>(args: I) -> Option<i32>
 where
     I: IntoIterator<Item = OsString>,
 {
-    let wants_version = args.into_iter().any(|arg| arg == "--version");
-    if !wants_version {
-        return None;
+    let args: Vec<OsString> = args.into_iter().collect();
+    if args.iter().any(|arg| arg == "--version") {
+        write_stdout(&version_output(effective_version()));
+        return Some(0);
     }
-    write_stdout(&version_output(effective_version()));
-    Some(0)
+    if is_mcp(&args) {
+        return Some(run_mcp());
+    }
+    None
+}
+
+/// True for `openwave-studio mcp`: the first argument is the subcommand.
+fn is_mcp(args: &[OsString]) -> bool {
+    args.first().is_some_and(|arg| arg == "mcp")
+}
+
+/// `openwave-studio mcp`: an MCP server on stdio that relays to the running app's local socket,
+/// starting the app (a copy of this executable, detached) when none is running and waiting up to
+/// 20 seconds for its socket. Protocol messages go to stdout, everything else to stderr.
+fn run_mcp() -> i32 {
+    let Some(data_dir) = crate::paths::data_dir_without_tauri() else {
+        eprintln!("openwave-studio mcp: could not find the app data directory");
+        return 1;
+    };
+    let launch: ow_mcp::client::Launcher = Box::new(|| {
+        let exe = std::env::current_exe()?;
+        ow_mcp::client::launch_detached(&exe)
+    });
+    ow_mcp::client::run_stdio(ow_mcp::client::ClientConfig {
+        dir: ow_mcp::endpoint::dir_in(&data_dir),
+        wait: ow_mcp::client::LAUNCH_WAIT,
+        launch: Some(launch),
+    })
 }
 
 #[cfg(not(windows))]
@@ -101,5 +128,13 @@ mod tests {
     fn only_the_version_flag_is_handled() {
         assert_eq!(handle_args(Vec::<OsString>::new()), None);
         assert_eq!(handle_args([OsString::from("--other")]), None);
+    }
+
+    #[test]
+    fn mcp_is_the_first_argument_only() {
+        assert!(is_mcp(&[OsString::from("mcp")]));
+        assert!(!is_mcp(&[]));
+        assert!(!is_mcp(&[OsString::from("--other"), OsString::from("mcp")]));
+        assert!(!is_mcp(&[OsString::from("mcpx")]));
     }
 }

@@ -11,7 +11,7 @@ use ow_media::analysis::{Normalization, analyze, normalize};
 use super::IpcState;
 
 /// `path` with `.wav` added when it has no extension.
-fn wav_path(path: &Path) -> PathBuf {
+pub(crate) fn wav_path(path: &Path) -> PathBuf {
     let mut path = path.to_path_buf();
     if path.extension().is_none() {
         path.set_extension("wav");

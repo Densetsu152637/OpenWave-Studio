@@ -96,6 +96,23 @@ pub struct AppearancePrefs {
     pub theme: Theme,
 }
 
+/// Control of the running app by AI agents through the local MCP endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiPrefs {
+    /// Listen on the local MCP socket ("Allow AI control (MCP)"). On by default; only the user
+    /// can change it (the MCP tools refuse to).
+    pub allow_control: bool,
+}
+
+impl Default for AiPrefs {
+    fn default() -> Self {
+        Self {
+            allow_control: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
@@ -104,6 +121,7 @@ pub struct Preferences {
     pub midi: MidiPrefs,
     pub paths: PathPrefs,
     pub appearance: AppearancePrefs,
+    pub ai: AiPrefs,
     /// Overrides of the default shortcuts: action id to accelerator (for example
     /// `"transport.play": "Space"`). Empty accelerator unbinds the action.
     pub shortcuts: BTreeMap<String, String>,
@@ -117,6 +135,7 @@ impl Default for Preferences {
             midi: MidiPrefs::default(),
             paths: PathPrefs::default(),
             appearance: AppearancePrefs::default(),
+            ai: AiPrefs::default(),
             shortcuts: BTreeMap::new(),
         }
     }

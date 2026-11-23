@@ -147,6 +147,11 @@ impl EngineState {
         }
     }
 
+    /// The stored preferences.
+    pub fn preferences(&self) -> Preferences {
+        lock(&self.prefs).clone()
+    }
+
     /// The engine handle (the IPC layer hands compiled projects to it).
     pub fn engine(&self) -> &Engine {
         &self.engine
@@ -343,12 +348,11 @@ pub async fn engine_status(app: AppHandle) -> Result<EngineStatus, String> {
 
 #[tauri::command]
 pub fn set_test_tone(state: State<'_, EngineState>, on: bool) -> EngineStatus {
-    state.set_test_tone(on);
-    state.status()
+    state.test_tone(on)
 }
 
 /// Sends a transport command to the audio thread.
-fn send_transport(state: &EngineState, command: TransportCommand) -> Result<(), String> {
+pub(crate) fn send_transport(state: &EngineState, command: TransportCommand) -> Result<(), String> {
     if state.engine.send_transport(command) {
         Ok(())
     } else {
@@ -387,14 +391,17 @@ pub async fn transport_locate(app: AppHandle, beats: f64) -> Result<(), String> 
 
 #[tauri::command]
 pub fn prefs_get(state: State<'_, EngineState>) -> PrefsSnapshot {
-    PrefsSnapshot {
-        prefs: lock(&state.prefs).clone(),
-        warning: lock(&state.prefs_warning).clone(),
-        config_file: state
-            .config_dir
-            .join(prefs::FILE_NAME)
-            .display()
-            .to_string(),
+    state.prefs_snapshot()
+}
+
+impl EngineState {
+    /// The stored preferences with the load warning and the file's path (see [`prefs_get`]).
+    pub fn prefs_snapshot(&self) -> PrefsSnapshot {
+        PrefsSnapshot {
+            prefs: lock(&self.prefs).clone(),
+            warning: lock(&self.prefs_warning).clone(),
+            config_file: self.config_dir.join(prefs::FILE_NAME).display().to_string(),
+        }
     }
 }
 
@@ -402,76 +409,123 @@ pub fn prefs_get(state: State<'_, EngineState>) -> PrefsSnapshot {
 /// moment, so this runs off the UI thread.
 #[tauri::command]
 pub async fn prefs_set(
+    app: AppHandle,
     state: State<'_, EngineState>,
     prefs: Preferences,
 ) -> Result<PrefsApplied, String> {
     let state = state.inner();
-    thread::scope(|scope| {
+    let applied = thread::scope(|scope| {
         scope
             .spawn(|| state.apply(prefs))
             .join()
             .map_err(|_| "applying preferences panicked".to_string())?
-    })
+    })?;
+    // "Allow AI control (MCP)" takes effect at once.
+    crate::mcp::sync_with_preferences(&app);
+    Ok(applied)
 }
 
 /// Lists audio devices per backend and MIDI inputs. Enumeration talks to platform audio APIs
 /// that expect their own COM apartment, so it runs on a fresh thread.
 #[tauri::command]
 pub async fn audio_devices(state: State<'_, EngineState>) -> Result<DeviceLists, String> {
-    let state = state.inner();
-    thread::scope(|scope| {
-        scope
-            .spawn(|| {
-                let backends = state
-                    .engine
-                    .backends()
-                    .all()
-                    .iter()
-                    .map(|backend| {
-                        let (devices, error) = match backend.devices() {
-                            Ok(devices) => {
-                                (devices.into_iter().map(DeviceDto::from).collect(), None)
+    state.inner().device_lists()
+}
+
+impl EngineState {
+    /// The audio backends with their devices and the MIDI inputs (see [`audio_devices`]).
+    pub fn device_lists(&self) -> Result<DeviceLists, String> {
+        thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let backends = self
+                        .engine
+                        .backends()
+                        .all()
+                        .iter()
+                        .map(|backend| {
+                            let (devices, error) = match backend.devices() {
+                                Ok(devices) => {
+                                    (devices.into_iter().map(DeviceDto::from).collect(), None)
+                                }
+                                Err(error) => (Vec::new(), Some(error.to_string())),
+                            };
+                            BackendDto {
+                                id: backend.id(),
+                                label: backend.label(),
+                                devices,
+                                error,
                             }
-                            Err(error) => (Vec::new(), Some(error.to_string())),
-                        };
-                        BackendDto {
-                            id: backend.id(),
-                            label: backend.label(),
-                            devices,
-                            error,
-                        }
-                    })
-                    .collect();
-                let (midi_inputs, midi_error) = match state.engine.midi().backend().inputs() {
-                    Ok(ports) => (
-                        ports
-                            .into_iter()
-                            .map(|port| MidiPortDto {
-                                id: port.id,
-                                name: port.name,
-                            })
-                            .collect(),
-                        None,
-                    ),
-                    Err(error) => (Vec::new(), Some(error.to_string())),
-                };
-                DeviceLists {
-                    backends,
-                    midi_inputs,
-                    midi_error,
-                    default_device: DEFAULT_DEVICE,
-                }
-            })
-            .join()
-            .map_err(|_| "listing devices panicked".to_string())
-    })
+                        })
+                        .collect();
+                    let (midi_inputs, midi_error) = match self.engine.midi().backend().inputs() {
+                        Ok(ports) => (
+                            ports
+                                .into_iter()
+                                .map(|port| MidiPortDto {
+                                    id: port.id,
+                                    name: port.name,
+                                })
+                                .collect(),
+                            None,
+                        ),
+                        Err(error) => (Vec::new(), Some(error.to_string())),
+                    };
+                    DeviceLists {
+                        backends,
+                        midi_inputs,
+                        midi_error,
+                        default_device: DEFAULT_DEVICE,
+                    }
+                })
+                .join()
+                .map_err(|_| "listing devices panicked".to_string())
+        })
+    }
+
+    /// Starts a new round of reopen attempts and reports the status.
+    pub fn retry_audio(&self) -> EngineStatus {
+        self.engine.retry_audio();
+        self.status()
+    }
+
+    /// Starts or stops the test tone and reports the status.
+    pub fn test_tone(&self, on: bool) -> EngineStatus {
+        self.set_test_tone(on);
+        self.status()
+    }
 }
 
 /// Starts a new round of reopen attempts after the engine gave up on the device.
 #[tauri::command]
 pub fn audio_retry(state: State<'_, EngineState>) -> EngineStatus {
-    state.engine.retry_audio();
-    state.status()
+    state.retry_audio()
+}
+
+#[cfg(test)]
+impl EngineState {
+    /// An engine on the mock audio and MIDI backends, with preferences stored in `dir` (what
+    /// the tests of this crate use instead of a real device).
+    pub(crate) fn mock(dir: &std::path::Path) -> Self {
+        use ow_io::mock::{MockBackend, MockConfig, MockMidiBackend};
+        use ow_io::{AudioBackend, BackendRegistry, MidiBackend};
+        use std::sync::Arc;
+        let backend = MockBackend::new(MockConfig::default());
+        let registry = BackendRegistry::with(vec![Arc::new(backend) as Arc<dyn AudioBackend>]);
+        let midi: Arc<dyn MidiBackend> = Arc::new(MockMidiBackend::new(["Keys"]));
+        let engine = Engine::with_backends(
+            registry,
+            midi,
+            EngineConfig {
+                audio: AudioSelection {
+                    backend: "mock".into(),
+                    request: StreamRequest::default(),
+                },
+                ..EngineConfig::default()
+            },
+        );
+        Self::from_parts(engine, dir.to_path_buf(), Preferences::default(), None)
+    }
 }
 
 #[cfg(test)]
@@ -524,24 +578,7 @@ mod tests {
     }
 
     fn mock_state(dir: &std::path::Path) -> EngineState {
-        use ow_io::mock::{MockBackend, MockConfig, MockMidiBackend};
-        use ow_io::{AudioBackend, BackendRegistry, MidiBackend};
-        use std::sync::Arc;
-        let backend = MockBackend::new(MockConfig::default());
-        let registry = BackendRegistry::with(vec![Arc::new(backend) as Arc<dyn AudioBackend>]);
-        let midi: Arc<dyn MidiBackend> = Arc::new(MockMidiBackend::new(["Keys"]));
-        let engine = Engine::with_backends(
-            registry,
-            midi,
-            EngineConfig {
-                audio: AudioSelection {
-                    backend: "mock".into(),
-                    request: StreamRequest::default(),
-                },
-                ..EngineConfig::default()
-            },
-        );
-        EngineState::from_parts(engine, dir.to_path_buf(), Preferences::default(), None)
+        EngineState::mock(dir)
     }
 
     #[test]

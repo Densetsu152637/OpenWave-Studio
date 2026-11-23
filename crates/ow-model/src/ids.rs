@@ -11,6 +11,7 @@ macro_rules! id_types {
     ($($(#[$meta:meta])* $name:ident),* $(,)?) => {$(
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
         #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(type = "number"))]
         #[serde(transparent)]
         pub struct $name(pub u64);

@@ -98,6 +98,25 @@ impl IpcState {
     }
 }
 
+impl IpcState {
+    /// Registers the UI's patch channel (replacing an earlier one) and returns the snapshot it
+    /// continues from; both happen under one lock, so no patch falls in between.
+    pub fn attach(&self, sink: Box<dyn PatchSink>) -> Snapshot {
+        lock(&self.control).attach(sink)
+    }
+
+    /// The whole project at the current sequence number.
+    pub fn snapshot(&self) -> Snapshot {
+        lock(&self.control).snapshot()
+    }
+
+    /// Runs `work` with the control locked: every command inside is ordered after the previous
+    /// one with nothing from the UI in between (the MCP `edit` tool applies a list this way).
+    pub fn with_control<R>(&self, work: impl FnOnce(&mut Control) -> R) -> R {
+        work(&mut lock(&self.control))
+    }
+}
+
 impl Default for IpcState {
     fn default() -> Self {
         Self::new()
@@ -117,13 +136,13 @@ async fn blocking<T: Send + 'static>(
 /// Registers the UI's patch channel and returns the snapshot to continue from.
 #[tauri::command]
 pub async fn ipc_attach(app: AppHandle, patches: Channel<ModelPatch>) -> Result<Snapshot, String> {
-    blocking(move || Ok(lock(&app.state::<IpcState>().control).attach(Box::new(patches)))).await
+    blocking(move || Ok(app.state::<IpcState>().attach(Box::new(patches)))).await
 }
 
 /// The whole project at the current sequence number (the answer to a detected gap).
 #[tauri::command]
 pub async fn ipc_snapshot(app: AppHandle) -> Result<Snapshot, String> {
-    blocking(move || Ok(lock(&app.state::<IpcState>().control).snapshot())).await
+    blocking(move || Ok(app.state::<IpcState>().snapshot())).await
 }
 
 /// Applies one UI command; the patch it produces arrives on the attached channel.

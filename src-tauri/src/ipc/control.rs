@@ -200,6 +200,25 @@ impl Control {
         command: UiCommand,
         target: &dyn PlanTarget,
     ) -> Result<CommandReply, String> {
+        self.run(command, target, false).0
+    }
+
+    /// Like [`command`](Self::command), and also returns the patch the command produced (what
+    /// the MCP tools summarise for an agent). The patch was delivered to the UI as usual.
+    pub fn command_traced(
+        &mut self,
+        command: UiCommand,
+        target: &dyn PlanTarget,
+    ) -> (Result<CommandReply, String>, Option<ModelPatch>) {
+        self.run(command, target, true)
+    }
+
+    fn run(
+        &mut self,
+        command: UiCommand,
+        target: &dyn PlanTarget,
+        keep_patch: bool,
+    ) -> (Result<CommandReply, String>, Option<ModelPatch>) {
         let outcome = self.session.handle(command);
         let changed = outcome
             .patch
@@ -214,14 +233,16 @@ impl Control {
         if changed || self.engine_error.is_some() {
             self.apply_to_engine(target);
         }
-        match outcome.error {
+        let patch = if keep_patch { outcome.patch } else { None };
+        let result = match outcome.error {
             Some(error) => Err(error.to_string()),
             None => Ok(CommandReply {
                 seq: self.session.seq(),
                 ids: outcome.ids,
                 engine_error: self.engine_error.clone(),
             }),
-        }
+        };
+        (result, patch)
     }
 
     /// Why the engine is not playing the current project, if it is not.

@@ -97,6 +97,46 @@ impl Paths {
     }
 }
 
+/// The bundle identifier in `tauri.conf.json`; Tauri's data directory is named after it.
+pub const APP_IDENTIFIER: &str = "org.openwave.studio";
+
+/// Where Tauri puts the app data directory on this platform, computed without Tauri (the
+/// `mcp` subcommand runs before any Tauri code and has to find the same folder).
+fn platform_data_dir() -> Option<PathBuf> {
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|home| {
+            PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+        })
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|home| PathBuf::from(home).join(".local").join("share"))
+            })
+    };
+    base.map(|base| base.join(APP_IDENTIFIER))
+}
+
+/// The data directory the running app would use (portable folder included), found without
+/// starting Tauri.
+pub fn data_dir_without_tauri() -> Option<PathBuf> {
+    let data = platform_data_dir()?;
+    let defaults = DefaultDirs {
+        config: data.clone(),
+        cache: data.clone(),
+        logs: data.clone(),
+        documents: data.clone(),
+        data,
+    };
+    Some(Paths::detect(defaults).data_dir)
+}
+
 #[cfg(target_os = "linux")]
 fn appimage_path() -> Option<PathBuf> {
     std::env::var_os("APPIMAGE")
@@ -138,6 +178,13 @@ mod tests {
             logs: PathBuf::from("/platform/logs"),
             documents: PathBuf::from("/platform/documents"),
         }
+    }
+
+    #[test]
+    fn identifier_matches_tauri_conf() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        assert_eq!(conf["identifier"], APP_IDENTIFIER);
     }
 
     #[test]

@@ -26,6 +26,7 @@ pub trait Keyed {
 }
 
 /// Reference to a mixer strip: a track, a bus or the master.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,6 +40,7 @@ pub enum MixerRef {
 }
 
 /// Where a strip's output goes.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +53,7 @@ pub enum Output {
 }
 
 /// A send from a strip to a bus.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AuxSend {
@@ -63,6 +66,7 @@ pub struct AuxSend {
 }
 
 /// The scalar settings of a strip.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct StripSettings {
@@ -97,6 +101,7 @@ impl Default for StripSettings {
 }
 
 /// A mixer strip: settings, sends and the insert chain.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Strip {
@@ -111,6 +116,7 @@ pub struct Strip {
 }
 
 /// What a track carries.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,6 +128,7 @@ pub enum TrackKind {
 }
 
 /// A track.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
@@ -141,6 +148,7 @@ pub struct Track {
 }
 
 /// A bus or group channel: tracks and other buses route or send into it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bus {
@@ -155,6 +163,7 @@ pub struct Bus {
 }
 
 /// A MIDI note, positioned relative to its clip or pattern.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Note {
@@ -169,6 +178,7 @@ pub struct Note {
 }
 
 /// A MIDI controller event, positioned relative to its clip.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Controller {
@@ -181,6 +191,7 @@ pub struct Controller {
 }
 
 /// What a clip plays.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -215,6 +226,7 @@ pub enum ClipContent {
 }
 
 /// A clip on a track.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
@@ -236,6 +248,7 @@ pub struct Clip {
 }
 
 /// A pattern shared by its instances: editing it changes every instance.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pattern {
@@ -253,6 +266,7 @@ pub struct Pattern {
 }
 
 /// An imported or recorded audio file inside the bundle.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaItem {
@@ -274,6 +288,7 @@ pub struct MediaItem {
 }
 
 /// An opaque saved plugin or device state of one format.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StateChunk {
@@ -284,6 +299,7 @@ pub struct StateChunk {
 }
 
 /// An instrument, effect or hosted plugin instance.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
@@ -307,6 +323,7 @@ pub struct Device {
 }
 
 /// Which strip parameter an automation lane drives.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -318,6 +335,7 @@ pub enum StripParam {
 }
 
 /// What an automation lane drives.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -339,6 +357,7 @@ pub enum AutomationTarget {
 }
 
 /// A breakpoint of an automation lane.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AutomationPoint {
@@ -351,6 +370,7 @@ pub struct AutomationPoint {
 }
 
 /// An automation lane: a breakpoint envelope over the timeline.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AutomationLane {
@@ -365,6 +385,7 @@ pub struct AutomationLane {
 }
 
 /// A named position on the timeline.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Marker {
@@ -379,6 +400,7 @@ pub struct Marker {
 }
 
 /// A beat range.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BeatRange {
@@ -389,6 +411,7 @@ pub struct BeatRange {
 }
 
 /// Project-wide settings.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSettings {

@@ -3,6 +3,7 @@
 pub mod cli;
 pub mod engine;
 pub mod ipc;
+pub mod mcp;
 pub mod paths;
 pub mod portable_update;
 pub mod prefs;
@@ -13,6 +14,44 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::engine::EngineState;
 use crate::paths::{DefaultDirs, Paths};
+
+/// Every command registered with `generate_handler!` below, by name. The `mcp_parity` tests
+/// check this list against the registration and against the MCP tool routes
+/// ([`mcp::ROUTES`]), so a command cannot be added without an MCP tool (or a reasoned
+/// exclusion in the test).
+pub const COMMANDS: &[&str] = &[
+    "engine_status",
+    "set_test_tone",
+    "transport_play",
+    "transport_stop",
+    "transport_locate",
+    "prefs_get",
+    "prefs_set",
+    "audio_devices",
+    "audio_retry",
+    "ipc_attach",
+    "ipc_snapshot",
+    "ipc_command",
+    "ipc_alloc_ids",
+    "device_descriptors",
+    "project_new",
+    "project_open",
+    "project_save",
+    "media_import",
+    "export_wav",
+    "export_mix",
+    "analyze",
+    "record_set_arm",
+    "record_start",
+    "telemetry_start",
+    "telemetry_set_strips",
+    "telemetry_stop",
+    "peaks_range",
+    "update_status",
+    "update_check",
+    "update_set_channel",
+    "update_restart",
+];
 
 /// Starts the application. Never returns until the last window closes.
 pub fn run() {
@@ -53,6 +92,8 @@ pub fn run() {
             app.manage(EngineState::start(&paths));
             app.manage(ipc::IpcState::new());
             app.manage(paths);
+            app.manage(mcp::McpState::default());
+            mcp::sync_with_preferences(app.handle());
             update::setup(app.handle());
             Ok(())
         })
@@ -94,6 +135,7 @@ pub fn run() {
         // A downloaded update installs as the app exits.
         Ok(app) => app.run(|handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                mcp::shutdown(handle);
                 update::install_on_exit(handle);
             }
         }),

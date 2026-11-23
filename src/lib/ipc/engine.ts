@@ -84,6 +84,8 @@ export interface Preferences {
   midi: { inputs: MidiInputPref[] };
   paths: { projectsDir: string | null; pluginDirs: string[] };
   appearance: { theme: Theme };
+  /** Control by AI agents through the local MCP endpoint. */
+  ai: { allowControl: boolean };
   /** Overrides of the default shortcuts: action id to accelerator ("" unbinds). */
   shortcuts: Record<string, string>;
 }
@@ -144,6 +146,7 @@ export const defaultPreferences: Preferences = {
   midi: { inputs: [] },
   paths: { projectsDir: null, pluginDirs: [] },
   appearance: { theme: "system" },
+  ai: { allowControl: true },
   shortcuts: {},
 };
 

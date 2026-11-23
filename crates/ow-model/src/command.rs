@@ -94,6 +94,7 @@ impl From<ValidationError> for EditError {
 
 /// A track or bus with everything it owns: its clips, the devices in its slots and the
 /// automation lanes that target it or its devices. The unit of insert and remove.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Owned<T> {
@@ -123,6 +124,7 @@ impl<T> Owned<T> {
 }
 
 /// A device with the automation lanes that target it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceBundle {
@@ -134,6 +136,7 @@ pub struct DeviceBundle {
 }
 
 /// Where a device sits.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -153,9 +156,11 @@ pub enum DeviceSlot {
 }
 
 /// A change to a [`Project`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, strum::VariantNames)]
 #[serde(tag = "command", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum EditCommand {
     /// Renames the project.
     SetName {
@@ -171,12 +176,20 @@ pub enum EditCommand {
     SetTempoMap {
         /// New map.
         #[cfg_attr(feature = "ts", ts(as = "Vec<crate::time_serde::PointRepr>"))]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(with = "Vec<crate::time_serde::PointRepr>")
+        )]
         tempo_map: TempoMap,
     },
     /// Replaces the time-signature map.
     SetTimeSignatureMap {
         /// New map.
         #[cfg_attr(feature = "ts", ts(as = "Vec<crate::time_serde::ChangeRepr>"))]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(with = "Vec<crate::time_serde::ChangeRepr>")
+        )]
         map: TimeSignatureMap,
     },
     /// Inserts a track (with what it owns) at `index`.

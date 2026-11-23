@@ -1,0 +1,33 @@
+[package]
+name = "ow-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Model Context Protocol server for OpenWave Studio: JSON-RPC protocol, tool catalog and schemas, local socket transport with a session token"
+
+[dependencies]
+getrandom = "0.4.3"
+ow-model = { path = "../ow-model", features = ["schema"] }
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+strum = "0.28.0"
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

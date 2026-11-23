@@ -15,8 +15,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// A request from the UI to the control thread.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, strum::VariantNames)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum UiCommand {
     /// Applies an edit (one undo step, or part of the open transaction).
     Edit {
