@@ -336,9 +336,9 @@ Editor non-goals: generative music tools, automation lanes, MIDI learn, a separa
 - Depends on: M5
 - Owned paths: `crates/ow-engine/src/compile.rs`, `crates/ow-engine/src/export.rs`, `crates/ow-engine/tests/mix.rs`, `crates/ow-dsp/src/` (device trait latency, `effects/limiter.rs`, registry), `crates/ow-media/src/analysis.rs`, `crates/ow-media/src/lib.rs`, `crates/ow-ipc/src/` (analysis DTOs), `src-tauri/src/ipc/` (analysis and export options), `src/lib/` (mixer controls, bus and send UI, master strip, generated bindings), `docs/architecture.md`
 - Acceptance checks: M-G12; M-G13; `cargo test --workspace`, clippy, fmt, bindings current, `pnpm typecheck`, `pnpm test`.
-- Status: pending
-- Outcome:
-- Handoff notes: none.
+- Status: done (implementation gate runs over M6–M9 together)
+- Outcome: `experimental` `fe621cf` + lint fix `0e5ed62`; CI push run 45159474863 success. `builtin.limiter` (sliding-minimum hold, moving average, one-pole release, hard clamp; lookahead reported through `Device::latency_frames()` and `DeviceNode::latency_samples` into PDC). `PanNode` between inserts and fader (`pan_gains`: constant power -3.01 dB for mono sources, balance for stereo media, buses, master); pre-fader sends tap after pan; bus and master inserts compile through `build_strip`. `export::render_strip`, renders aligned by dropping `output_latency` frames. `ow_media::analysis` (BS.1770-4 K-weighting at any rate, gating, short-term/momentary max, 4× true peak, sample peak, RMS, crest, correlation, 8 bands, `normalize`). `IpcState::analyze(AnalysisRequest)` and `IpcState::export_mix(ExportOptions)` with optional normalisation. UI: solo, pan, output routing, bus rows, master row, sends panel, FX chain for buses and master, "Export WAV, normalised to -14 LUFS". Tests: `mix` 13, `analysis` 16 (EBU Tech 3341 cases 1–5), rt_safety 12, `pnpm test` 167. Behaviour change: centred mono sources are 3 dB quieter (pan law).
+- Handoff notes: CI uses a newer Rust (1.100) than this machine (1.99), so new clippy lints may appear only in CI. Bus solo is not interpreted. No UI readout for `analyze`. `export_mix`/`export_wav` overwrite silently; the MCP `overwrite` check must run before them.
 
 #### Slice M7: MCP server
 
