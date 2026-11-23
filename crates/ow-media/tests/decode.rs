@@ -2,9 +2,9 @@
 //! frames at 44.1 kHz, left 0.5 sin(440 Hz), right 0.25 sin(880 Hz)).
 //!
 //! Tolerances: lossless formats (WAV, AIFF, FLAC; 16-bit sources) match the signal to 1e-3
-//! sample by sample; lossy formats (MP3, Ogg) are checked by tone amplitude (within 10 %) and
-//! length (within 2200 frames, the codec delay and padding). Resampling to 48 kHz keeps the
-//! tone amplitude within 3 % and the length within 2 frames of the exact ratio.
+//! sample by sample; lossy formats (MP3, Ogg) are checked by tone amplitude (within 10 %) and exact
+//! length (8820 frames for Ogg, 9216 for MP3 with its frame padding). Resampling to 48 kHz keeps the
+//! tone amplitude within 3 % and the length exactly `ceil(frames * 48000 / 44100)`.
 
 use std::f64::consts::TAU;
 use std::fs;
@@ -77,7 +77,7 @@ fn lossy_formats_decode_to_the_same_tone() {
         assert_eq!(pcm.sample_rate, RATE, "{name}");
         assert_eq!(pcm.channels.len(), 2, "{name}");
         assert!(
-            pcm.frames().abs_diff(FRAMES) <= 2200,
+            pcm.frames() == if name == "tone.mp3" { 9216 } else { FRAMES },
             "{name}: {} frames",
             pcm.frames()
         );
@@ -89,11 +89,11 @@ fn lossy_formats_decode_to_the_same_tone() {
 fn every_format_resamples_to_the_project_rate() {
     for name in ["tone.wav", "tone.aiff", "tone.flac", "tone.mp3", "tone.ogg"] {
         let pcm = decode_file(&fixture(name), &ImportLimits::default()).expect(name);
-        let out = resample(&pcm, 48_000, MAX).expect(name);
+        let out = resample(pcm.clone(), 48_000, MAX).expect(name);
         assert_eq!(out.sample_rate, 48_000);
-        let expected = (pcm.frames() as f64 * 48_000.0 / 44_100.0).ceil() as usize;
+        let expected = (pcm.frames() * 48_000).div_ceil(44_100);
         assert!(
-            out.frames().abs_diff(expected) <= 2,
+            out.frames() == expected,
             "{name}: {} vs {expected}",
             out.frames()
         );
@@ -101,7 +101,7 @@ fn every_format_resamples_to_the_project_rate() {
     }
     // The lossless path is held to the tighter bound.
     let pcm = decode_file(&fixture("tone.wav"), &ImportLimits::default()).unwrap();
-    let out = resample(&pcm, 48_000, MAX).unwrap();
+    let out = resample(pcm.clone(), 48_000, MAX).unwrap();
     check_tone(&out.channels[0], &out.channels[1], 48_000, 0.03);
 }
 
@@ -215,7 +215,7 @@ fn max_error(got: &[f32], rate: u32, hz: f64, amp: f64, edge: usize) -> f64 {
 fn resampled_output_follows_the_analytic_sine_sample_by_sample() {
     // A delay or a gain error of any size shows up as a large per-sample error.
     let pcm = decode_file(&fixture("tone.wav"), &ImportLimits::default()).unwrap();
-    let out = resample(&pcm, 48_000, MAX).unwrap();
+    let out = resample(pcm.clone(), 48_000, MAX).unwrap();
     let e = max_error(&out.channels[0], 48_000, 440.0, 0.5, 1000);
     assert!(e < 5e-3, "error {e}");
     assert!(max_error(&out.channels[1], 48_000, 880.0, 0.25, 1000) < 5e-3);
@@ -229,12 +229,8 @@ fn resampled_output_follows_the_analytic_sine_sample_by_sample() {
                 .collect(),
         ],
     };
-    let out = resample(&down, 48_000, MAX).unwrap();
-    assert!(
-        out.frames().abs_diff(24_000) <= 2,
-        "{} frames",
-        out.frames()
-    );
+    let out = resample(down.clone(), 48_000, MAX).unwrap();
+    assert!(out.frames() == 24_000, "{} frames", out.frames());
     assert!(max_error(&out.channels[0], 48_000, 1000.0, 0.4, 1000) < 5e-3);
 }
 
@@ -246,10 +242,10 @@ fn resampling_past_the_sample_limit_is_refused() {
         channels: vec![vec![0.0; 100_000]],
     };
     assert!(matches!(
-        resample(&low, 192_000, 1_000_000),
+        resample(low.clone(), 192_000, 1_000_000),
         Err(ImportError::TooLarge(_))
     ));
-    assert!(resample(&low, 192_000, 3_000_000).is_ok());
+    assert!(resample(low.clone(), 192_000, 3_000_000).is_ok());
     // The limit applies through import_file as well.
     let bundle = tempfile::tempdir().unwrap();
     let tight = ImportLimits {

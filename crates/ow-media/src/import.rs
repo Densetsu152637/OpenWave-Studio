@@ -188,19 +188,21 @@ fn decode_inner(file: File, hint: Hint, limits: &ImportLimits) -> Result<Pcm, Im
 
 /// Resamples to `rate`. Output length is `ceil(frames * rate / source rate)`; the filter's
 /// startup delay is removed. A result of more than `max_samples` samples (frames times
-/// channels) is refused before anything is allocated.
-pub fn resample(pcm: &Pcm, rate: u32, max_samples: u64) -> Result<Pcm, ImportError> {
+/// channels) is refused before anything is allocated. Takes the input by value and pads it in
+/// place, so the peak is the input plus the output.
+pub fn resample(mut pcm: Pcm, rate: u32, max_samples: u64) -> Result<Pcm, ImportError> {
     if !(1000..=768_000).contains(&rate) || pcm.sample_rate == 0 {
         return Err(ImportError::BadRate);
     }
     if rate == pcm.sample_rate {
-        return Ok(pcm.clone());
+        return Ok(pcm);
     }
     let err = |e: &dyn std::fmt::Display| ImportError::Resample(e.to_string());
     let channels = pcm.channels.len();
     let frames = pcm.frames();
-    let ratio = f64::from(rate) / f64::from(pcm.sample_rate);
-    let out_frames = (frames as f64 * ratio).ceil() + 1.0;
+    let src = pcm.sample_rate;
+    let ratio = f64::from(rate) / f64::from(src);
+    let out_frames = (frames as u64 * u64::from(rate)).div_ceil(u64::from(src)) as f64;
     if out_frames * channels as f64 > max_samples as f64 {
         return Err(ImportError::TooLarge("duration after resampling"));
     }
@@ -228,39 +230,34 @@ pub fn resample(pcm: &Pcm, rate: u32, max_samples: u64) -> Result<Pcm, ImportErr
         lead += period as usize;
     }
     let tail = 2;
-    let padded: Vec<Vec<f32>> = pcm
-        .channels
-        .iter()
-        .map(|c| {
-            let mut v = vec![0.0; lead];
-            v.extend_from_slice(c);
-            v.resize(lead + frames + tail, 0.0);
-            v
-        })
-        .collect();
+    for channel in &mut pcm.channels {
+        channel.splice(0..0, std::iter::repeat_n(0.0, lead));
+        channel.resize(lead + frames + tail, 0.0);
+    }
+    let padded = &pcm.channels;
     let padded_frames = lead + frames + tail;
     let mut resampler =
         Async::<f32>::new_sinc(ratio, 1.0, &params, 1024, channels, FixedAsync::Input)
             .map_err(|e| err(&e))?;
     let needed = resampler.process_all_needed_output_len(padded_frames);
     let mut out = vec![vec![0.0_f32; needed]; channels];
-    let input =
-        SequentialSliceOfVecs::new(&padded, channels, padded_frames).map_err(|e| err(&e))?;
+    let input = SequentialSliceOfVecs::new(padded, channels, padded_frames).map_err(|e| err(&e))?;
     let mut output =
         SequentialSliceOfVecs::new_mut(&mut out, channels, needed).map_err(|e| err(&e))?;
     let (_, produced) = resampler
         .process_all_into_buffer(&input, &mut output, padded_frames, None)
         .map_err(|e| err(&e))?;
     let skip = if period <= 65_536 {
-        // One frame fewer is dropped, as measured: rubato's output runs one frame ahead of its nominal delay
-        // (checked against an analytic sine at 22.05, 48 and 96 kHz in the tests).
+        // The `- 1` is empirical: measured with rubato 5.1, whose output runs one frame ahead
+        // of its nominal delay. `resampled_output_follows_the_analytic_sine_sample_by_sample`
+        // guards it (a different rubato behaviour fails that test).
         (((half + lead as u64) * u64::from(rate)) / u64::from(pcm.sample_rate)) as usize
             - resampler.output_delay()
             - 1
     } else {
         0
     };
-    let wanted = (frames as f64 * ratio).ceil() as usize;
+    let wanted = (frames as u64 * u64::from(rate)).div_ceil(u64::from(src)) as usize;
     for channel in &mut out {
         channel.truncate(produced);
         channel.drain(..skip.min(channel.len()));
@@ -378,7 +375,7 @@ pub fn import_file(
     if let Some((channels, frames)) = existing_is_complete(&target, project_rate) {
         return Ok(done(channels, frames, true));
     }
-    let pcm = resample(&decode_file(src, limits)?, project_rate, limits.max_samples)?;
+    let pcm = resample(decode_file(src, limits)?, project_rate, limits.max_samples)?;
     match write_atomic(&target, |temp| write_wav_io(temp, &pcm)) {
         Ok(()) => Ok(done(pcm.channels.len() as u16, pcm.frames() as u64, false)),
         // Another import of the same content won the rename: its file is identical.
