@@ -136,6 +136,9 @@ function applyOp(draft: Draft, op: PatchOp, own: Set<string>): Draft {
       own.clear();
       return { ...fromProject(op.project) } as Draft;
     }
+    case "set_project_path":
+      // Not part of the project: `applyPatch` keeps it beside the project.
+      break;
     case "set_name":
       draft.name = op.name;
       break;
@@ -225,6 +228,13 @@ export function applyOps(project: MirrorProject, ops: readonly PatchOp[]): Mirro
   return draft;
 }
 
+/** The `set_project_path` operation's value in a patch, or `current` when it has none. */
+function pathAfter(ops: readonly PatchOp[], current: string | null): string | null {
+  let path = current;
+  for (const op of ops) if (op.op === "set_project_path") path = op.project_path;
+  return path;
+}
+
 /** A complete mirrored state. */
 export interface MirrorState {
   /** `detached` before attaching or without a backend; `syncing` while a snapshot is awaited; `ready` otherwise. */
@@ -233,6 +243,8 @@ export interface MirrorState {
   readonly seq: number;
   readonly project: MirrorProject | null;
   readonly history: HistoryState | null;
+  /** The `.owave` bundle the project is saved in; null while it is unsaved. */
+  readonly projectPath: string | null;
   /** Snapshots requested because of a gap (not counting the first attach). */
   readonly resyncs: number;
   /** Why the last attach or resync failed, if it did. */
@@ -244,6 +256,7 @@ export const detachedState: MirrorState = {
   seq: 0,
   project: null,
   history: null,
+  projectPath: null,
   resyncs: 0,
   error: null,
 };
@@ -255,6 +268,7 @@ export function stateFromSnapshot(snapshot: Snapshot, resyncs: number): MirrorSt
     seq: snapshot.seq,
     project: fromProject(snapshot.project),
     history: snapshot.history,
+    projectPath: snapshot.projectPath,
     resyncs,
     error: null,
   };
@@ -279,6 +293,7 @@ export function applyPatch(state: MirrorState, patch: ModelPatch): PatchResult {
       seq: patch.seq,
       project: applyOps(state.project, patch.ops),
       history: patch.history,
+      projectPath: pathAfter(patch.ops, state.projectPath),
     },
   };
 }

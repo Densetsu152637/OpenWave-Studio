@@ -198,6 +198,8 @@ pub struct Mirror {
     pub project: Project,
     /// Undo and redo state.
     pub history: HistoryState,
+    /// The `.owave` bundle the project is saved in, if it is.
+    pub project_path: Option<String>,
 }
 
 impl Mirror {
@@ -207,6 +209,7 @@ impl Mirror {
             seq: snapshot.seq,
             project: snapshot.project,
             history: snapshot.history,
+            project_path: snapshot.project_path,
         }
     }
 
@@ -228,7 +231,12 @@ impl Mirror {
             });
         }
         for op in &patch.ops {
-            apply_op(&mut self.project, op);
+            match op {
+                PatchOp::SetProjectPath { project_path } => {
+                    self.project_path.clone_from(project_path);
+                }
+                _ => apply_op(&mut self.project, op),
+            }
         }
         self.seq = patch.seq;
         self.history = patch.history.clone();
@@ -262,6 +270,8 @@ fn reorder<T, I: PartialEq>(list: &mut Vec<T>, ids: &[I], id_of: impl Fn(&T) -> 
 fn apply_op(project: &mut Project, op: &PatchOp) {
     match op {
         PatchOp::Reset { project: new } => *project = (**new).clone(),
+        // Not part of the project: the mirror keeps it next to the project.
+        PatchOp::SetProjectPath { .. } => {}
         PatchOp::SetName { name } => project.name.clone_from(name),
         PatchOp::SetSettings { settings } => project.settings = settings.clone(),
         PatchOp::SetTempoMap { tempo_map } => project.tempo_map = tempo_map.clone(),

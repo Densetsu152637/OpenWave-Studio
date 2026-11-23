@@ -58,6 +58,7 @@ function expectMirrors(state: MirrorState, snapshot: Snapshot): void {
   expect(state.seq).toBe(snapshot.seq);
   expect(toProject(state.project!)).toEqual(snapshot.project);
   expect(state.history).toEqual(snapshot.history);
+  expect(state.projectPath).toBe(snapshot.projectPath);
 }
 
 /** The project after patches 1..seq, by folding the same patches over the initial snapshot. */
@@ -87,10 +88,15 @@ describe("fixture", () => {
       "set_time_signature_map",
       "upsert_lane",
       "order_tracks",
+      "set_project_path",
     ]) {
       expect(kinds.has(op as never), op).toBe(true);
     }
     expect(fixture.patches.some((p) => p.history.canRedo)).toBe(true);
+    // Saving and the engine's missing-media warnings are part of the stream too.
+    expect(fixture.last.projectPath).toMatch(/\.owave$/);
+    expect(fixture.patches.some((p) => p.history.missingMedia.length > 0)).toBe(true);
+    expect(fixture.patches.some((p) => !p.history.dirty && p.seq > 1)).toBe(true);
     expect(fixture.checkpoints.length).toBeGreaterThanOrEqual(4);
     expect(fixture.last.seq).toBe(seqs.length);
   });
@@ -199,7 +205,14 @@ describe("model mirror", () => {
   it("never exposes a state that differs from the model at its sequence number (random loss, reordering, duplicates)", async () => {
     const refs = referenceStates();
     const refAt = (seq: number): Snapshot =>
-      seq === 0 ? fixture.initial : { seq, project: toProject(refs[seq].project!), history: refs[seq].history! };
+      seq === 0
+        ? fixture.initial
+        : {
+            seq,
+            project: toProject(refs[seq].project!),
+            history: refs[seq].history!,
+            projectPath: refs[seq].projectPath,
+          };
     for (let seed = 1; seed <= 25; seed++) {
       let rng = seed * 2654435761;
       const random = () => {

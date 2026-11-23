@@ -17,4 +17,8 @@ project: Project,
 /**
  * Undo and redo state.
  */
-history: HistoryState, };
+history: HistoryState, 
+/**
+ * The `.owave` bundle the project is saved in; `null` while it is unsaved.
+ */
+projectPath: string | null, };

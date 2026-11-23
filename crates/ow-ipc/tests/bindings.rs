@@ -12,7 +12,8 @@ use std::path::Path;
 
 use common::{action, run};
 use ow_ipc::{
-    CommandReply, HistoryState, ModelPatch, PatchOp, Project, Session, Snapshot, UiCommand,
+    CommandReply, HistoryState, MediaImportReply, ModelPatch, PatchOp, Project, Session, Snapshot,
+    UiCommand,
 };
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
@@ -43,6 +44,7 @@ fn export_bindings() {
     Snapshot::export_all(&cfg).unwrap();
     HistoryState::export_all(&cfg).unwrap();
     CommandReply::export_all(&cfg).unwrap();
+    MediaImportReply::export_all(&cfg).unwrap();
 }
 
 #[derive(Serialize)]

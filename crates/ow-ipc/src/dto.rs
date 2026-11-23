@@ -67,6 +67,11 @@ pub struct HistoryState {
     /// Why the audio engine is not playing the current project (its plan could not be swapped
     /// in); null while it is. The engine keeps the previous plan and the app retries.
     pub engine_error: Option<String>,
+    /// Media items the engine could not load when it last compiled the project (the file is
+    /// missing or unreadable); their clips play silence. A warning, not an error: the plan is
+    /// live. Ids in ascending order.
+    #[ts(type = "Array<number>")]
+    pub missing_media: Vec<u64>,
 }
 
 /// One change to the mirrored project. Applying a patch's operations in order to the mirror
@@ -78,10 +83,16 @@ pub struct HistoryState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum PatchOp {
-    /// Replaces the whole project (a project was opened); every other op in the patch is absent.
+    /// Replaces the whole project (a project was opened or created). The patch also carries a
+    /// `SetProjectPath` for the new project and no other operation.
     Reset {
         /// The new project.
         project: Box<Project>,
+    },
+    /// Where the project is saved (`null` while it was never saved); not part of the project.
+    SetProjectPath {
+        /// The `.owave` bundle path.
+        project_path: Option<String>,
     },
     /// Project name.
     SetName {
@@ -224,6 +235,8 @@ pub struct ModelPatch {
 
 /// The whole project at sequence `seq`: patches numbered `seq + 1` and up apply on top of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct Snapshot {
     /// Sequence number of the last patch this snapshot includes.
     #[ts(type = "number")]
@@ -232,6 +245,26 @@ pub struct Snapshot {
     pub project: Project,
     /// Undo and redo state.
     pub history: HistoryState,
+    /// The `.owave` bundle the project is saved in; `null` while it is unsaved.
+    pub project_path: Option<String>,
+}
+
+/// What `media_import` answers: the media item the file became (an existing one when the same
+/// content was imported before). The file is stored at the project rate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MediaImportReply {
+    /// Id of the media pool item.
+    #[ts(type = "number")]
+    pub media: u64,
+    /// Length in frames at the project rate.
+    #[ts(type = "number")]
+    pub frames: u64,
+    /// Sample rate of the stored file (the project rate).
+    pub sample_rate: u32,
+    /// Channel count.
+    pub channels: u16,
 }
 
 /// What a command answers: the sequence number after it (unchanged when the command did not

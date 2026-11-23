@@ -1,6 +1,13 @@
 import type { IpcTransport } from "./transport";
 import { tauriTransport } from "./transport";
-import type { CommandReply, EditCommand, ModelPatch, Snapshot, UiCommand } from "./types";
+import type {
+  CommandReply,
+  EditCommand,
+  MediaImportReply,
+  ModelPatch,
+  Snapshot,
+  UiCommand,
+} from "./types";
 
 /**
  * Typed wrappers over the project commands in `src-tauri/src/ipc/`. They send requests; the model
@@ -69,4 +76,56 @@ export async function allocIds(count: number, transport: IpcTransport = tauriTra
     transport.invoke<CommandReply>("ipc_alloc_ids", { count }),
   );
   return reply.ids;
+}
+
+/**
+ * Starts a new, empty, unsaved project. The returned snapshot is the state the mirror also gets
+ * as a reset patch. Project, media and export commands go through the same queue as edits, so
+ * they never overtake one.
+ */
+export function projectNew(transport: IpcTransport = tauriTransport): Promise<Snapshot> {
+  return queued(transport, () => transport.invoke<Snapshot>("project_new"));
+}
+
+/** Opens the `.owave` bundle at `path`. Rejects with the reason when it cannot be opened. */
+export function projectOpen(
+  path: string,
+  transport: IpcTransport = tauriTransport,
+): Promise<Snapshot> {
+  return queued(transport, () => transport.invoke<Snapshot>("project_open", { path }));
+}
+
+/**
+ * Saves the project to the bundle `path` (".owave" is added when it has no extension), or, with no
+ * path, to the bundle it came from (rejects when it never was saved). Resolves with the bundle's
+ * path; the mirror's `projectPath` and `history.dirty` follow as patches.
+ */
+export function projectSave(
+  path?: string,
+  transport: IpcTransport = tauriTransport,
+): Promise<string> {
+  return queued(transport, () =>
+    transport.invoke<string>("project_save", { path: path ?? null }),
+  );
+}
+
+/**
+ * Imports the audio file at `path` into the project's media pool at the project's sample rate
+ * (decode, resample, content-hashed copy, waveform). The backend adds the media item; the caller
+ * then adds clips with `edit({ command: "add_clip", ... })`. Importing the same content twice
+ * answers the existing item.
+ */
+export function mediaImport(
+  path: string,
+  transport: IpcTransport = tauriTransport,
+): Promise<MediaImportReply> {
+  return queued(transport, () => transport.invoke<MediaImportReply>("media_import", { path }));
+}
+
+/**
+ * Renders the project to a 32-bit float stereo WAV at `path` (".wav" is added when it has no
+ * extension): from 0 to the end of the last clip plus one second. Resolves with the path written.
+ */
+export function exportWav(path: string, transport: IpcTransport = tauriTransport): Promise<string> {
+  return queued(transport, () => transport.invoke<string>("export_wav", { path }));
 }

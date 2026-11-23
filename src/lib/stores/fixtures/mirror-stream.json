@@ -52,8 +52,10 @@
       "redoLabel": null,
       "inTransaction": false,
       "dirty": false,
-      "engineError": null
-    }
+      "engineError": null,
+      "missingMedia": []
+    },
+    "projectPath": null
   },
   "patches": [
     {
@@ -71,7 +73,8 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": false,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": []
       }
     },
     {
@@ -89,11 +92,31 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": false,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": []
       }
     },
     {
       "seq": 3,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p7.owave"
+        }
+      ],
+      "history": {
+        "canUndo": false,
+        "canRedo": false,
+        "undoLabel": null,
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": []
+      }
+    },
+    {
+      "seq": 4,
       "ops": [
         {
           "op": "set_next_id",
@@ -107,11 +130,12 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": false,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": []
       }
     },
     {
-      "seq": 4,
+      "seq": 5,
       "ops": [
         {
           "op": "set_next_id",
@@ -125,11 +149,12 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": false,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": []
       }
     },
     {
-      "seq": 5,
+      "seq": 6,
       "ops": [
         {
           "op": "set_time_signature_map",
@@ -149,11 +174,29 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": []
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change time signature",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
+      }
+    },
+    {
+      "seq": 8,
       "ops": [
         {
           "op": "set_next_id",
@@ -167,11 +210,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 7,
+      "seq": 9,
       "ops": [
         {
           "op": "set_next_id",
@@ -185,11 +232,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 8,
+      "seq": 10,
       "ops": [
         {
           "op": "set_tempo_map",
@@ -209,11 +260,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
+      }
+    },
+    {
+      "seq": 12,
       "ops": [
         {
           "op": "set_next_id",
@@ -226,12 +298,16 @@
         "undoLabel": "Change tempo",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 10,
+      "seq": 13,
       "ops": [
         {
           "op": "set_next_id",
@@ -244,12 +320,16 @@
         "undoLabel": "Change tempo",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 11,
+      "seq": 14,
       "ops": [
         {
           "op": "upsert_bus",
@@ -280,11 +360,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 12,
+      "seq": 15,
       "ops": [
         {
           "op": "set_next_id",
@@ -298,11 +382,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 13,
+      "seq": 16,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p49.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add bus",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
+      }
+    },
+    {
+      "seq": 17,
       "ops": [
         {
           "op": "set_next_id",
@@ -316,11 +426,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 14,
+      "seq": 18,
       "ops": [
         {
           "op": "upsert_track",
@@ -411,11 +525,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 15,
+      "seq": 19,
       "ops": [
         {
           "op": "set_next_id",
@@ -429,11 +547,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 16,
+      "seq": 20,
       "ops": [
         {
           "op": "upsert_media",
@@ -455,11 +577,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
       }
     },
     {
-      "seq": 17,
+      "seq": 21,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
+      }
+    },
+    {
+      "seq": 22,
       "ops": [
         {
           "op": "set_next_id",
@@ -473,11 +616,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 18,
+      "seq": 23,
       "ops": [
         {
           "op": "set_next_id",
@@ -491,11 +638,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 19,
+      "seq": 24,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -504,11 +655,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 20,
+      "seq": 25,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
+      }
+    },
+    {
+      "seq": 26,
       "ops": [
         {
           "op": "set_next_id",
@@ -521,12 +693,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 21,
+      "seq": 27,
       "ops": [
         {
           "op": "upsert_track",
@@ -559,11 +735,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 22,
+      "seq": 28,
       "ops": [
         {
           "op": "set_next_id",
@@ -577,11 +757,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 23,
+      "seq": 29,
       "ops": [
         {
           "op": "upsert_track",
@@ -664,11 +848,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 24,
+      "seq": 30,
       "ops": [
         {
           "op": "set_next_id",
@@ -682,11 +870,37 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 25,
+      "seq": 31,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p91.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
+      }
+    },
+    {
+      "seq": 32,
       "ops": [
         {
           "op": "set_next_id",
@@ -700,11 +914,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 26,
+      "seq": 33,
       "ops": [
         {
           "op": "set_next_id",
@@ -718,11 +936,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 27,
+      "seq": 34,
       "ops": [
         {
           "op": "upsert_pattern",
@@ -749,11 +971,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       }
     },
     {
-      "seq": 28,
+      "seq": 35,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
+      }
+    },
+    {
+      "seq": 36,
       "ops": [
         {
           "op": "set_next_id",
@@ -767,11 +1010,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 29,
+      "seq": 37,
       "ops": [
         {
           "op": "set_next_id",
@@ -785,11 +1032,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 30,
+      "seq": 38,
       "ops": [
         {
           "op": "set_settings",
@@ -807,11 +1058,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 31,
+      "seq": 39,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
+      }
+    },
+    {
+      "seq": 40,
       "ops": [
         {
           "op": "set_next_id",
@@ -824,12 +1096,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 32,
+      "seq": 41,
       "ops": [
         {
           "op": "set_next_id",
@@ -842,12 +1118,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 33,
+      "seq": 42,
       "ops": [
         {
           "op": "set_next_id",
@@ -860,12 +1140,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 34,
+      "seq": 43,
       "ops": [
         {
           "op": "set_next_id",
@@ -878,12 +1162,38 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 35,
+      "seq": 44,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p133.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
+      }
+    },
+    {
+      "seq": 45,
       "ops": [
         {
           "op": "set_next_id",
@@ -896,12 +1206,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 36,
+      "seq": 46,
       "ops": [
         {
           "op": "upsert_track",
@@ -936,11 +1250,37 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 37,
+      "seq": 47,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p140.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
+      }
+    },
+    {
+      "seq": 48,
       "ops": [
         {
           "op": "set_next_id",
@@ -954,11 +1294,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 38,
+      "seq": 49,
       "ops": [
         {
           "op": "set_next_id",
@@ -972,11 +1316,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 39,
+      "seq": 50,
       "ops": [
         {
           "op": "order_tracks",
@@ -994,11 +1342,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
       }
     },
     {
-      "seq": 40,
+      "seq": 51,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
+      }
+    },
+    {
+      "seq": 52,
       "ops": [
         {
           "op": "set_next_id",
@@ -1012,11 +1381,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 41,
+      "seq": 53,
       "ops": [
         {
           "op": "upsert_track",
@@ -1049,11 +1422,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 42,
+      "seq": 54,
       "ops": [
         {
           "op": "set_next_id",
@@ -1067,11 +1444,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 43,
+      "seq": 55,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
+      }
+    },
+    {
+      "seq": 56,
       "ops": [
         {
           "op": "set_next_id",
@@ -1084,12 +1482,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 44,
+      "seq": 57,
       "ops": [
         {
           "op": "upsert_media",
@@ -1111,11 +1513,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 45,
+      "seq": 58,
       "ops": [
         {
           "op": "set_next_id",
@@ -1129,11 +1535,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 46,
+      "seq": 59,
       "ops": [
         {
           "op": "set_next_id",
@@ -1147,11 +1557,37 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 47,
+      "seq": 60,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p182.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
+      }
+    },
+    {
+      "seq": 61,
       "ops": [
         {
           "op": "set_next_id",
@@ -1165,11 +1601,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 48,
+      "seq": 62,
       "ops": [
         {
           "op": "set_next_id",
@@ -1183,11 +1623,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 49,
+      "seq": 63,
       "ops": [
         {
           "op": "remove_track",
@@ -1201,11 +1645,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
       }
     },
     {
-      "seq": 50,
+      "seq": 64,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
+      }
+    },
+    {
+      "seq": 65,
       "ops": [
         {
           "op": "set_next_id",
@@ -1219,11 +1684,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 51,
+      "seq": 66,
       "ops": [
         {
           "op": "set_next_id",
@@ -1237,11 +1706,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 52,
+      "seq": 67,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
+      }
+    },
+    {
+      "seq": 68,
       "ops": [
         {
           "op": "set_next_id",
@@ -1254,12 +1744,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 53,
+      "seq": 69,
       "ops": [
         {
           "op": "set_master",
@@ -1285,11 +1779,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 54,
+      "seq": 70,
       "ops": [
         {
           "op": "set_next_id",
@@ -1303,11 +1801,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 55,
+      "seq": 71,
       "ops": [
         {
           "op": "set_next_id",
@@ -1321,11 +1823,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 56,
+      "seq": 72,
       "ops": [
         {
           "op": "upsert_bus",
@@ -1356,11 +1862,37 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 57,
+      "seq": 73,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p224.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
+      }
+    },
+    {
+      "seq": 74,
       "ops": [
         {
           "op": "set_next_id",
@@ -1374,11 +1906,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 58,
+      "seq": 75,
       "ops": [
         {
           "op": "upsert_media",
@@ -1400,11 +1936,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 59,
+      "seq": 76,
       "ops": [
         {
           "op": "set_next_id",
@@ -1418,11 +1958,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
       }
     },
     {
-      "seq": 60,
+      "seq": 77,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
+      }
+    },
+    {
+      "seq": 78,
       "ops": [
         {
           "op": "set_next_id",
@@ -1436,11 +1997,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 61,
+      "seq": 79,
       "ops": [
         {
           "op": "upsert_track",
@@ -1473,11 +2038,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 62,
+      "seq": 80,
       "ops": [
         {
           "op": "set_next_id",
@@ -1491,11 +2060,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 63,
+      "seq": 81,
       "ops": [
         {
           "op": "upsert_track",
@@ -1586,11 +2159,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 64,
+      "seq": 82,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
+      }
+    },
+    {
+      "seq": 83,
       "ops": [
         {
           "op": "set_next_id",
@@ -1603,12 +2197,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 65,
+      "seq": 84,
       "ops": [
         {
           "op": "remove_clip",
@@ -1622,11 +2220,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 66,
+      "seq": 85,
       "ops": [
         {
           "op": "set_next_id",
@@ -1640,11 +2242,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 67,
+      "seq": 86,
       "ops": [
         {
           "op": "set_next_id",
@@ -1658,11 +2264,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 68,
+      "seq": 87,
       "ops": [
         {
           "op": "upsert_lane",
@@ -1693,11 +2303,37 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 69,
+      "seq": 88,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p266.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
+      }
+    },
+    {
+      "seq": 89,
       "ops": [
         {
           "op": "set_next_id",
@@ -1711,11 +2347,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 70,
+      "seq": 90,
       "ops": [
         {
           "op": "remove_media",
@@ -1729,11 +2369,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 71,
+      "seq": 91,
       "ops": [
         {
           "op": "set_next_id",
@@ -1747,11 +2391,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 72,
+      "seq": 92,
       "ops": [
         {
           "op": "set_name",
@@ -1774,11 +2422,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
       }
     },
     {
-      "seq": 73,
+      "seq": 93,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
+      }
+    },
+    {
+      "seq": 94,
       "ops": [
         {
           "op": "set_next_id",
@@ -1792,11 +2461,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 74,
+      "seq": 95,
       "ops": [
         {
           "op": "set_next_id",
@@ -1810,11 +2483,32 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 75,
+      "seq": 96,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
+      }
+    },
+    {
+      "seq": 97,
       "ops": [
         {
           "op": "set_next_id",
@@ -1827,12 +2521,16 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 76,
+      "seq": 98,
       "ops": [
         {
           "op": "set_settings",
@@ -1850,11 +2548,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 77,
+      "seq": 99,
       "ops": [
         {
           "op": "set_next_id",
@@ -1868,11 +2570,15 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 78,
+      "seq": 100,
       "ops": [
         {
           "op": "set_name",
@@ -2024,11 +2730,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 79,
+      "seq": 101,
       "ops": [
         {
           "op": "set_next_id",
@@ -2042,11 +2752,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 80,
+      "seq": 102,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p308.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
+      }
+    },
+    {
+      "seq": 103,
       "ops": [
         {
           "op": "set_next_id",
@@ -2060,11 +2796,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 81,
+      "seq": 104,
       "ops": [
         {
           "op": "set_master",
@@ -2090,11 +2830,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 82,
+      "seq": 105,
       "ops": [
         {
           "op": "set_next_id",
@@ -2108,11 +2852,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 83,
+      "seq": 106,
       "ops": [
         {
           "op": "set_next_id",
@@ -2126,11 +2874,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
       }
     },
     {
-      "seq": 84,
+      "seq": 107,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
+      }
+    },
+    {
+      "seq": 108,
       "ops": [
         {
           "op": "set_next_id",
@@ -2144,11 +2913,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
       }
     },
     {
-      "seq": 85,
+      "seq": 109,
       "ops": [
         {
           "op": "upsert_track",
@@ -2181,11 +2954,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
       }
     },
     {
-      "seq": 86,
+      "seq": 110,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p329.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
+      }
+    },
+    {
+      "seq": 111,
       "ops": [
         {
           "op": "set_next_id",
@@ -2199,11 +2998,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
       }
     },
     {
-      "seq": 87,
+      "seq": 112,
       "ops": [
         {
           "op": "set_next_id",
@@ -2217,11 +3020,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
       }
     },
     {
-      "seq": 88,
+      "seq": 113,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
+      }
+    },
+    {
+      "seq": 114,
       "ops": [
         {
           "op": "set_next_id",
@@ -2235,11 +3059,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 89,
+      "seq": 115,
       "ops": [
         {
           "op": "upsert_lane",
@@ -2270,11 +3098,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 90,
+      "seq": 116,
       "ops": [
         {
           "op": "set_next_id",
@@ -2288,11 +3120,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 91,
+      "seq": 117,
       "ops": [
         {
           "op": "upsert_track",
@@ -2383,11 +3219,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 92,
+      "seq": 118,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
+      }
+    },
+    {
+      "seq": 119,
       "ops": [
         {
           "op": "set_next_id",
@@ -2400,12 +3257,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 93,
+      "seq": 120,
       "ops": [
         {
           "op": "remove_track",
@@ -2435,11 +3296,15 @@
         "redoLabel": "Add track",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 94,
+      "seq": 121,
       "ops": [
         {
           "op": "set_next_id",
@@ -2453,11 +3318,15 @@
         "redoLabel": "Add track",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 95,
+      "seq": 122,
       "ops": [
         {
           "op": "upsert_track",
@@ -2498,11 +3367,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 96,
+      "seq": 123,
       "ops": [
         {
           "op": "set_next_id",
@@ -2516,11 +3389,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 97,
+      "seq": 124,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p371.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Remove device",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
+      }
+    },
+    {
+      "seq": 125,
       "ops": [
         {
           "op": "set_next_id",
@@ -2534,11 +3433,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 98,
+      "seq": 126,
       "ops": [
         {
           "op": "set_next_id",
@@ -2552,11 +3455,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
       }
     },
     {
-      "seq": 99,
+      "seq": 127,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Remove device",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
+      }
+    },
+    {
+      "seq": 128,
       "ops": [
         {
           "op": "set_next_id",
@@ -2570,11 +3494,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 100,
+      "seq": 129,
       "ops": [
         {
           "op": "set_next_id",
@@ -2588,11 +3516,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 101,
+      "seq": 130,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Remove device",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
+      }
+    },
+    {
+      "seq": 131,
       "ops": [
         {
           "op": "set_next_id",
@@ -2605,12 +3554,16 @@
         "undoLabel": "Remove device",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 102,
+      "seq": 132,
       "ops": [
         {
           "op": "remove_media",
@@ -2624,11 +3577,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 103,
+      "seq": 133,
       "ops": [
         {
           "op": "set_next_id",
@@ -2642,11 +3599,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 104,
+      "seq": 134,
       "ops": [
         {
           "op": "upsert_clip",
@@ -2672,11 +3633,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 105,
+      "seq": 135,
       "ops": [
         {
           "op": "set_next_id",
@@ -2690,11 +3655,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 106,
+      "seq": 136,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p413.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
+      }
+    },
+    {
+      "seq": 137,
       "ops": [
         {
           "op": "set_next_id",
@@ -2708,11 +3699,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 107,
+      "seq": 138,
       "ops": [
         {
           "op": "set_next_id",
@@ -2726,11 +3721,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
       }
     },
     {
-      "seq": 108,
+      "seq": 139,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
+      }
+    },
+    {
+      "seq": 140,
       "ops": [
         {
           "op": "set_next_id",
@@ -2744,11 +3760,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 109,
+      "seq": 141,
       "ops": [
         {
           "op": "upsert_bus",
@@ -2779,11 +3799,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 110,
+      "seq": 142,
       "ops": [
         {
           "op": "set_next_id",
@@ -2797,11 +3821,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 111,
+      "seq": 143,
       "ops": [
         {
           "op": "set_settings",
@@ -2819,11 +3847,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 112,
+      "seq": 144,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change project settings",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
+      }
+    },
+    {
+      "seq": 145,
       "ops": [
         {
           "op": "set_next_id",
@@ -2836,12 +3885,16 @@
         "undoLabel": "Change project settings",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 113,
+      "seq": 146,
       "ops": [
         {
           "op": "upsert_track",
@@ -2880,11 +3933,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 114,
+      "seq": 147,
       "ops": [
         {
           "op": "set_next_id",
@@ -2898,11 +3955,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 115,
+      "seq": 148,
       "ops": [
         {
           "op": "set_next_id",
@@ -2916,11 +3977,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 116,
+      "seq": 149,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p455.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change sends",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
+      }
+    },
+    {
+      "seq": 150,
       "ops": [
         {
           "op": "set_next_id",
@@ -2934,11 +4021,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 117,
+      "seq": 151,
       "ops": [
         {
           "op": "set_next_id",
@@ -2952,11 +4043,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
       }
     },
     {
-      "seq": 118,
+      "seq": 152,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change sends",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
+      }
+    },
+    {
+      "seq": 153,
       "ops": [
         {
           "op": "set_next_id",
@@ -2970,11 +4082,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 119,
+      "seq": 154,
       "ops": [
         {
           "op": "set_name",
@@ -2997,11 +4113,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 120,
+      "seq": 155,
       "ops": [
         {
           "op": "set_next_id",
@@ -3015,11 +4135,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 121,
+      "seq": 156,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
+      }
+    },
+    {
+      "seq": 157,
       "ops": [
         {
           "op": "set_next_id",
@@ -3032,12 +4173,16 @@
         "undoLabel": "Edit",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 122,
+      "seq": 158,
       "ops": [
         {
           "op": "set_next_id",
@@ -3050,12 +4195,16 @@
         "undoLabel": "Edit",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 123,
+      "seq": 159,
       "ops": [
         {
           "op": "set_next_id",
@@ -3068,12 +4217,16 @@
         "undoLabel": "Edit",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 124,
+      "seq": 160,
       "ops": [
         {
           "op": "set_next_id",
@@ -3086,12 +4239,16 @@
         "undoLabel": "Edit",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 125,
+      "seq": 161,
       "ops": [
         {
           "op": "set_tempo_map",
@@ -3111,11 +4268,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 126,
+      "seq": 162,
       "ops": [
         {
           "op": "set_next_id",
@@ -3129,11 +4290,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 127,
+      "seq": 163,
       "ops": [
         {
           "op": "set_next_id",
@@ -3147,11 +4312,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 128,
+      "seq": 164,
       "ops": [
         {
           "op": "set_name",
@@ -3174,11 +4343,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 129,
+      "seq": 165,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p511.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Edit",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
+      }
+    },
+    {
+      "seq": 166,
       "ops": [
         {
           "op": "set_next_id",
@@ -3192,11 +4387,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 130,
+      "seq": 167,
       "ops": [
         {
           "op": "set_next_id",
@@ -3210,11 +4409,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 131,
+      "seq": 168,
       "ops": [
         {
           "op": "remove_clip",
@@ -3228,11 +4431,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
       }
     },
     {
-      "seq": 132,
+      "seq": 169,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
+      }
+    },
+    {
+      "seq": 170,
       "ops": [
         {
           "op": "set_next_id",
@@ -3246,11 +4470,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 133,
+      "seq": 171,
       "ops": [
         {
           "op": "set_next_id",
@@ -3264,11 +4492,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 134,
+      "seq": 172,
       "ops": [
         {
           "op": "set_master",
@@ -3294,11 +4526,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 135,
+      "seq": 173,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
+      }
+    },
+    {
+      "seq": 174,
       "ops": [
         {
           "op": "set_next_id",
@@ -3311,12 +4564,16 @@
         "undoLabel": "Change mixer",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 136,
+      "seq": 175,
       "ops": [
         {
           "op": "set_next_id",
@@ -3329,12 +4586,16 @@
         "undoLabel": "Change mixer",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 137,
+      "seq": 176,
       "ops": [
         {
           "op": "set_tempo_map",
@@ -3354,11 +4615,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 138,
+      "seq": 177,
       "ops": [
         {
           "op": "set_next_id",
@@ -3372,11 +4637,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 139,
+      "seq": 178,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p553.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change tempo",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
+      }
+    },
+    {
+      "seq": 179,
       "ops": [
         {
           "op": "set_next_id",
@@ -3390,11 +4681,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 140,
+      "seq": 180,
       "ops": [
         {
           "op": "upsert_track",
@@ -3427,11 +4722,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 141,
+      "seq": 181,
       "ops": [
         {
           "op": "set_next_id",
@@ -3445,11 +4744,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 142,
+      "seq": 182,
       "ops": [
         {
           "op": "set_master",
@@ -3475,11 +4778,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
       }
     },
     {
-      "seq": 143,
+      "seq": 183,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change mixer",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
+      }
+    },
+    {
+      "seq": 184,
       "ops": [
         {
           "op": "set_next_id",
@@ -3493,11 +4817,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 144,
+      "seq": 185,
       "ops": [
         {
           "op": "set_next_id",
@@ -3511,11 +4839,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 145,
+      "seq": 186,
       "ops": [
         {
           "op": "upsert_track",
@@ -3548,11 +4880,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 146,
+      "seq": 187,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
+      }
+    },
+    {
+      "seq": 188,
       "ops": [
         {
           "op": "set_next_id",
@@ -3565,12 +4918,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 147,
+      "seq": 189,
       "ops": [
         {
           "op": "set_name",
@@ -3593,11 +4950,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 148,
+      "seq": 190,
       "ops": [
         {
           "op": "set_next_id",
@@ -3611,11 +4972,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 149,
+      "seq": 191,
       "ops": [
         {
           "op": "set_next_id",
@@ -3629,11 +4994,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 150,
+      "seq": 192,
       "ops": [
         {
           "op": "upsert_track",
@@ -3675,11 +5044,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 151,
+      "seq": 193,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p595.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
+      }
+    },
+    {
+      "seq": 194,
       "ops": [
         {
           "op": "set_next_id",
@@ -3693,11 +5088,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 152,
+      "seq": 195,
       "ops": [
         {
           "op": "set_next_id",
@@ -3711,11 +5110,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 153,
+      "seq": 196,
       "ops": [
         {
           "op": "upsert_marker",
@@ -3734,11 +5137,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
       }
     },
     {
-      "seq": 154,
+      "seq": 197,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add marker",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
+      }
+    },
+    {
+      "seq": 198,
       "ops": [
         {
           "op": "set_next_id",
@@ -3752,11 +5176,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 155,
+      "seq": 199,
       "ops": [
         {
           "op": "set_next_id",
@@ -3770,11 +5198,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 156,
+      "seq": 200,
       "ops": [
         {
           "op": "upsert_track",
@@ -3817,11 +5249,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 157,
+      "seq": 201,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
+      }
+    },
+    {
+      "seq": 202,
       "ops": [
         {
           "op": "set_next_id",
@@ -3834,12 +5287,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 158,
+      "seq": 203,
       "ops": [
         {
           "op": "set_next_id",
@@ -3852,12 +5309,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 159,
+      "seq": 204,
       "ops": [
         {
           "op": "upsert_media",
@@ -3879,11 +5340,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 160,
+      "seq": 205,
       "ops": [
         {
           "op": "set_next_id",
@@ -3897,11 +5362,37 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 161,
+      "seq": 206,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p637.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
+      }
+    },
+    {
+      "seq": 207,
       "ops": [
         {
           "op": "set_next_id",
@@ -3915,11 +5406,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 162,
+      "seq": 208,
       "ops": [
         {
           "op": "upsert_track",
@@ -3963,11 +5458,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 163,
+      "seq": 209,
       "ops": [
         {
           "op": "set_next_id",
@@ -3981,11 +5480,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
       }
     },
     {
-      "seq": 164,
+      "seq": 210,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
+      }
+    },
+    {
+      "seq": 211,
       "ops": [
         {
           "op": "set_next_id",
@@ -3999,11 +5519,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 165,
+      "seq": 212,
       "ops": [
         {
           "op": "set_next_id",
@@ -4017,11 +5541,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 166,
+      "seq": 213,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
+      }
+    },
+    {
+      "seq": 214,
       "ops": [
         {
           "op": "set_next_id",
@@ -4034,12 +5579,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 167,
+      "seq": 215,
       "ops": [
         {
           "op": "remove_marker",
@@ -4053,11 +5602,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 168,
+      "seq": 216,
       "ops": [
         {
           "op": "set_next_id",
@@ -4071,11 +5624,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 169,
+      "seq": 217,
       "ops": [
         {
           "op": "upsert_marker",
@@ -4094,11 +5651,15 @@
         "redoLabel": "Delete marker",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 170,
+      "seq": 218,
       "ops": [
         {
           "op": "set_next_id",
@@ -4112,11 +5673,37 @@
         "redoLabel": "Delete marker",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 171,
+      "seq": 219,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p679.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Add track",
+        "redoLabel": "Delete marker",
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
+      }
+    },
+    {
+      "seq": 220,
       "ops": [
         {
           "op": "set_next_id",
@@ -4130,11 +5717,15 @@
         "redoLabel": "Delete marker",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 172,
+      "seq": 221,
       "ops": [
         {
           "op": "order_tracks",
@@ -4155,11 +5746,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 173,
+      "seq": 222,
       "ops": [
         {
           "op": "set_next_id",
@@ -4173,11 +5768,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 174,
+      "seq": 223,
       "ops": [
         {
           "op": "upsert_clip",
@@ -4210,11 +5809,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
       }
     },
     {
-      "seq": 175,
+      "seq": 224,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
+      }
+    },
+    {
+      "seq": 225,
       "ops": [
         {
           "op": "set_next_id",
@@ -4228,11 +5848,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 176,
+      "seq": 226,
       "ops": [
         {
           "op": "upsert_lane",
@@ -4263,11 +5887,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 177,
+      "seq": 227,
       "ops": [
         {
           "op": "set_next_id",
@@ -4281,11 +5909,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 178,
+      "seq": 228,
       "ops": [
         {
           "op": "remove_clip",
@@ -4299,11 +5931,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 179,
+      "seq": 229,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
+      }
+    },
+    {
+      "seq": 230,
       "ops": [
         {
           "op": "set_next_id",
@@ -4316,12 +5969,16 @@
         "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 180,
+      "seq": 231,
       "ops": [
         {
           "op": "set_next_id",
@@ -4334,12 +5991,16 @@
         "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 181,
+      "seq": 232,
       "ops": [
         {
           "op": "set_next_id",
@@ -4352,12 +6013,38 @@
         "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 182,
+      "seq": 233,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p721.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Delete clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
+      }
+    },
+    {
+      "seq": 234,
       "ops": [
         {
           "op": "set_next_id",
@@ -4370,12 +6057,16 @@
         "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 183,
+      "seq": 235,
       "ops": [
         {
           "op": "set_next_id",
@@ -4388,12 +6079,16 @@
         "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 184,
+      "seq": 236,
       "ops": [
         {
           "op": "upsert_track",
@@ -4438,11 +6133,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
       }
     },
     {
-      "seq": 185,
+      "seq": 237,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
+      }
+    },
+    {
+      "seq": 238,
       "ops": [
         {
           "op": "set_next_id",
@@ -4456,11 +6172,15 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 186,
+      "seq": 239,
       "ops": [
         {
           "op": "set_next_id",
@@ -4474,11 +6194,32 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 187,
+      "seq": 240,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
+      }
+    },
+    {
+      "seq": 241,
       "ops": [
         {
           "op": "set_next_id",
@@ -4491,12 +6232,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 188,
+      "seq": 242,
       "ops": [
         {
           "op": "set_next_id",
@@ -4509,12 +6254,16 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 189,
+      "seq": 243,
       "ops": [
         {
           "op": "remove_track",
@@ -4528,11 +6277,15 @@
         "redoLabel": "Add track",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 190,
+      "seq": 244,
       "ops": [
         {
           "op": "set_next_id",
@@ -4546,11 +6299,37 @@
         "redoLabel": "Add track",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 191,
+      "seq": 245,
+      "ops": [
+        {
+          "op": "set_project_path",
+          "project_path": "/projects/p763.owave"
+        }
+      ],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Delete clip",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
+      }
+    },
+    {
+      "seq": 246,
       "ops": [
         {
           "op": "set_next_id",
@@ -4564,11 +6343,15 @@
         "redoLabel": "Add track",
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 192,
+      "seq": 247,
       "ops": [],
       "history": {
         "canUndo": true,
@@ -4577,11 +6360,15 @@
         "redoLabel": "Add track",
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 193,
+      "seq": 248,
       "ops": [
         {
           "op": "set_next_id",
@@ -4595,11 +6382,15 @@
         "redoLabel": "Add track",
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 194,
+      "seq": 249,
       "ops": [
         {
           "op": "set_next_id",
@@ -4613,11 +6404,32 @@
         "redoLabel": "Add track",
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
       }
     },
     {
-      "seq": 195,
+      "seq": 250,
+      "ops": [],
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Delete clip",
+        "redoLabel": "Add track",
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          775,
+          776
+        ]
+      }
+    },
+    {
+      "seq": 251,
       "ops": [
         {
           "op": "set_next_id",
@@ -4631,7 +6443,11 @@
         "redoLabel": "Add track",
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
+        "engineError": null,
+        "missingMedia": [
+          775,
+          776
+        ]
       }
     }
   ],
@@ -4648,7 +6464,7 @@
         "tempo_map": [
           {
             "beat": 0.0,
-            "bpm": 277.0,
+            "bpm": 120.0,
             "ramp": false
           }
         ],
@@ -4680,17 +6496,22 @@
         "devices": [],
         "automation": [],
         "markers": [],
-        "next_id": 37
+        "next_id": 31
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Change tempo",
+        "undoLabel": "Change time signature",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
+      },
+      "projectPath": "/projects/p7.owave"
     },
     {
       "seq": 16,
@@ -4715,30 +6536,7 @@
             "denominator": 2
           }
         ],
-        "tracks": [
-          {
-            "id": 55,
-            "name": "Owner 55",
-            "color": 1193046,
-            "kind": "midi",
-            "strip": {
-              "settings": {
-                "gain_db": 0.0,
-                "pan": 0.0,
-                "mute": false,
-                "solo": false,
-                "solo_safe": false,
-                "invert_phase": false,
-                "output": "master"
-              },
-              "sends": [],
-              "inserts": [
-                56
-              ]
-            },
-            "instrument": null
-          }
-        ],
+        "tracks": [],
         "buses": [
           {
             "id": 43,
@@ -4772,80 +6570,28 @@
           "sends": [],
           "inserts": []
         },
-        "clips": [
-          {
-            "id": 59,
-            "track": 55,
-            "name": "Owned clip",
-            "start": 1.0,
-            "length": 2.0,
-            "muted": false,
-            "content": {
-              "type": "midi",
-              "notes": [],
-              "controllers": []
-            }
-          }
-        ],
+        "clips": [],
         "patterns": [],
-        "media_pool": [
-          {
-            "id": 61,
-            "name": "Media 61",
-            "path": "audio/m61.wav",
-            "hash": "0000003d",
-            "sample_rate": 48000,
-            "channels": 2,
-            "frames": 1061
-          }
-        ],
-        "devices": [
-          {
-            "id": 56,
-            "kind": "builtin.gain",
-            "name": "Owned device",
-            "enabled": true,
-            "params": {},
-            "state": [],
-            "sidechain": null
-          }
-        ],
-        "automation": [
-          {
-            "id": 57,
-            "target": {
-              "type": "device",
-              "device": 56,
-              "param": 0
-            },
-            "points": [],
-            "enabled": true
-          },
-          {
-            "id": 58,
-            "target": {
-              "type": "strip",
-              "strip": {
-                "track": 55
-              },
-              "param": "gain"
-            },
-            "points": [],
-            "enabled": false
-          }
-        ],
+        "media_pool": [],
+        "devices": [],
+        "automation": [],
         "markers": [],
-        "next_id": 67
+        "next_id": 55
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Add media",
+        "undoLabel": "Add bus",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          19,
+          20
+        ]
+      },
+      "projectPath": "/projects/p49.owave"
     },
     {
       "seq": 24,
@@ -4892,6 +6638,166 @@
               ]
             },
             "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "Bus 43",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [],
+        "media_pool": [
+          {
+            "id": 61,
+            "name": "Media 61",
+            "path": "audio/m61.wav",
+            "hash": "0000003d",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1061
+          }
+        ],
+        "devices": [
+          {
+            "id": 56,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          }
+        ],
+        "automation": [
+          {
+            "id": 57,
+            "target": {
+              "type": "device",
+              "device": 56,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          }
+        ],
+        "markers": [],
+        "next_id": 79
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
+      },
+      "projectPath": "/projects/p49.owave"
+    },
+    {
+      "seq": 32,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
+            },
+            "instrument": null
           },
           {
             "id": 85,
@@ -5063,7 +6969,7 @@
           }
         ],
         "markers": [],
-        "next_id": 97
+        "next_id": 103
       },
       "history": {
         "canUndo": true,
@@ -5072,251 +6978,13 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
-      }
-    },
-    {
-      "seq": 32,
-      "project": {
-        "name": "Fixture",
-        "settings": {
-          "sample_rate": 48000,
-          "loop_range": null,
-          "count_in_bars": 6
-        },
-        "tempo_map": [
-          {
-            "beat": 0.0,
-            "bpm": 277.0,
-            "ramp": false
-          }
-        ],
-        "time_signature_map": [
-          {
-            "bar": 0,
-            "numerator": 10,
-            "denominator": 2
-          }
-        ],
-        "tracks": [
-          {
-            "id": 55,
-            "name": "Owner 55",
-            "color": 1193046,
-            "kind": "midi",
-            "strip": {
-              "settings": {
-                "gain_db": 0.0,
-                "pan": 0.0,
-                "mute": false,
-                "solo": false,
-                "solo_safe": false,
-                "invert_phase": false,
-                "output": "master"
-              },
-              "sends": [],
-              "inserts": [
-                56
-              ]
-            },
-            "instrument": null
-          },
-          {
-            "id": 85,
-            "name": "Owner 85",
-            "color": 1193046,
-            "kind": "audio",
-            "strip": {
-              "settings": {
-                "gain_db": 0.0,
-                "pan": 0.0,
-                "mute": false,
-                "solo": false,
-                "solo_safe": false,
-                "invert_phase": false,
-                "output": "master"
-              },
-              "sends": [],
-              "inserts": [
-                86
-              ]
-            },
-            "instrument": null
-          },
-          {
-            "id": 79,
-            "name": "Track 79",
-            "color": 77183,
-            "kind": "midi",
-            "strip": {
-              "settings": {
-                "gain_db": 0.0,
-                "pan": 0.0,
-                "mute": false,
-                "solo": false,
-                "solo_safe": false,
-                "invert_phase": false,
-                "output": "master"
-              },
-              "sends": [],
-              "inserts": []
-            },
-            "instrument": null
-          }
-        ],
-        "buses": [
-          {
-            "id": 43,
-            "name": "Bus 43",
-            "color": 3368652,
-            "strip": {
-              "settings": {
-                "gain_db": 0.0,
-                "pan": 0.0,
-                "mute": false,
-                "solo": false,
-                "solo_safe": false,
-                "invert_phase": false,
-                "output": "master"
-              },
-              "sends": [],
-              "inserts": []
-            }
-          }
-        ],
-        "master": {
-          "settings": {
-            "gain_db": 0.0,
-            "pan": 0.0,
-            "mute": false,
-            "solo": false,
-            "solo_safe": false,
-            "invert_phase": false,
-            "output": "master"
-          },
-          "sends": [],
-          "inserts": []
-        },
-        "clips": [
-          {
-            "id": 59,
-            "track": 55,
-            "name": "Owned clip",
-            "start": 1.0,
-            "length": 2.0,
-            "muted": false,
-            "content": {
-              "type": "midi",
-              "notes": [],
-              "controllers": []
-            }
-          }
-        ],
-        "patterns": [
-          {
-            "id": 103,
-            "name": "Pattern 103",
-            "color": 65280,
-            "length": 4.0,
-            "notes": [
-              {
-                "start": 0.5,
-                "length": 0.5,
-                "key": 64,
-                "velocity": 90
-              }
-            ]
-          }
-        ],
-        "media_pool": [
-          {
-            "id": 61,
-            "name": "Media 61",
-            "path": "audio/m61.wav",
-            "hash": "0000003d",
-            "sample_rate": 48000,
-            "channels": 2,
-            "frames": 1061
-          }
-        ],
-        "devices": [
-          {
-            "id": 56,
-            "kind": "builtin.gain",
-            "name": "Owned device",
-            "enabled": true,
-            "params": {},
-            "state": [],
-            "sidechain": null
-          },
-          {
-            "id": 86,
-            "kind": "builtin.gain",
-            "name": "Owned device",
-            "enabled": true,
-            "params": {},
-            "state": [],
-            "sidechain": null
-          }
-        ],
-        "automation": [
-          {
-            "id": 57,
-            "target": {
-              "type": "device",
-              "device": 56,
-              "param": 0
-            },
-            "points": [],
-            "enabled": true
-          },
-          {
-            "id": 58,
-            "target": {
-              "type": "strip",
-              "strip": {
-                "track": 55
-              },
-              "param": "gain"
-            },
-            "points": [],
-            "enabled": false
-          },
-          {
-            "id": 87,
-            "target": {
-              "type": "device",
-              "device": 86,
-              "param": 0
-            },
-            "points": [],
-            "enabled": true
-          },
-          {
-            "id": 88,
-            "target": {
-              "type": "strip",
-              "strip": {
-                "track": 85
-              },
-              "param": "gain"
-            },
-            "points": [],
-            "enabled": false
-          }
-        ],
-        "markers": [],
-        "next_id": 133
+        "engineError": null,
+        "missingMedia": [
+          61,
+          62
+        ]
       },
-      "history": {
-        "canUndo": true,
-        "canRedo": false,
-        "undoLabel": "Add media",
-        "redoLabel": null,
-        "inTransaction": true,
-        "dirty": true,
-        "engineError": null
-      }
+      "projectPath": "/projects/p91.owave"
     },
     {
       "seq": 40,
@@ -5343,6 +7011,28 @@
         ],
         "tracks": [
           {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
+            },
+            "instrument": null
+          },
+          {
             "id": 85,
             "name": "Owner 85",
             "color": 1193046,
@@ -5360,28 +7050,6 @@
               "sends": [],
               "inserts": [
                 86
-              ]
-            },
-            "instrument": null
-          },
-          {
-            "id": 55,
-            "name": "Owner 55",
-            "color": 1193046,
-            "kind": "midi",
-            "strip": {
-              "settings": {
-                "gain_db": -21.5,
-                "pan": 0.0,
-                "mute": false,
-                "solo": false,
-                "solo_safe": false,
-                "invert_phase": false,
-                "output": "master"
-              },
-              "sends": [],
-              "inserts": [
-                56
               ]
             },
             "instrument": null
@@ -5549,7 +7217,255 @@
           }
         ],
         "markers": [],
-        "next_id": 164
+        "next_id": 127
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
+      },
+      "projectPath": "/projects/p91.owave"
+    },
+    {
+      "seq": 48,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 6
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": -21.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 85,
+            "name": "Owner 85",
+            "color": 1193046,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                86
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 79,
+            "name": "Track 79",
+            "color": 77183,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "Bus 43",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [
+          {
+            "id": 103,
+            "name": "Pattern 103",
+            "color": 65280,
+            "length": 4.0,
+            "notes": [
+              {
+                "start": 0.5,
+                "length": 0.5,
+                "key": 64,
+                "velocity": 90
+              }
+            ]
+          }
+        ],
+        "media_pool": [
+          {
+            "id": 61,
+            "name": "Media 61",
+            "path": "audio/m61.wav",
+            "hash": "0000003d",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1061
+          }
+        ],
+        "devices": [
+          {
+            "id": 56,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          },
+          {
+            "id": 86,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          }
+        ],
+        "automation": [
+          {
+            "id": 57,
+            "target": {
+              "type": "device",
+              "device": 56,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          },
+          {
+            "id": 87,
+            "target": {
+              "type": "device",
+              "device": 86,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 88,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 85
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          }
+        ],
+        "markers": [],
+        "next_id": 152
       },
       "history": {
         "canUndo": true,
@@ -5558,11 +7474,16 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          103,
+          104
+        ]
+      },
+      "projectPath": "/projects/p140.owave"
     },
     {
-      "seq": 48,
+      "seq": 56,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -5646,6 +7567,234 @@
               },
               "sends": [],
               "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "Bus 43",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [
+          {
+            "id": 103,
+            "name": "Pattern 103",
+            "color": 65280,
+            "length": 4.0,
+            "notes": [
+              {
+                "start": 0.5,
+                "length": 0.5,
+                "key": 64,
+                "velocity": 90
+              }
+            ]
+          }
+        ],
+        "media_pool": [
+          {
+            "id": 61,
+            "name": "Media 61",
+            "path": "audio/m61.wav",
+            "hash": "0000003d",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1061
+          }
+        ],
+        "devices": [
+          {
+            "id": 56,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          },
+          {
+            "id": 86,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          }
+        ],
+        "automation": [
+          {
+            "id": 57,
+            "target": {
+              "type": "device",
+              "device": 56,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          },
+          {
+            "id": 87,
+            "target": {
+              "type": "device",
+              "device": 86,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 88,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 85
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          }
+        ],
+        "markers": [],
+        "next_id": 176
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          152,
+          153
+        ]
+      },
+      "projectPath": "/projects/p140.owave"
+    },
+    {
+      "seq": 64,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 6
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 85,
+            "name": "Owner 85",
+            "color": 1193046,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                86
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": -21.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
             },
             "instrument": null
           }
@@ -5810,11 +7959,16 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
+      },
+      "projectPath": "/projects/p182.owave"
     },
     {
-      "seq": 56,
+      "seq": 72,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -6042,11 +8196,282 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          194,
+          195
+        ]
+      },
+      "projectPath": "/projects/p182.owave"
     },
     {
-      "seq": 64,
+      "seq": 80,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 6
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 85,
+            "name": "Owner 85",
+            "color": 1193046,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                86
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": -21.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 242,
+            "name": "Track 242",
+            "color": 236434,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "Bus 43",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": -3.5,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -4.5,
+            "pan": 0.0,
+            "mute": true,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [
+          {
+            "id": 103,
+            "name": "Pattern 103",
+            "color": 65280,
+            "length": 4.0,
+            "notes": [
+              {
+                "start": 0.5,
+                "length": 0.5,
+                "key": 64,
+                "velocity": 90
+              }
+            ]
+          }
+        ],
+        "media_pool": [
+          {
+            "id": 61,
+            "name": "Media 61",
+            "path": "audio/m61.wav",
+            "hash": "0000003d",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1061
+          },
+          {
+            "id": 170,
+            "name": "Media 170",
+            "path": "audio/m170.wav",
+            "hash": "000000aa",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1170
+          },
+          {
+            "id": 230,
+            "name": "Media 230",
+            "path": "audio/m230.wav",
+            "hash": "000000e6",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1230
+          }
+        ],
+        "devices": [
+          {
+            "id": 56,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          },
+          {
+            "id": 86,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          }
+        ],
+        "automation": [
+          {
+            "id": 57,
+            "target": {
+              "type": "device",
+              "device": 56,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          },
+          {
+            "id": 87,
+            "target": {
+              "type": "device",
+              "device": 86,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 88,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 85
+              },
+              "param": "gain"
+            },
+            "points": [],
+            "enabled": false
+          }
+        ],
+        "markers": [],
+        "next_id": 254
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add media",
+        "redoLabel": null,
+        "inTransaction": true,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
+      },
+      "projectPath": "/projects/p224.owave"
+    },
+    {
+      "seq": 88,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -6191,19 +8616,6 @@
         },
         "clips": [
           {
-            "id": 59,
-            "track": 55,
-            "name": "Owned clip",
-            "start": 1.0,
-            "length": 2.0,
-            "muted": false,
-            "content": {
-              "type": "midi",
-              "notes": [],
-              "controllers": []
-            }
-          },
-          {
             "id": 252,
             "track": 248,
             "name": "Owned clip",
@@ -6333,8 +8745,14 @@
               },
               "param": "gain"
             },
-            "points": [],
-            "enabled": false
+            "points": [
+              {
+                "beat": 1.0,
+                "value": 1.0,
+                "curve": 0.5
+              }
+            ],
+            "enabled": true
           },
           {
             "id": 250,
@@ -6360,7 +8778,7 @@
           }
         ],
         "markers": [],
-        "next_id": 260
+        "next_id": 272
       },
       "history": {
         "canUndo": true,
@@ -6369,11 +8787,16 @@
         "redoLabel": null,
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          236,
+          237
+        ]
+      },
+      "projectPath": "/projects/p266.owave"
     },
     {
-      "seq": 72,
+      "seq": 96,
       "project": {
         "name": "Batch 278",
         "settings": {
@@ -6678,7 +9101,7 @@
             "color": 0
           }
         ],
-        "next_id": 284
+        "next_id": 296
       },
       "history": {
         "canUndo": true,
@@ -6686,12 +9109,17 @@
         "undoLabel": "Add media",
         "redoLabel": null,
         "inTransaction": true,
-        "dirty": true,
-        "engineError": null
-      }
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
+      },
+      "projectPath": "/projects/p266.owave"
     },
     {
-      "seq": 80,
+      "seq": 104,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -6759,7 +9187,7 @@
         ],
         "master": {
           "settings": {
-            "gain_db": 0.0,
+            "gain_db": -11.5,
             "pan": 0.0,
             "mute": false,
             "solo": false,
@@ -6838,15 +9266,20 @@
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Add media",
+        "undoLabel": "Change mixer",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          278,
+          279
+        ]
+      },
+      "projectPath": "/projects/p308.owave"
     },
     {
-      "seq": 88,
+      "seq": 112,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -7008,7 +9441,7 @@
           }
         ],
         "markers": [],
-        "next_id": 353
+        "next_id": 347
       },
       "history": {
         "canUndo": true,
@@ -7017,11 +9450,202 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          320,
+          321
+        ]
+      },
+      "projectPath": "/projects/p329.owave"
     },
     {
-      "seq": 96,
+      "seq": 120,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 0
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": [
+                56
+              ]
+            },
+            "instrument": null
+          },
+          {
+            "id": 329,
+            "name": "Track 329",
+            "color": 321433,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "Bus 43",
+            "color": 3368652,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -11.5,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 1.0,
+            "length": 2.0,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [],
+        "media_pool": [
+          {
+            "id": 61,
+            "name": "Media 61",
+            "path": "audio/m61.wav",
+            "hash": "0000003d",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1061
+          }
+        ],
+        "devices": [
+          {
+            "id": 56,
+            "kind": "builtin.gain",
+            "name": "Owned device",
+            "enabled": true,
+            "params": {},
+            "state": [],
+            "sidechain": null
+          }
+        ],
+        "automation": [
+          {
+            "id": 57,
+            "target": {
+              "type": "device",
+              "device": 56,
+              "param": 0
+            },
+            "points": [],
+            "enabled": true
+          },
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [
+              {
+                "beat": 1.0,
+                "value": 40.0,
+                "curve": 0.5
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 365
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": true,
+        "undoLabel": "Edit automation",
+        "redoLabel": "Add track",
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          341,
+          342
+        ]
+      },
+      "projectPath": "/projects/p329.owave"
+    },
+    {
+      "seq": 128,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -7167,7 +9791,7 @@
           }
         ],
         "markers": [],
-        "next_id": 377
+        "next_id": 395
       },
       "history": {
         "canUndo": true,
@@ -7176,11 +9800,16 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
+      },
+      "projectPath": "/projects/p371.owave"
     },
     {
-      "seq": 104,
+      "seq": 136,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -7316,7 +9945,7 @@
           }
         ],
         "markers": [],
-        "next_id": 413
+        "next_id": 419
       },
       "history": {
         "canUndo": true,
@@ -7325,11 +9954,16 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          383,
+          384
+        ]
+      },
+      "projectPath": "/projects/p413.owave"
     },
     {
-      "seq": 112,
+      "seq": 144,
       "project": {
         "name": "Fixture",
         "settings": {
@@ -7465,7 +10099,7 @@
           }
         ],
         "markers": [],
-        "next_id": 449
+        "next_id": 443
       },
       "history": {
         "canUndo": true,
@@ -7473,12 +10107,177 @@
         "undoLabel": "Change project settings",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
-      }
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          425,
+          426
+        ]
+      },
+      "projectPath": "/projects/p413.owave"
     },
     {
-      "seq": 120,
+      "seq": 152,
+      "project": {
+        "name": "Fixture",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 13
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 277.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 329,
+            "name": "Track 329",
+            "color": 321433,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [
+                {
+                  "target": 43,
+                  "level_db": -35.0,
+                  "pre_fader": false
+                }
+              ],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "n254",
+            "color": 254000,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -11.5,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [
+          {
+            "id": 59,
+            "track": 55,
+            "name": "Owned clip",
+            "start": 25.0,
+            "length": 2.0,
+            "muted": true,
+            "content": {
+              "type": "midi",
+              "notes": [],
+              "controllers": []
+            }
+          }
+        ],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [
+              {
+                "beat": 1.0,
+                "value": 40.0,
+                "curve": 0.5
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [],
+        "next_id": 473
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Change sends",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
+      },
+      "projectPath": "/projects/p455.owave"
+    },
+    {
+      "seq": 160,
       "project": {
         "name": "Batch 473",
         "settings": {
@@ -7627,7 +10426,7 @@
             "color": 0
           }
         ],
-        "next_id": 485
+        "next_id": 505
       },
       "history": {
         "canUndo": true,
@@ -7635,12 +10434,17 @@
         "undoLabel": "Edit",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
-      }
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
+      },
+      "projectPath": "/projects/p455.owave"
     },
     {
-      "seq": 128,
+      "seq": 168,
       "project": {
         "name": "Batch 511",
         "settings": {
@@ -7743,21 +10547,7 @@
           "sends": [],
           "inserts": []
         },
-        "clips": [
-          {
-            "id": 59,
-            "track": 55,
-            "name": "Owned clip",
-            "start": 25.0,
-            "length": 2.0,
-            "muted": true,
-            "content": {
-              "type": "midi",
-              "notes": [],
-              "controllers": []
-            }
-          }
-        ],
+        "clips": [],
         "patterns": [],
         "media_pool": [],
         "devices": [],
@@ -7795,20 +10585,25 @@
             "color": 0
           }
         ],
-        "next_id": 517
+        "next_id": 529
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Edit",
+        "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          467,
+          468
+        ]
+      },
+      "projectPath": "/projects/p511.owave"
     },
     {
-      "seq": 136,
+      "seq": 176,
       "project": {
         "name": "Batch 511",
         "settings": {
@@ -7819,7 +10614,7 @@
         "tempo_map": [
           {
             "beat": 0.0,
-            "bpm": 252.0,
+            "bpm": 167.0,
             "ramp": false
           }
         ],
@@ -7954,15 +10749,20 @@
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Change mixer",
+        "undoLabel": "Change tempo",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          523,
+          524
+        ]
+      },
+      "projectPath": "/projects/p511.owave"
     },
     {
-      "seq": 144,
+      "seq": 184,
       "project": {
         "name": "Batch 511",
         "settings": {
@@ -8103,7 +10903,7 @@
             "color": 0
           }
         ],
-        "next_id": 583
+        "next_id": 577
       },
       "history": {
         "canUndo": true,
@@ -8112,11 +10912,16 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
+      },
+      "projectPath": "/projects/p553.owave"
     },
     {
-      "seq": 152,
+      "seq": 192,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -8303,7 +11108,7 @@
             "color": 0
           }
         ],
-        "next_id": 613
+        "next_id": 601
       },
       "history": {
         "canUndo": true,
@@ -8312,11 +11117,16 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          565,
+          566
+        ]
+      },
+      "projectPath": "/projects/p553.owave"
     },
     {
-      "seq": 160,
+      "seq": 200,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -8339,6 +11149,257 @@
           }
         ],
         "tracks": [
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.5,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 619,
+            "name": "Track 619",
+            "color": 604763,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 595,
+            "name": "Track 595",
+            "color": 581315,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 329,
+            "name": "Track 329",
+            "color": 321433,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [
+                {
+                  "target": 43,
+                  "level_db": -35.0,
+                  "pre_fader": false
+                }
+              ],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 577,
+            "name": "Track 577",
+            "color": 563729,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "n254",
+            "color": 254000,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -20.0,
+            "pan": 0.0,
+            "mute": true,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [],
+        "devices": [],
+        "automation": [
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [
+              {
+                "beat": 1.0,
+                "value": 40.0,
+                "curve": 0.5
+              }
+            ],
+            "enabled": true
+          }
+        ],
+        "markers": [
+          {
+            "id": 473,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          },
+          {
+            "id": 511,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          },
+          {
+            "id": 583,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          },
+          {
+            "id": 607,
+            "name": "M607",
+            "beat": 209.0,
+            "color": 16711680
+          }
+        ],
+        "next_id": 625
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add track",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
+      },
+      "projectPath": "/projects/p595.owave"
+    },
+    {
+      "seq": 208,
+      "project": {
+        "name": "Batch 583",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 13
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 167.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 643,
+            "name": "Track 643",
+            "color": 628211,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
           {
             "id": 55,
             "name": "Owner 55",
@@ -8539,20 +11600,25 @@
             "color": 16711680
           }
         ],
-        "next_id": 643
+        "next_id": 649
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Add media",
+        "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          607,
+          608
+        ]
+      },
+      "projectPath": "/projects/p637.owave"
     },
     {
-      "seq": 168,
+      "seq": 216,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -8798,11 +11864,16 @@
         "redoLabel": null,
         "inTransaction": false,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          649,
+          650
+        ]
+      },
+      "projectPath": "/projects/p637.owave"
     },
     {
-      "seq": 176,
+      "seq": 224,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -9038,6 +12109,267 @@
               }
             ],
             "enabled": true
+          }
+        ],
+        "markers": [
+          {
+            "id": 473,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          },
+          {
+            "id": 511,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          },
+          {
+            "id": 583,
+            "name": "batched",
+            "beat": 3.0,
+            "color": 0
+          },
+          {
+            "id": 607,
+            "name": "M607",
+            "beat": 209.0,
+            "color": 16711680
+          }
+        ],
+        "next_id": 697
+      },
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "undoLabel": "Add clip",
+        "redoLabel": null,
+        "inTransaction": false,
+        "dirty": true,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
+      },
+      "projectPath": "/projects/p679.owave"
+    },
+    {
+      "seq": 232,
+      "project": {
+        "name": "Batch 583",
+        "settings": {
+          "sample_rate": 48000,
+          "loop_range": null,
+          "count_in_bars": 13
+        },
+        "tempo_map": [
+          {
+            "beat": 0.0,
+            "bpm": 167.0,
+            "ramp": false
+          }
+        ],
+        "time_signature_map": [
+          {
+            "bar": 0,
+            "numerator": 10,
+            "denominator": 2
+          }
+        ],
+        "tracks": [
+          {
+            "id": 643,
+            "name": "Track 643",
+            "color": 628211,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 55,
+            "name": "Owner 55",
+            "color": 1193046,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.5,
+                "pan": 0.0,
+                "mute": true,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 595,
+            "name": "Track 595",
+            "color": 581315,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 619,
+            "name": "Track 619",
+            "color": 604763,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 329,
+            "name": "Track 329",
+            "color": 321433,
+            "kind": "audio",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [
+                {
+                  "target": 43,
+                  "level_db": -35.0,
+                  "pre_fader": false
+                }
+              ],
+              "inserts": []
+            },
+            "instrument": null
+          },
+          {
+            "id": 577,
+            "name": "Track 577",
+            "color": 563729,
+            "kind": "midi",
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            },
+            "instrument": null
+          }
+        ],
+        "buses": [
+          {
+            "id": 43,
+            "name": "n254",
+            "color": 254000,
+            "strip": {
+              "settings": {
+                "gain_db": 0.0,
+                "pan": 0.0,
+                "mute": false,
+                "solo": false,
+                "solo_safe": false,
+                "invert_phase": false,
+                "output": "master"
+              },
+              "sends": [],
+              "inserts": []
+            }
+          }
+        ],
+        "master": {
+          "settings": {
+            "gain_db": -20.0,
+            "pan": 0.0,
+            "mute": true,
+            "solo": false,
+            "solo_safe": false,
+            "invert_phase": false,
+            "output": "master"
+          },
+          "sends": [],
+          "inserts": []
+        },
+        "clips": [],
+        "patterns": [],
+        "media_pool": [
+          {
+            "id": 631,
+            "name": "Media 631",
+            "path": "audio/m631.wav",
+            "hash": "00000277",
+            "sample_rate": 48000,
+            "channels": 2,
+            "frames": 1631
+          }
+        ],
+        "devices": [],
+        "automation": [
+          {
+            "id": 58,
+            "target": {
+              "type": "strip",
+              "strip": {
+                "track": 55
+              },
+              "param": "gain"
+            },
+            "points": [
+              {
+                "beat": 1.0,
+                "value": 40.0,
+                "curve": 0.5
+              }
+            ],
+            "enabled": true
           },
           {
             "id": 697,
@@ -9084,20 +12416,25 @@
             "color": 16711680
           }
         ],
-        "next_id": 703
+        "next_id": 727
       },
       "history": {
         "canUndo": true,
         "canRedo": false,
-        "undoLabel": "Add automation",
+        "undoLabel": "Delete clip",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
-      }
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          691,
+          692
+        ]
+      },
+      "projectPath": "/projects/p679.owave"
     },
     {
-      "seq": 184,
+      "seq": 240,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -9378,7 +12715,7 @@
             "color": 16711680
           }
         ],
-        "next_id": 739
+        "next_id": 751
       },
       "history": {
         "canUndo": true,
@@ -9386,12 +12723,17 @@
         "undoLabel": "Add track",
         "redoLabel": null,
         "inTransaction": false,
-        "dirty": true,
-        "engineError": null
-      }
+        "dirty": false,
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
+      },
+      "projectPath": "/projects/p721.owave"
     },
     {
-      "seq": 192,
+      "seq": 248,
       "project": {
         "name": "Batch 583",
         "settings": {
@@ -9652,7 +12994,7 @@
             "color": 16711680
           }
         ],
-        "next_id": 775
+        "next_id": 781
       },
       "history": {
         "canUndo": true,
@@ -9661,12 +13003,17 @@
         "redoLabel": "Add track",
         "inTransaction": true,
         "dirty": true,
-        "engineError": null
-      }
+        "engineError": null,
+        "missingMedia": [
+          733,
+          734
+        ]
+      },
+      "projectPath": "/projects/p763.owave"
     }
   ],
   "last": {
-    "seq": 195,
+    "seq": 251,
     "project": {
       "name": "Batch 583",
       "settings": {
@@ -9936,7 +13283,12 @@
       "redoLabel": "Add track",
       "inTransaction": true,
       "dirty": true,
-      "engineError": null
-    }
+      "engineError": null,
+      "missingMedia": [
+        775,
+        776
+      ]
+    },
+    "projectPath": "/projects/p763.owave"
   }
 }

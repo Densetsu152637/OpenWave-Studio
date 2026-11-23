@@ -12,19 +12,32 @@
 //!   ([`bridge::Bridge`]) that sends packed `f32` frames over a second channel as raw bytes.
 //! * `peaks_range`: waveform min/max pairs as a raw-byte `ipc::Response` ([`peaks::PeakStore`],
 //!   served from the `ow-media` peak cache).
+//! * `project_new` / `project_open` / `project_save` ([`project`]), `media_import` ([`media`])
+//!   and `export_wav` ([`export`]): project files, importing audio and the offline mixdown. They
+//!   are plain methods on [`IpcState`] (testable without a window); the commands below only
+//!   hand them the engine as the [`control::PlanTarget`].
 //!
 //! What is not wired yet: fine-grained updates that skip the recompile (fader and mute changes
-//! could travel as `Message::SetParam` using `ow_engine::fader_gain`), project open and save
-//! commands (`Control::replace_project` is ready for them), and telemetry for strips beyond the
-//! 256 meter slots.
+//! could travel as `Message::SetParam` using `ow_engine::fader_gain`) and telemetry for strips
+//! beyond the 256 meter slots.
 
 pub mod bridge;
 pub mod control;
+pub mod export;
+pub mod media;
 pub mod peaks;
+pub mod project;
 
+#[cfg(test)]
+mod mvp;
+
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::JoinHandle;
 
-use ow_ipc::{CommandReply, ModelPatch, Overflow, Snapshot, Subscriptions, UiCommand};
+use ow_ipc::{
+    CommandReply, MediaImportReply, ModelPatch, Overflow, Snapshot, Subscriptions, UiCommand,
+};
 use tauri::ipc::{Channel, InvokeResponseBody, Response};
 use tauri::{AppHandle, Manager, State};
 
@@ -43,6 +56,8 @@ pub struct IpcState {
     subscriptions: Arc<Subscriptions>,
     bridge: Mutex<Option<bridge::Bridge>>,
     peaks: peaks::PeakStore,
+    /// Peak files being built in the background after an open or save.
+    builds: Mutex<Vec<JoinHandle<std::io::Result<()>>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -59,6 +74,7 @@ impl IpcState {
             subscriptions: Arc::new(Subscriptions::new()),
             bridge: Mutex::new(None),
             peaks: peaks::PeakStore::default(),
+            builds: Mutex::new(Vec::new()),
         }
     }
 }
@@ -111,6 +127,56 @@ pub async fn ipc_alloc_ids(app: AppHandle, count: u32) -> Result<CommandReply, S
         lock(&state.control).command(UiCommand::AllocIds { count }, engine.engine())
     })
     .await
+}
+
+/// Starts a new, empty project and returns it as a snapshot (the patch channel gets a reset).
+#[tauri::command]
+pub async fn project_new(app: AppHandle) -> Result<Snapshot, String> {
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        state.project_new(engine.engine())
+    })
+    .await
+}
+
+/// Opens the `.owave` bundle at `path`.
+#[tauri::command]
+pub async fn project_open(app: AppHandle, path: String) -> Result<Snapshot, String> {
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        state.project_open(Path::new(&path), engine.engine())
+    })
+    .await
+}
+
+/// Saves to `path` (or, without one, to where the project came from); returns the bundle path.
+#[tauri::command]
+pub async fn project_save(app: AppHandle, path: Option<String>) -> Result<String, String> {
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        state.project_save(path.as_deref().map(Path::new), engine.engine())
+    })
+    .await
+}
+
+/// Imports the audio file at `path` into the project's media pool.
+#[tauri::command]
+pub async fn media_import(app: AppHandle, path: String) -> Result<MediaImportReply, String> {
+    blocking(move || {
+        let state = app.state::<IpcState>();
+        let engine = app.state::<EngineState>();
+        state.media_import(Path::new(&path), engine.engine())
+    })
+    .await
+}
+
+/// Renders the project to a WAV file at `path`; returns the path written.
+#[tauri::command]
+pub async fn export_wav(app: AppHandle, path: String) -> Result<String, String> {
+    blocking(move || app.state::<IpcState>().export_wav(Path::new(&path))).await
 }
 
 /// Starts (or restarts) the telemetry bridge: frames go to `frames` as raw bytes at `hz`

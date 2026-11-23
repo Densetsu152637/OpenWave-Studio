@@ -18,6 +18,7 @@ fn assert_same(session: &Session, mirror: &Mirror) {
     assert_eq!(mirror.project, *session.project());
     assert_eq!(mirror.seq, session.seq());
     assert_eq!(mirror.history, session.snapshot().history);
+    assert_eq!(mirror.project_path.as_deref(), session.project_path());
 }
 
 proptest! {
@@ -167,11 +168,41 @@ fn mirror_replace_project_resets_the_mirror_in_one_patch() {
         .patch
         .unwrap();
     mirror.apply(&patch).unwrap();
-    let reset = session.replace_project(Project::new("Opened"));
+    let reset = session.replace_project(Project::new("Opened"), Some("a.owave".into()));
     mirror.apply(&reset).unwrap();
     assert_same(&session, &mirror);
     assert_eq!(mirror.project.name, "Opened");
+    assert_eq!(mirror.project_path.as_deref(), Some("a.owave"));
     assert!(!mirror.history.can_undo);
+}
+
+#[test]
+fn mirror_follows_the_project_path_and_the_missing_media_list() {
+    let (mut session, mut mirror) = fresh();
+    assert_eq!(session.snapshot().project_path, None);
+    let patch = session.set_project_path(Some("x.owave".into())).unwrap();
+    mirror.apply(&patch).unwrap();
+    assert_eq!(mirror.project_path.as_deref(), Some("x.owave"));
+    assert!(session.set_project_path(Some("x.owave".into())).is_none());
+
+    let patch = session.set_missing_media(vec![3, 9]).unwrap();
+    assert!(patch.ops.is_empty());
+    mirror.apply(&patch).unwrap();
+    assert_eq!(mirror.history.missing_media, [3, 9]);
+    assert!(session.set_missing_media(vec![3, 9]).is_none());
+
+    // Saving clears the dirty flag without touching the model.
+    session.handle(UiCommand::Edit {
+        edit: EditCommand::SetName { name: "n".into() },
+    });
+    assert!(session.snapshot().history.dirty);
+    let patch = session.mark_saved().unwrap();
+    assert!(!patch.history.dirty);
+
+    // Opening another project clears the list and resets the path in the same patch.
+    let reset = session.replace_project(Project::new("Other"), None);
+    assert_eq!(reset.ops.len(), 2);
+    assert!(reset.history.missing_media.is_empty());
 }
 
 #[test]

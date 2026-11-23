@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ow_engine::{Engine, EngineConfig, NodeKey};
+use ow_engine::{CompileContext, Engine, EngineConfig, NodeKey};
 use ow_io::mock::{MockBackend, MockConfig, MockDrive, MockMidiBackend};
 use ow_io::{
     AudioBackend, AudioSelection, AudioState, BackendRegistry, MidiBackend, RecoveryPolicy,
@@ -64,7 +64,9 @@ fn project_swap_recompiles_live_and_carries_nodes_by_key() {
     assert_eq!(engine.audio_status().state, AudioState::Running);
     let mut editor = Editor::new(Project::new("swap"));
 
-    let first = engine.set_project(editor.project().clone()).unwrap();
+    let first = engine
+        .set_project(editor.project().clone(), CompileContext::default())
+        .unwrap();
     assert!(first.applied);
     assert!(
         first
@@ -76,7 +78,9 @@ fn project_swap_recompiles_live_and_carries_nodes_by_key() {
     backend.handle().run_callbacks(50).unwrap();
 
     let track = add_track(&mut editor);
-    let second = engine.set_project(editor.project().clone()).unwrap();
+    let second = engine
+        .set_project(editor.project().clone(), CompileContext::default())
+        .unwrap();
     assert!(second.applied);
     assert!(
         second
@@ -102,10 +106,15 @@ fn project_swap_recompiles_live_and_carries_nodes_by_key() {
 #[test]
 fn project_swap_rejects_an_invalid_project_and_keeps_playing() {
     let (engine, backend) = engine(MockDrive::Manual);
-    assert!(engine.set_project(Project::new("ok")).unwrap().applied);
+    assert!(
+        engine
+            .set_project(Project::new("ok"), CompileContext::default())
+            .unwrap()
+            .applied
+    );
     let mut bad = Project::new("bad");
     bad.settings.sample_rate = 0;
-    assert!(engine.set_project(bad).is_err());
+    assert!(engine.set_project(bad, CompileContext::default()).is_err());
     backend.handle().run_callbacks(20).unwrap();
 }
 
@@ -116,7 +125,12 @@ fn a_reopened_stream_starts_on_the_projects_plan() {
         engine.set_test_tone(true),
         "the smoke tone exists before a project"
     );
-    assert!(engine.set_project(Project::new("p")).unwrap().applied);
+    assert!(
+        engine
+            .set_project(Project::new("p"), CompileContext::default())
+            .unwrap()
+            .applied
+    );
 
     backend.handle().disconnect();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -130,7 +144,12 @@ fn a_reopened_stream_starts_on_the_projects_plan() {
     }
     // The new stream compiled the project instead of the smoke plan.
     assert!(!engine.set_test_tone(true));
-    assert!(engine.set_project(Project::new("p2")).unwrap().applied);
+    assert!(
+        engine
+            .set_project(Project::new("p2"), CompileContext::default())
+            .unwrap()
+            .applied
+    );
 }
 
 #[test]
@@ -142,7 +161,7 @@ fn project_swap_busy_queue_leaves_engine_and_remembered_project_consistent() {
     let mut busy = false;
     for i in 0..40 {
         let name = format!("p{i}");
-        match engine.set_project(Project::new(name.clone())) {
+        match engine.set_project(Project::new(name.clone()), CompileContext::default()) {
             Ok(swap) => {
                 assert!(swap.applied);
                 last_ok = Some(name);
@@ -163,7 +182,9 @@ fn project_swap_busy_queue_leaves_engine_and_remembered_project_consistent() {
     );
     // Once the audio thread drains the rings, swapping works again.
     backend.handle().run_callbacks(20).unwrap();
-    let swap = engine.set_project(Project::new("after")).unwrap();
+    let swap = engine
+        .set_project(Project::new("after"), CompileContext::default())
+        .unwrap();
     assert!(swap.applied);
     assert_eq!(engine.current_project().unwrap().name, "after");
 }

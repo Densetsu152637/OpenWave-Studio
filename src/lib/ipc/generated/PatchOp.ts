@@ -33,7 +33,11 @@ export type PatchOp = { "op": "reset",
 /**
  * The new project.
  */
-project: Project, } | { "op": "set_name", 
+project: Project, } | { "op": "set_project_path", 
+/**
+ * The `.owave` bundle path.
+ */
+project_path: string | null, } | { "op": "set_name", 
 /**
  * New name.
  */

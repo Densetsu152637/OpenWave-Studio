@@ -39,7 +39,8 @@ pub mod session;
 pub mod telemetry;
 
 pub use dto::{
-    CommandReply, HistoryState, MAX_ALLOC_IDS, ModelPatch, PatchOp, Snapshot, UiCommand,
+    CommandReply, HistoryState, MAX_ALLOC_IDS, MediaImportReply, ModelPatch, PatchOp, Snapshot,
+    UiCommand,
 };
 pub use mirror::{Gap, Mirror, diff};
 pub use session::{Outcome, Session};

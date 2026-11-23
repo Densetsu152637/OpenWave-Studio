@@ -29,6 +29,7 @@ export type { LaneId } from "./generated/LaneId";
 export type { Marker } from "./generated/Marker";
 export type { MarkerId } from "./generated/MarkerId";
 export type { MediaId } from "./generated/MediaId";
+export type { MediaImportReply } from "./generated/MediaImportReply";
 export type { MediaItem } from "./generated/MediaItem";
 export type { MixerRef } from "./generated/MixerRef";
 export type { ModelPatch } from "./generated/ModelPatch";

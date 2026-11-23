@@ -4,8 +4,15 @@
 //! This file is free of Tauri types so it can be tested without a window: the patch channel and
 //! the engine are behind two small traits. The project lives here and nowhere near the audio
 //! callback; the engine only ever receives a compiled plan.
+//!
+//! The control also owns where the project's media lives ([`CompileContext`]): the `.owave`
+//! bundle once the project is saved or opened, a per-session temporary folder before that
+//! (created by the first import, deleted when the project is saved elsewhere, replaced or the
+//! app exits).
 
-use ow_engine::Engine;
+use std::path::{Path, PathBuf};
+
+use ow_engine::{CompileContext, Engine};
 use ow_ipc::{CommandReply, ModelPatch, PatchOp, Project, Session, Snapshot, UiCommand};
 
 /// Where patches go (the UI's `ipc::Channel`).
@@ -16,14 +23,15 @@ pub trait PatchSink: Send {
 
 /// What an edited project is handed to (the engine).
 pub trait PlanTarget {
-    /// Compiles and swaps in the plan for `project`.
-    fn apply_project(&self, project: &Project) -> Result<(), String>;
+    /// Compiles and swaps in the plan for `project`, loading its media through `ctx`. Returns
+    /// the ids of the media items whose files could not be loaded (their clips are silent).
+    fn apply_project(&self, project: &Project, ctx: &CompileContext) -> Result<Vec<u64>, String>;
 }
 
 impl PlanTarget for Engine {
-    fn apply_project(&self, project: &Project) -> Result<(), String> {
-        self.set_project(project.clone())
-            .map(|_| ())
+    fn apply_project(&self, project: &Project, ctx: &CompileContext) -> Result<Vec<u64>, String> {
+        self.set_project(project.clone(), ctx.clone())
+            .map(|swap| swap.missing_media.iter().map(|id| id.0).collect())
             .map_err(|error| error.to_string())
     }
 }
@@ -35,6 +43,10 @@ pub struct Control {
     /// The engine does not play the current project (the last swap failed); retried by the next
     /// command, whatever it is.
     engine_error: Option<String>,
+    /// Where media is read from, and the media already loaded.
+    pub(super) ctx: CompileContext,
+    /// The temporary media folder of a project that was never saved.
+    pub(super) temp: Option<tempfile::TempDir>,
 }
 
 /// True when an operation changes what the engine plays; renaming the project or reserving ids
@@ -55,6 +67,42 @@ impl Control {
             session: Session::new(project),
             sink: None,
             engine_error: None,
+            ctx: CompileContext::default(),
+            temp: None,
+        }
+    }
+
+    /// The folder media paths are relative to (empty until the first import of an unsaved
+    /// project).
+    pub fn media_root(&self) -> &Path {
+        &self.ctx.media_root
+    }
+
+    /// The media root for an import: the temporary folder is created on first use while the
+    /// project has no file.
+    pub(super) fn media_root_for_import(&mut self) -> Result<PathBuf, String> {
+        if self.session.project_path().is_none() && self.temp.is_none() {
+            let dir = tempfile::Builder::new()
+                .prefix("openwave-media-")
+                .tempdir()
+                .map_err(|error| format!("could not create a temporary media folder: {error}"))?;
+            self.ctx.media_root = dir.path().to_path_buf();
+            self.temp = Some(dir);
+        }
+        Ok(self.ctx.media_root.clone())
+    }
+
+    /// Records where the project is saved and tells the UI.
+    pub(super) fn set_project_path(&mut self, path: Option<String>) {
+        if let Some(patch) = self.session.set_project_path(path) {
+            self.deliver(&patch);
+        }
+    }
+
+    /// Records that the project equals what is on disk and tells the UI.
+    pub(super) fn mark_saved(&mut self) {
+        if let Some(patch) = self.session.mark_saved() {
+            self.deliver(&patch);
         }
     }
 
@@ -110,29 +158,49 @@ impl Control {
         self.engine_error.as_deref()
     }
 
-    fn apply_to_engine(&mut self, target: &dyn PlanTarget) {
-        self.engine_error = match target.apply_project(self.session.project()) {
-            Ok(()) => None,
+    /// Compiles the current project for the engine against the current media root. A failure is
+    /// kept (and reported to the UI) and the engine keeps its previous plan; the list of media
+    /// the plan could not load is reported as a warning.
+    pub(super) fn apply_to_engine(&mut self, target: &dyn PlanTarget) {
+        match target.apply_project(self.session.project(), &self.ctx) {
+            Ok(missing) => {
+                self.engine_error = None;
+                self.deliver_status(missing);
+            }
             Err(error) => {
                 eprintln!("[openwave] could not apply the project to the engine: {error}");
-                Some(error)
+                self.engine_error = Some(error);
+                self.deliver_status(self.session.snapshot().history.missing_media);
             }
-        };
-        // The UI hears about a failure (and its recovery) as a patch, not on the next command.
+        }
+    }
+
+    /// Sends the patches for a changed engine error and missing-media list (the UI hears about
+    /// a failure, its recovery and missing files as patches, not on the next command).
+    fn deliver_status(&mut self, missing: Vec<u64>) {
         if let Some(patch) = self.session.set_engine_error(self.engine_error.clone()) {
+            self.deliver(&patch);
+        }
+        if let Some(patch) = self.session.set_missing_media(missing) {
             self.deliver(&patch);
         }
     }
 
-    /// Swaps in another project (a project was opened): one `Reset` patch to the UI and a fresh
-    /// plan for the engine.
-    pub fn replace_project(&mut self, project: Project, target: &dyn PlanTarget) {
-        let patch = self.session.replace_project(project);
+    /// Swaps in another project (one was opened or created, saved at `project_path` when it
+    /// came from a file): one patch to the UI and a fresh plan for the engine. The caller has
+    /// already pointed the media root at the project's media.
+    pub fn replace_project(
+        &mut self,
+        project: Project,
+        project_path: Option<String>,
+        target: &dyn PlanTarget,
+    ) {
+        let patch = self.session.replace_project(project, project_path);
         self.deliver(&patch);
         self.apply_to_engine(target);
     }
 
-    fn deliver(&mut self, patch: &ModelPatch) {
+    pub(super) fn deliver(&mut self, patch: &ModelPatch) {
         if let Some(sink) = &self.sink
             && !sink.send(patch)
         {
@@ -172,17 +240,27 @@ mod tests {
         applied: RefCell<Vec<String>>,
         fail: bool,
         fail_next: std::cell::Cell<u32>,
+        /// What the next successful swap reports as missing media.
+        missing: RefCell<Vec<u64>>,
     }
 
     impl PlanTarget for Engineish {
-        fn apply_project(&self, project: &Project) -> Result<(), String> {
+        fn apply_project(
+            &self,
+            project: &Project,
+            _ctx: &CompileContext,
+        ) -> Result<Vec<u64>, String> {
             self.applied.borrow_mut().push(project.name.clone());
             let transient = self.fail_next.get();
             if transient > 0 {
                 self.fail_next.set(transient - 1);
                 return Err("busy".into());
             }
-            if self.fail { Err("no".into()) } else { Ok(()) }
+            if self.fail {
+                Err("no".into())
+            } else {
+                Ok(self.missing.borrow().clone())
+            }
         }
     }
 
@@ -288,10 +366,16 @@ mod tests {
         let target = Engineish::default();
         let sink = Collect::default();
         control.attach(Box::new(sink.clone()));
-        control.replace_project(Project::new("Opened"), &target);
+        control.replace_project(Project::new("Opened"), Some("a.owave".into()), &target);
         let patches = sink.0.lock().unwrap().clone();
         assert_eq!(patches.len(), 1);
         assert!(matches!(patches[0].ops[0], PatchOp::Reset { .. }));
+        assert_eq!(
+            patches[0].ops[1],
+            PatchOp::SetProjectPath {
+                project_path: Some("a.owave".into())
+            }
+        );
         assert_eq!(target.applied.borrow().as_slice(), ["Opened"]);
     }
 
@@ -327,5 +411,39 @@ mod tests {
         assert_eq!(mirror.history.engine_error, None);
         assert_eq!(target.applied.borrow().len(), 2);
         assert_eq!(control.engine_error(), None);
+    }
+
+    #[test]
+    fn missing_media_is_reported_as_a_warning_and_clears_when_it_is_found() {
+        let mut control = Control::new();
+        let target = Engineish::default();
+        let sink = Collect::default();
+        control.attach(Box::new(sink.clone()));
+        *target.missing.borrow_mut() = vec![4, 9];
+        let reply = control.command(set_tempo(100.0), &target).unwrap();
+        // The swap succeeded: a warning, not an engine error.
+        assert_eq!(reply.engine_error, None);
+        assert_eq!(control.session().snapshot().history.missing_media, [4, 9]);
+        // Same list again: no extra patch.
+        let seq = control.session().seq();
+        control.command(set_tempo(101.0), &target).unwrap();
+        assert_eq!(control.session().seq(), seq + 1);
+        // Found again.
+        target.missing.borrow_mut().clear();
+        control.command(set_tempo(102.0), &target).unwrap();
+        assert!(
+            control
+                .session()
+                .snapshot()
+                .history
+                .missing_media
+                .is_empty()
+        );
+        let patches = sink.0.lock().unwrap().clone();
+        assert_eq!(
+            patches.len(),
+            5,
+            "edit, warning, edit, edit, cleared warning"
+        );
     }
 }

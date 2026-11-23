@@ -25,7 +25,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use assert_no_alloc::AllocDisabler;
-use ow_engine::graph::nodes::{GAIN_PARAM, GainNode, MasterNode, OscillatorNode, TONE_PARAM_ON};
+use ow_engine::CompileContext;
+use ow_engine::graph::nodes::{GAIN_PARAM, GainNode, MasterNode, OscillatorNode};
 use ow_engine::{
     CoreBuilder, Graph, MAX_BLOCK, Message, MidiMessage, Node, NodeId, NodeKey, ProcessContext,
     RenderPlan, TransportCommand, compile_project_metered,
@@ -432,7 +433,7 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
                 hash: "00".into(),
                 sample_rate: SAMPLE_RATE,
                 channels: 1,
-                frames: 1,
+                frames: u64::from(SAMPLE_RATE) * 4,
             },
         })
         .unwrap();
@@ -458,7 +459,7 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
                 track,
                 name: "c".into(),
                 start: 0.0,
-                length: 4.0,
+                length: 8.0,
                 muted: false,
                 content: ClipContent::Audio {
                     media,
@@ -471,18 +472,33 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
         })
         .unwrap();
 
+    // The clip plays a four-second sine from a media file; loading happens here, at compile
+    // time, never in the guarded cycles below.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("audio")).unwrap();
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut wav = hound::WavWriter::create(dir.path().join("audio/m.wav"), spec).unwrap();
+    for i in 0..SAMPLE_RATE * 4 {
+        let phase = std::f64::consts::TAU * 440.0 * f64::from(i) / f64::from(SAMPLE_RATE);
+        wav.write_sample((0.5 * phase.sin()) as f32).unwrap();
+    }
+    wav.finalize().unwrap();
+    let ctx = CompileContext::new(dir.path());
+
     let bank = Arc::new(TelemetryBank::new());
     let compiled =
-        compile_project_metered(editor.project(), SAMPLE_RATE, MAX_BLOCK, Some(&bank)).unwrap();
-    let tone = compiled.nodes.get(NodeKey::Clips(track)).unwrap();
+        compile_project_metered(editor.project(), &ctx, SAMPLE_RATE, MAX_BLOCK, Some(&bank))
+            .unwrap();
+    assert!(compiled.missing_media.is_empty());
+    assert!(compiled.nodes.get(NodeKey::Clips(track)).is_some());
     let (mut link, mut core) = builder().build();
     link.swap_timeline(compiled.timeline).unwrap();
     link.swap_plan(compiled.plan).unwrap();
-    assert!(link.send(Message::SetParam {
-        node: tone,
-        param: TONE_PARAM_ON,
-        value: 1.0,
-    }));
     assert!(link.send(Message::Transport(TransportCommand::Play)));
 
     let telemetry = Arc::clone(link.telemetry());

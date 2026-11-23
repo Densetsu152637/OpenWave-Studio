@@ -31,18 +31,22 @@ pub struct Session {
     seq: u64,
     history: HistoryState,
     engine_error: Option<String>,
+    missing_media: Vec<u64>,
+    project_path: Option<String>,
 }
 
 impl Session {
     /// A session over `project`, at sequence 0.
     pub fn new(project: Project) -> Self {
         let editor = Editor::new(project);
-        let history = history_of(&editor, None);
+        let history = history_of(&editor, None, &[]);
         Self {
             editor,
             seq: 0,
             history,
             engine_error: None,
+            missing_media: Vec::new(),
+            project_path: None,
         }
     }
 
@@ -67,7 +71,32 @@ impl Session {
             seq: self.seq,
             project: self.editor.project().clone(),
             history: self.history.clone(),
+            project_path: self.project_path.clone(),
         }
+    }
+
+    /// Where the project is saved, if it is.
+    pub fn project_path(&self) -> Option<&str> {
+        self.project_path.as_deref()
+    }
+
+    /// Records where the project is saved; yields a patch only when the path changed.
+    pub fn set_project_path(&mut self, path: Option<String>) -> Option<ModelPatch> {
+        if self.project_path == path {
+            return None;
+        }
+        self.project_path = path.clone();
+        self.finish(vec![PatchOp::SetProjectPath { project_path: path }])
+    }
+
+    /// Records which media items the engine could not load (ascending ids); yields a patch
+    /// (no operations, new history) only when the list changed.
+    pub fn set_missing_media(&mut self, missing: Vec<u64>) -> Option<ModelPatch> {
+        if self.missing_media == missing {
+            return None;
+        }
+        self.missing_media = missing;
+        self.finish(Vec::new())
     }
 
     /// Records that the current state is what is on disk, and reports the dirty flag change.
@@ -87,17 +116,28 @@ impl Session {
         self.finish(Vec::new())
     }
 
-    /// Swaps in another project (one was opened): the history is discarded and the UI receives
-    /// one `Reset` patch.
-    pub fn replace_project(&mut self, project: Project) -> ModelPatch {
+    /// Swaps in another project (one was opened or created, saved at `project_path` if it
+    /// came from a file): the history is discarded and the UI receives one patch holding a
+    /// `Reset` and a `SetProjectPath`. The missing-media list is cleared; the caller reports
+    /// the new project's once it is compiled.
+    pub fn replace_project(
+        &mut self,
+        project: Project,
+        project_path: Option<String>,
+    ) -> ModelPatch {
         self.editor = Editor::new(project);
+        self.project_path = project_path.clone();
+        self.missing_media.clear();
         self.seq += 1;
-        self.history = history_of(&self.editor, self.engine_error.clone());
+        self.history = history_of(&self.editor, self.engine_error.clone(), &self.missing_media);
         ModelPatch {
             seq: self.seq,
-            ops: vec![PatchOp::Reset {
-                project: Box::new(self.editor.project().clone()),
-            }],
+            ops: vec![
+                PatchOp::Reset {
+                    project: Box::new(self.editor.project().clone()),
+                },
+                PatchOp::SetProjectPath { project_path },
+            ],
             history: self.history.clone(),
         }
     }
@@ -160,7 +200,7 @@ impl Session {
 
     /// Wraps `ops` into the next patch when there is anything to report.
     fn finish(&mut self, ops: Vec<PatchOp>) -> Option<ModelPatch> {
-        let history = history_of(&self.editor, self.engine_error.clone());
+        let history = history_of(&self.editor, self.engine_error.clone(), &self.missing_media);
         if ops.is_empty() && history == self.history {
             return None;
         }
@@ -174,7 +214,11 @@ impl Session {
     }
 }
 
-fn history_of(editor: &Editor, engine_error: Option<String>) -> HistoryState {
+fn history_of(
+    editor: &Editor,
+    engine_error: Option<String>,
+    missing_media: &[u64],
+) -> HistoryState {
     HistoryState {
         can_undo: editor.can_undo(),
         can_redo: editor.can_redo(),
@@ -183,5 +227,6 @@ fn history_of(editor: &Editor, engine_error: Option<String>) -> HistoryState {
         in_transaction: editor.in_transaction(),
         dirty: editor.is_dirty(),
         engine_error,
+        missing_media: missing_media.to_vec(),
     }
 }

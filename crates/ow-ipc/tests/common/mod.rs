@@ -766,8 +766,22 @@ pub fn run(session: &mut Session, action: &Action, mut deliver: impl FnMut(&Sess
     if let Some(patch) = reserve.patch {
         deliver(session, patch);
     }
+    let marker = ids.as_slice().first().copied();
     for command in build(session, action, &mut ids) {
         if let Some(patch) = session.handle(command).patch {
+            deliver(session, patch);
+        }
+    }
+    // Now and then the project is saved somewhere (path and dirty flag change, the model does
+    // not) or the engine reports media it cannot load.
+    if let Some(id) = marker {
+        let patch = match id % 7 {
+            0 => session.set_project_path(Some(format!("/projects/p{id}.owave"))),
+            3 => session.mark_saved(),
+            5 => session.set_missing_media(vec![id, id + 1]),
+            _ => None,
+        };
+        if let Some(patch) = patch {
             deliver(session, patch);
         }
     }

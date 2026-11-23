@@ -17,11 +17,16 @@
 //!   stereo [`GainNode`] whose outputs are the plan output;
 //! * sends are [`GainNode`]s tapped pre- or post-fader that feed the target bus;
 //! * pan is not applied yet (the mixer stage owns the pan law);
-//! * clips and devices are placeholders until their stages exist: a track with clips gets a
-//!   silent [`TestToneNode`] as source (key [`NodeKey::Clips`]; set its
-//!   [`TONE_PARAM_ON`](crate::graph::nodes::TONE_PARAM_ON) parameter to hear it), an instrument
-//!   device is the same kind of source (key [`NodeKey::Device`]), and an insert device is a
-//!   unity [`GainNode`] pass-through.
+//! * audio clips play: a track with audio clips gets a stereo [`GainNode`] as its source (key
+//!   [`NodeKey::Clips`]) that sums one [`ClipSourceNode`] per clip (key [`NodeKey::Clip`]), each
+//!   playing its media from memory at the clip's timeline position with the clip's source
+//!   offset and gain (see [`CompileContext`]); mono media feeds both sides. Muted clips and
+//!   clips whose media cannot be loaded get no node (silence), and the latter are listed in
+//!   [`Compiled::missing_media`]. Fades are not applied yet;
+//! * instruments and devices are placeholders until their stages exist: an instrument device
+//!   is a silent [`TestToneNode`] source (key [`NodeKey::Device`]; set its
+//!   [`TONE_PARAM_ON`](crate::graph::nodes::TONE_PARAM_ON) parameter to hear it) and an insert
+//!   device is a unity [`GainNode`] pass-through.
 //!
 //! # Stable identity and state carry-over
 //!
@@ -36,24 +41,52 @@
 //! swapped in, using this table. Parameters that change without a rebuild (mute, solo, fader)
 //! can be pushed with [`fader_gain`] and [`Message::SetParam`](crate::Message::SetParam).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use ow_media::MemorySource;
 use ow_model::{
-    AuxSend, BusId, DeviceId, MixerRef, Output, Project, Strip, TrackId, ValidationError,
+    AuxSend, BusId, Clip, ClipContent, ClipId, DeviceId, MediaId, MixerRef, Output, Project, Strip,
+    TrackId, ValidationError,
 };
 
 use ow_ipc::TelemetryBank;
 
+use crate::clips::SourceCache;
+use crate::graph::clip::{ClipPlacement, ClipSourceNode};
 use crate::graph::nodes::{GainNode, TestToneNode};
 use crate::{Graph, GraphError, NodeId, RenderPlan, Timeline};
+
+/// What the compiler needs besides the project to play its audio clips.
+#[derive(Debug, Clone, Default)]
+pub struct CompileContext {
+    /// The folder `MediaItem::path` is relative to: the project bundle, or the temporary media
+    /// folder of a project that was never saved.
+    pub media_root: PathBuf,
+    /// Media already loaded (and resampled to the engine rate), shared by every compile with
+    /// this context.
+    pub sources: SourceCache,
+}
+
+impl CompileContext {
+    /// A context over `media_root` with an empty cache.
+    pub fn new(media_root: impl Into<PathBuf>) -> Self {
+        Self {
+            media_root: media_root.into(),
+            sources: SourceCache::new(),
+        }
+    }
+}
 
 /// Identity of a compiled node in model terms: stable across recompiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NodeKey {
-    /// Placeholder source for a track's clips.
+    /// The sum of a track's audio clips, the track's source.
     Clips(TrackId),
+    /// One audio clip's player (absent for a muted clip or one whose media is missing).
+    Clip(ClipId),
     /// A device (an instrument source or an insert effect).
     Device(DeviceId),
     /// A strip's fader; the master's is the output gain.
@@ -154,6 +187,10 @@ pub struct Compiled {
     pub timeline: Timeline,
     /// Model key to node id table.
     pub nodes: NodeMap,
+    /// Media items some unmuted clip plays whose file could not be loaded (missing, unreadable
+    /// or too large), in ascending id order. Those clips are silent; this is a warning, not an
+    /// error.
+    pub missing_media: Vec<MediaId>,
 }
 
 /// Why a project could not be compiled.
@@ -258,13 +295,16 @@ fn connect_stereo(graph: &mut Graph, from: Tap, to: NodeId) -> Result<(), GraphE
 
 /// Compiles `project` for `sample_rate` and blocks of up to `max_block` frames.
 ///
-/// Allocates freely: run it on the control thread.
+/// Allocates freely and may read and resample media files (through `ctx`): run it on the
+/// control thread. A file that cannot be loaded is reported in [`Compiled::missing_media`],
+/// never as an error.
 pub fn compile_project(
     project: &Project,
+    ctx: &CompileContext,
     sample_rate: u32,
     max_block: usize,
 ) -> Result<Compiled, CompileError> {
-    compile_project_metered(project, sample_rate, max_block, None)
+    compile_project_metered(project, ctx, sample_rate, max_block, None)
 }
 
 /// Like [`compile_project`], and when `meters` is given every strip's fader publishes its peak
@@ -272,11 +312,23 @@ pub fn compile_project(
 /// telemetry channel). Strips beyond the bank's slots are not metered.
 pub fn compile_project_metered(
     project: &Project,
+    ctx: &CompileContext,
     sample_rate: u32,
     max_block: usize,
     meters: Option<&Arc<TelemetryBank>>,
 ) -> Result<Compiled, CompileError> {
     project.validate().map_err(CompileError::Model)?;
+    let timeline = Timeline::new(
+        project.tempo_map.clone(),
+        project.time_signature_map.clone(),
+    );
+    let mut missing = BTreeSet::new();
+    let mut clips = ClipEnv {
+        ctx,
+        timeline: &timeline,
+        sample_rate,
+        missing: &mut missing,
+    };
 
     let mut graph = Graph::new();
     let mut nodes = NodeMap::default();
@@ -295,6 +347,7 @@ pub fn compile_project_metered(
         MixerRef::Master,
         &project.master,
         meters,
+        None,
     );
     let mut strips: Vec<(u64, MixerRef)> = project
         .tracks
@@ -306,7 +359,15 @@ pub fn compile_project_metered(
     let mut built: BTreeMap<MixerRef, StripNodes> = BTreeMap::new();
     for (_, target) in &strips {
         if let Some(strip) = project.strip(*target) {
-            let nodes = build_strip(&mut graph, &mut add, project, *target, strip, meters);
+            let nodes = build_strip(
+                &mut graph,
+                &mut add,
+                project,
+                *target,
+                strip,
+                meters,
+                Some(&mut clips),
+            );
             built.insert(*target, nodes);
         }
     }
@@ -361,15 +422,94 @@ pub fn compile_project_metered(
     }
 
     let plan = graph.compile(sample_rate, max_block)?;
-    let timeline = Timeline::new(
-        project.tempo_map.clone(),
-        project.time_signature_map.clone(),
-    );
     Ok(Compiled {
         plan,
         timeline,
         nodes,
+        missing_media: missing.into_iter().collect(),
     })
+}
+
+/// What `build_strip` needs to compile a track's audio clips.
+struct ClipEnv<'a> {
+    ctx: &'a CompileContext,
+    timeline: &'a Timeline,
+    sample_rate: u32,
+    /// Media that could not be loaded, collected across tracks.
+    missing: &'a mut BTreeSet<MediaId>,
+}
+
+/// Adds a [`ClipSourceNode`] for `clip` and wires it into the track's summing node `sum`.
+/// Adds nothing when the clip is silent; a media file that cannot be loaded is recorded in
+/// `env.missing`.
+fn add_audio_clip(
+    graph: &mut Graph,
+    add: &mut AddNode<'_>,
+    env: &mut ClipEnv<'_>,
+    project: &Project,
+    clip: &Clip,
+    sum: NodeId,
+) {
+    let ClipContent::Audio {
+        media,
+        source_offset,
+        gain_db,
+        ..
+    } = &clip.content
+    else {
+        return;
+    };
+    // The model guarantees the media exists (`validate`).
+    let Some(item) = project.media_pool.get(media).filter(|_| !clip.muted) else {
+        return;
+    };
+    let rate = env.sample_rate;
+    let Ok(loaded) = env
+        .ctx
+        .sources
+        .load(&env.ctx.media_root.join(&item.path), rate)
+    else {
+        env.missing.insert(*media);
+        return;
+    };
+    let channels = loaded.pcm.channels.len();
+    let source_frames = loaded.pcm.frames() as u64;
+    if channels == 0 || source_frames == 0 {
+        return;
+    }
+    // Placement in timeline samples. Source offsets count frames of the media file, which
+    // `load` resampled to the engine rate, so they scale by the same ratio.
+    let start = env.timeline.beat_to_sample_index(clip.start, rate);
+    let end = env
+        .timeline
+        .beat_to_sample_index(clip.start + clip.length, rate);
+    let scale = f64::from(rate) / f64::from(loaded.source_rate.max(1));
+    let offset = (*source_offset as f64 * scale).round();
+    // Past the end plays silence either way; clamping keeps position arithmetic far from
+    // overflow on the audio thread.
+    let offset = if offset >= source_frames as f64 {
+        source_frames
+    } else {
+        offset as u64
+    };
+    let placement = ClipPlacement {
+        start,
+        length: end.saturating_sub(start),
+        source_offset: offset,
+        gain: db_to_linear(*gain_db),
+    };
+    let source = Box::new(MemorySource::new(loaded.pcm));
+    let node = add(
+        graph,
+        NodeKey::Clip(clip.id),
+        Box::new(ClipSourceNode::new(source, vec![placement])),
+    );
+    // Both ends were just added with these channel counts, so connecting cannot fail.
+    let right = usize::from(channels > 1);
+    let wired = graph
+        .connect(node, 0, sum, 0)
+        .and_then(|()| graph.connect(node, right, sum, 1));
+    debug_assert!(wired.is_ok());
 }
 
 type AddNode<'a> = dyn FnMut(&mut Graph, NodeKey, Box<dyn crate::Node>) -> NodeId + 'a;
@@ -382,8 +522,9 @@ fn build_strip(
     target: MixerRef,
     strip: &Strip,
     meters: Option<&Arc<TelemetryBank>>,
+    clips: Option<&mut ClipEnv<'_>>,
 ) -> StripNodes {
-    // Source: a placeholder for the track's clips or for its instrument.
+    // Source: the track's audio clips, or a placeholder for its instrument.
     let mut source: Option<Tap> = None;
     if let MixerRef::Track(id) = target
         && let Some(track) = project.track(id)
@@ -395,9 +536,22 @@ fn build_strip(
                 Box::<TestToneNode>::default(),
             );
             source = Some(Tap { node, mono: true });
-        } else if project.clips.values().any(|c| c.track == id) {
-            let node = add(graph, NodeKey::Clips(id), Box::<TestToneNode>::default());
-            source = Some(Tap { node, mono: true });
+        } else if let Some(env) = clips {
+            let own: Vec<&Clip> = project
+                .clips
+                .values()
+                .filter(|c| c.track == id && matches!(c.content, ClipContent::Audio { .. }))
+                .collect();
+            if !own.is_empty() {
+                let sum = add(graph, NodeKey::Clips(id), Box::new(GainNode::new(2, 1.0)));
+                for clip in own {
+                    add_audio_clip(graph, add, env, project, clip, sum);
+                }
+                source = Some(Tap {
+                    node: sum,
+                    mono: false,
+                });
+            }
         }
     }
 
@@ -457,6 +611,26 @@ mod tests {
     const RATE: u32 = 48_000;
     const FRAMES: usize = 24_000;
 
+    /// A media folder holding `audio/m.wav`: a mono 440 Hz sine of amplitude 0.2, one second.
+    fn media_dir() -> (tempfile::TempDir, CompileContext) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("audio")).unwrap();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: RATE,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let mut writer = hound::WavWriter::create(dir.path().join("audio/m.wav"), spec).unwrap();
+        for i in 0..RATE {
+            let phase = std::f64::consts::TAU * 440.0 * f64::from(i) / f64::from(RATE);
+            writer.write_sample((0.2 * phase.sin()) as f32).unwrap();
+        }
+        writer.finalize().unwrap();
+        let ctx = CompileContext::new(dir.path());
+        (dir, ctx)
+    }
+
     fn media(ed: &mut Editor) -> ow_model::MediaId {
         let id = ed.alloc_id().unwrap();
         ed.apply(EditCommand::AddMedia {
@@ -467,7 +641,7 @@ mod tests {
                 hash: "00".into(),
                 sample_rate: RATE,
                 channels: 1,
-                frames: 1,
+                frames: u64::from(RATE),
             },
         })
         .unwrap();
@@ -541,11 +715,12 @@ mod tests {
         }
     }
 
-    /// Renders with the given source tones switched on; returns the RMS of the left channel
-    /// over the last 4096 frames.
-    fn level(project: &Project, tones: &[NodeKey]) -> f32 {
-        let compiled = compile_project(project, RATE, 256).unwrap();
+    /// Plays the project with the given placeholder tones switched on; returns the RMS of the
+    /// left channel over the last 4096 frames.
+    fn tone_level(project: &Project, ctx: &CompileContext, tones: &[NodeKey]) -> f32 {
+        let compiled = compile_project(project, ctx, RATE, 256).unwrap();
         let mut renderer = OfflineRenderer::new(compiled.plan, 2);
+        assert!(renderer.send(Message::Transport(crate::TransportCommand::Play)));
         for key in tones {
             let node = compiled.nodes.get(*key).expect("tone node");
             assert!(renderer.send(Message::SetParam {
@@ -560,13 +735,23 @@ mod tests {
         (sum / 4096.0).sqrt()
     }
 
+    /// Like [`tone_level`] with only the clips of the `audible` tracks playing (the others are
+    /// muted), so one track's contribution can be measured.
+    fn level(project: &Project, ctx: &CompileContext, audible: &[TrackId]) -> f32 {
+        let mut project = project.clone();
+        for clip in project.clips.values_mut() {
+            clip.muted |= !audible.contains(&clip.track);
+        }
+        tone_level(&project, ctx, &[])
+    }
+
     /// RMS of the 0.2-amplitude sine source.
     const SOURCE_RMS: f32 = 0.2 * std::f32::consts::FRAC_1_SQRT_2;
 
     #[test]
     fn compile_empty_project_renders_silence_with_the_models_timeline() {
         let project = Project::new("empty");
-        let compiled = compile_project(&project, RATE, 256).unwrap();
+        let compiled = compile_project(&project, &CompileContext::default(), RATE, 256).unwrap();
         assert_eq!(compiled.timeline.tempo(), &project.tempo_map);
         assert_eq!(compiled.timeline.signatures(), &project.time_signature_map);
         assert_eq!(compiled.nodes.len(), 1, "only the master fader");
@@ -577,21 +762,23 @@ mod tests {
 
     #[test]
     fn compile_track_gain_reaches_the_master() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let a = audio_track(&mut ed, m, db(0.0));
         let b = audio_track(&mut ed, m, db(-6.0206));
-        let only_a = level(ed.project(), &[NodeKey::Clips(a)]);
-        let only_b = level(ed.project(), &[NodeKey::Clips(b)]);
+        let only_a = level(ed.project(), &ctx, &[a]);
+        let only_b = level(ed.project(), &ctx, &[b]);
         assert!((only_a - SOURCE_RMS).abs() < 1e-3, "{only_a}");
         assert!((only_b - SOURCE_RMS / 2.0).abs() < 1e-3, "{only_b}");
         // Without clips a track has no source node at all.
-        let empty = compile_project(&Project::new("x"), RATE, 64).unwrap();
+        let empty = compile_project(&Project::new("x"), &ctx, RATE, 64).unwrap();
         assert!(empty.nodes.get(NodeKey::Clips(a)).is_none());
     }
 
     #[test]
     fn compile_mute_solo_and_phase() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let muted = StripSettings {
@@ -605,25 +792,22 @@ mod tests {
         let a = audio_track(&mut ed, m, muted);
         let b = audio_track(&mut ed, m, db(0.0));
         let c = audio_track(&mut ed, m, safe);
-        assert_eq!(level(ed.project(), &[NodeKey::Clips(a)]), 0.0);
-        assert!(level(ed.project(), &[NodeKey::Clips(b)]) > 0.1);
+        assert_eq!(level(ed.project(), &ctx, &[a]), 0.0);
+        assert!(level(ed.project(), &ctx, &[b]) > 0.1);
 
         // Soloing `b` silences `a` and `c` unless solo-safe.
         let mut soloed = ed.project().clone();
         soloed.tracks[1].strip.settings.solo = true;
-        assert!(level(&soloed, &[NodeKey::Clips(b)]) > 0.1);
-        assert!(
-            level(&soloed, &[NodeKey::Clips(c)]) > 0.1,
-            "solo-safe track stays"
-        );
+        assert!(level(&soloed, &ctx, &[b]) > 0.1);
+        assert!(level(&soloed, &ctx, &[c]) > 0.1, "solo-safe track stays");
         soloed.tracks[2].strip.settings.solo_safe = false;
-        assert_eq!(level(&soloed, &[NodeKey::Clips(c)]), 0.0);
+        assert_eq!(level(&soloed, &ctx, &[c]), 0.0);
 
         // Polarity inversion cancels an identical track.
         let mut inverted = ed.project().clone();
         inverted.tracks[0].strip.settings.mute = false;
         inverted.tracks[1].strip.settings.invert_phase = true;
-        assert!(level(&inverted, &[NodeKey::Clips(a), NodeKey::Clips(b)]) < 1e-3);
+        assert!(level(&inverted, &ctx, &[a, b]) < 1e-3);
 
         assert_eq!(fader_gain(&soloed, MixerRef::Track(a)), 0.0);
         assert_eq!(fader_gain(&soloed, MixerRef::Track(b)), 1.0);
@@ -632,6 +816,7 @@ mod tests {
 
     #[test]
     fn compile_bus_routing_and_sends() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let drums = bus(&mut ed, db(-6.0206));
@@ -640,9 +825,9 @@ mod tests {
             ..db(0.0)
         };
         let track = audio_track(&mut ed, m, to_bus);
-        let key = [NodeKey::Clips(track)];
+        let key = [track];
         // Routed through a -6 dB bus.
-        let routed = level(ed.project(), &key);
+        let routed = level(ed.project(), &ctx, &key);
         assert!((routed - SOURCE_RMS / 2.0).abs() < 1e-3, "{routed}");
 
         // Direct to master plus a post-fader -6 dB send to the bus: 1 + 0.5 x 0.5.
@@ -653,15 +838,15 @@ mod tests {
             level_db: -6.0206,
             pre_fader: false,
         }];
-        let sent = level(&with_send, &key);
+        let sent = level(&with_send, &ctx, &key);
         assert!((sent - SOURCE_RMS * 1.25).abs() < 2e-3, "{sent}");
 
         // A pre-fader send ignores the track fader: fader nearly off, send still audible.
         with_send.tracks[0].strip.settings.gain_db = -100.0;
         with_send.tracks[0].strip.sends[0].pre_fader = true;
-        let pre = level(&with_send, &key);
+        let pre = level(&with_send, &ctx, &key);
         assert!((pre - SOURCE_RMS * 0.25).abs() < 2e-3, "{pre}");
-        let compiled = compile_project(&with_send, RATE, 256).unwrap();
+        let compiled = compile_project(&with_send, &ctx, RATE, 256).unwrap();
         let send_key = NodeKey::Send {
             from: MixerRef::Track(track),
             to: drums,
@@ -672,6 +857,7 @@ mod tests {
 
     #[test]
     fn compile_pre_fader_sends_respect_mute_and_solo() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let aux = bus(&mut ed, db(0.0));
@@ -687,19 +873,19 @@ mod tests {
                 pre_fader: true,
             }];
         }
-        let audible = level(&project, &[NodeKey::Clips(a)]);
+        let audible = level(&project, &ctx, &[a]);
         assert!((audible - SOURCE_RMS).abs() < 2e-3, "{audible}");
 
         let mut muted = project.clone();
         muted.tracks[0].strip.settings.mute = true;
-        assert_eq!(level(&muted, &[NodeKey::Clips(a)]), 0.0);
-        assert!(level(&muted, &[NodeKey::Clips(b)]) > 0.1);
+        assert_eq!(level(&muted, &ctx, &[a]), 0.0);
+        assert!(level(&muted, &ctx, &[b]) > 0.1);
 
         // Soloing `a` silences `b`, pre-fader send included.
         let mut soloed = project.clone();
         soloed.tracks[0].strip.settings.solo = true;
-        assert!(level(&soloed, &[NodeKey::Clips(a)]) > 0.1);
-        assert_eq!(level(&soloed, &[NodeKey::Clips(b)]), 0.0);
+        assert!(level(&soloed, &ctx, &[a]) > 0.1);
+        assert_eq!(level(&soloed, &ctx, &[b]), 0.0);
     }
 
     #[test]
@@ -738,14 +924,20 @@ mod tests {
         })
         .unwrap();
         // Source tone -> insert -> fader -> master: unity.
-        let l = level(ed.project(), &[NodeKey::Device(synth)]);
+        let l = tone_level(
+            ed.project(),
+            &CompileContext::default(),
+            &[NodeKey::Device(synth)],
+        );
         assert!((l - SOURCE_RMS).abs() < 1e-3, "{l}");
-        let compiled = compile_project(ed.project(), RATE, 256).unwrap();
+        let compiled =
+            compile_project(ed.project(), &CompileContext::default(), RATE, 256).unwrap();
         assert!(compiled.nodes.get(NodeKey::Device(fx)).is_some());
     }
 
     #[test]
     fn compile_is_deterministic() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let drums = bus(&mut ed, db(-3.0));
@@ -760,27 +952,22 @@ mod tests {
             };
             audio_track(&mut ed, m, settings);
         }
-        let a = compile_project(ed.project(), RATE, 256).unwrap();
-        let b = compile_project(ed.project(), RATE, 256).unwrap();
+        let a = compile_project(ed.project(), &ctx, RATE, 256).unwrap();
+        let b = compile_project(ed.project(), &ctx, RATE, 256).unwrap();
         assert_eq!(a.nodes, b.nodes);
         let render = |c: Compiled| {
             let mut r = OfflineRenderer::new(c.plan, 2);
-            for (key, node) in c.nodes.iter() {
-                if let NodeKey::Clips(_) = key {
-                    r.send(Message::SetParam {
-                        node,
-                        param: TONE_PARAM_ON,
-                        value: 1.0,
-                    });
-                }
-            }
+            r.send(Message::Transport(crate::TransportCommand::Play));
             r.render(8192, 100)
         };
-        assert_eq!(render(a), render(b));
+        let (a, b) = (render(a), render(b));
+        assert!(a.iter().any(|s| s.abs() > 0.1), "the clips play");
+        assert_eq!(a, b);
     }
 
     #[test]
     fn compile_node_identity_is_stable_across_recompiles() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let aux = bus(&mut ed, db(0.0));
@@ -800,12 +987,16 @@ mod tests {
             to: aux,
             nth: 0,
         };
-        let before = compile_project(ed.project(), RATE, 256).unwrap().nodes;
+        let before = compile_project(ed.project(), &ctx, RATE, 256)
+            .unwrap()
+            .nodes;
         assert!(before.get(send_key).is_some());
 
         // Appending a track keeps every existing node id and only adds nodes.
         let third = audio_track(&mut ed, m, db(0.0));
-        let after_append = compile_project(ed.project(), RATE, 256).unwrap().nodes;
+        let after_append = compile_project(ed.project(), &ctx, RATE, 256)
+            .unwrap()
+            .nodes;
         let diff = before.diff(&after_append);
         assert!(diff.removed.is_empty());
         assert_eq!(diff.carried.len(), before.len());
@@ -831,7 +1022,9 @@ mod tests {
         // Removing the first track: its nodes go, the others carry over by key even though
         // their node ids shift.
         ed.apply(EditCommand::RemoveTrack { id: first }).unwrap();
-        let after_remove = compile_project(ed.project(), RATE, 256).unwrap().nodes;
+        let after_remove = compile_project(ed.project(), &ctx, RATE, 256)
+            .unwrap()
+            .nodes;
         let diff = after_append.diff(&after_remove);
         let removed: Vec<NodeKey> = diff.removed.iter().map(|(k, _)| *k).collect();
         assert!(removed.contains(&NodeKey::Clips(first)));
@@ -848,19 +1041,16 @@ mod tests {
 
     #[test]
     fn compile_fader_changes_apply_without_a_recompile() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let t = audio_track(&mut ed, m, db(0.0));
-        let compiled = compile_project(ed.project(), RATE, 256).unwrap();
-        let tone = compiled.nodes.get(NodeKey::Clips(t)).unwrap();
+        let compiled = compile_project(ed.project(), &ctx, RATE, 256).unwrap();
         let fader = compiled.nodes.fader(MixerRef::Track(t)).unwrap();
         let mut renderer = OfflineRenderer::new(compiled.plan, 2);
-        renderer.send(Message::SetParam {
-            node: tone,
-            param: TONE_PARAM_ON,
-            value: 1.0,
-        });
-        renderer.render(8192, 256);
+        renderer.send(Message::Transport(crate::TransportCommand::Play));
+        let before = renderer.render(8192, 256);
+        assert!(before.iter().any(|s| s.abs() > 0.1), "the clip plays");
 
         let mut muted = ed.project().clone();
         muted.tracks[0].strip.settings.mute = true;
@@ -876,20 +1066,15 @@ mod tests {
 
     #[test]
     fn compile_metered_faders_publish_peak_and_rms_to_their_slots() {
+        let (_dir, ctx) = media_dir();
         let mut ed = Editor::new(Project::new("p"));
         let m = media(&mut ed);
         let a = audio_track(&mut ed, m, db(0.0));
         let b = audio_track(&mut ed, m, db(-6.0206));
         let bank = Arc::new(TelemetryBank::new());
-        let compiled = compile_project_metered(ed.project(), RATE, 256, Some(&bank)).unwrap();
+        let compiled = compile_project_metered(ed.project(), &ctx, RATE, 256, Some(&bank)).unwrap();
         let mut renderer = OfflineRenderer::new(compiled.plan, 2);
-        for track in [a, b] {
-            renderer.send(Message::SetParam {
-                node: compiled.nodes.get(NodeKey::Clips(track)).unwrap(),
-                param: TONE_PARAM_ON,
-                value: 1.0,
-            });
-        }
+        renderer.send(Message::Transport(crate::TransportCommand::Play));
         renderer.render(FRAMES, 256);
         let slot = |strip| ow_ipc::meter_slot(ed.project(), strip).unwrap();
         let (peak_a, rms_a) = bank.take_meter(slot(MixerRef::Track(a))).unwrap();
@@ -902,7 +1087,7 @@ mod tests {
         assert!(peak_master[0] > peak_a[0], "the master carries both tracks");
         // Unmetered compiles leave the bank alone.
         let silent = TelemetryBank::new();
-        let _ = compile_project(ed.project(), RATE, 256).unwrap();
+        let _ = compile_project(ed.project(), &ctx, RATE, 256).unwrap();
         assert_eq!(silent.take_meter(0).unwrap().0, [0.0, 0.0]);
     }
 
@@ -911,11 +1096,11 @@ mod tests {
         let mut project = Project::new("bad");
         project.settings.sample_rate = 0;
         assert!(matches!(
-            compile_project(&project, RATE, 256),
+            compile_project(&project, &CompileContext::default(), RATE, 256),
             Err(CompileError::Model(_))
         ));
         assert!(matches!(
-            compile_project(&Project::new("ok"), 0, 256),
+            compile_project(&Project::new("ok"), &CompileContext::default(), 0, 256),
             Err(CompileError::Graph(GraphError::InvalidFormat))
         ));
     }

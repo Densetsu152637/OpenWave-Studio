@@ -9,7 +9,9 @@
 //! tempo map and sample-accurate block timing live in [`transport`]. [`compile`] turns an
 //! `ow-model` project into a plan and timeline.
 
+pub mod clips;
 pub mod compile;
+pub mod export;
 pub mod graph;
 pub mod midi_hub;
 pub mod offline;
@@ -31,12 +33,13 @@ use ow_io::{
     MidirBackend, Opener, RecoveryPolicy, StreamInfo, Supervisor,
 };
 use ow_ipc::{Overflow, TelemetryBank};
-use ow_model::Project;
+use ow_model::{MediaId, Project};
 
 use crate::midi_hub::MidiRings;
 
+pub use clips::{LoadedMedia, SourceCache};
 pub use compile::{
-    Carry, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
+    Carry, CompileContext, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
     compile_project_metered, fader_gain,
 };
 pub use graph::clip::{ClipPlacement, ClipSourceNode};
@@ -147,8 +150,15 @@ struct Live {
     pending_timeline: Option<Box<Timeline>>,
 }
 
-/// The project the engine plays: the latest one handed to [`Engine::set_project`].
-type ProjectSlot = Arc<Mutex<Option<Arc<Project>>>>;
+/// The project the engine plays and where its media is: the latest one handed to
+/// [`Engine::set_project`].
+#[derive(Debug, Clone)]
+struct Wanted {
+    project: Arc<Project>,
+    ctx: CompileContext,
+}
+
+type ProjectSlot = Arc<Mutex<Option<Wanted>>>;
 
 /// What [`Engine::set_project`] did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -159,6 +169,9 @@ pub struct ProjectSwap {
     /// The plan is live but its tempo and time-signature maps did not fit the audio thread's
     /// ring yet; they are retried at the next swap.
     pub timeline_pending: bool,
+    /// Media the plan's clips need that could not be loaded (see
+    /// [`Compiled::missing_media`]); those clips are silent. Empty when `applied` is false.
+    pub missing_media: Vec<MediaId>,
     /// Which node keys survived the swap (their state carries over by key), appeared or went
     /// away, compared with the previous live plan. Empty when `applied` is false.
     pub diff: NodeDiff,
@@ -306,12 +319,13 @@ impl Engine {
                     // lock order is always live, then project.
                     let current = lock(&project).clone();
                     let stale = match (&current, &new_live.project) {
-                        (Some(a), Some(b)) => !Arc::ptr_eq(a, b),
+                        (Some(a), Some(b)) => !Arc::ptr_eq(&a.project, b),
                         (Some(_), None) => true,
                         (None, _) => false,
                     };
                     if stale && let Some(current) = current {
-                        let _ = install_project(&mut new_live, current, &bank);
+                        let _ =
+                            install_project(&mut new_live, current.project, &current.ctx, &bank);
                     }
                     *guard = Some(new_live);
                 }
@@ -338,7 +352,8 @@ impl Engine {
     }
 
     /// Makes `project` what the engine plays: compiles it for the live stream's sample rate
-    /// ([`compile_project_metered`], meters on the telemetry bank) and sends the plan and
+    /// ([`compile_project_metered`], meters on the telemetry bank; audio clips load their media
+    /// through `ctx`, which is kept with the project) and sends the plan and
     /// timeline to the audio thread, which swaps them in at its next cycle boundary. Node state
     /// carries over by [`NodeKey`] ([`NodeMap::diff`], reported in the result); the compiled
     /// nodes hold none yet. With no stream open the project is kept and compiled when one
@@ -351,17 +366,21 @@ impl Engine {
     /// The project is remembered only once its plan is live (or when no stream is open), so a
     /// failed swap leaves the engine and [`current_project`](Self::current_project) on the
     /// previous project, consistently.
-    pub fn set_project(&self, project: Project) -> Result<ProjectSwap, ProjectError> {
+    pub fn set_project(
+        &self,
+        project: Project,
+        ctx: CompileContext,
+    ) -> Result<ProjectSwap, ProjectError> {
         let project = Arc::new(project);
         let mut guard = lock(&self.live);
         match guard.as_mut() {
             Some(live) => {
-                let swap = install_project(live, Arc::clone(&project), &self.bank)?;
-                *lock(&self.project) = Some(project);
+                let swap = install_project(live, Arc::clone(&project), &ctx, &self.bank)?;
+                *lock(&self.project) = Some(Wanted { project, ctx });
                 Ok(swap)
             }
             None => {
-                *lock(&self.project) = Some(project);
+                *lock(&self.project) = Some(Wanted { project, ctx });
                 Ok(ProjectSwap::default())
             }
         }
@@ -369,7 +388,9 @@ impl Engine {
 
     /// The project the engine plays (or will play once a stream opens).
     pub fn current_project(&self) -> Option<Arc<Project>> {
-        lock(&self.project).clone()
+        lock(&self.project)
+            .as_ref()
+            .map(|wanted| Arc::clone(&wanted.project))
     }
 
     /// True once a project plan replaced the smoke-path test tone on the live stream.
@@ -467,17 +488,19 @@ impl Engine {
 fn install_project(
     live: &mut Live,
     project: Arc<Project>,
+    ctx: &CompileContext,
     bank: &Arc<TelemetryBank>,
 ) -> Result<ProjectSwap, ProjectError> {
     if let Some(pending) = live.pending_timeline.take() {
         live.pending_timeline = send_timeline(&mut live.control, pending);
     }
-    let compiled = compile_project_metered(&project, live.sample_rate, MAX_BLOCK, Some(bank))
+    let compiled = compile_project_metered(&project, ctx, live.sample_rate, MAX_BLOCK, Some(bank))
         .map_err(ProjectError::Compile)?;
     let Compiled {
         mut plan,
         timeline,
         nodes,
+        missing_media,
     } = compiled;
     for attempt in 0..SEND_ATTEMPTS {
         match live.control.swap_plan(plan) {
@@ -499,6 +522,7 @@ fn install_project(
     Ok(ProjectSwap {
         applied: true,
         timeline_pending: live.pending_timeline.is_some(),
+        missing_media,
         diff,
     })
 }
@@ -523,14 +547,15 @@ fn send_timeline(control: &mut ControlLink, mut timeline: Box<Timeline>) -> Opti
 /// test-tone node (smoke plan only), the node table and the node MIDI is routed to.
 fn first_plan(
     link: &mut ControlLink,
-    project: Option<&Arc<Project>>,
+    wanted: Option<&Wanted>,
     sample_rate: u32,
     bank: &Arc<TelemetryBank>,
 ) -> Result<(Option<NodeId>, NodeMap, NodeId), String> {
-    match project {
-        Some(project) => {
-            let compiled = compile_project_metered(project, sample_rate, MAX_BLOCK, Some(bank))
-                .map_err(|error| error.to_string())?;
+    match wanted {
+        Some(Wanted { project, ctx }) => {
+            let compiled =
+                compile_project_metered(project, ctx, sample_rate, MAX_BLOCK, Some(bank))
+                    .map_err(|error| error.to_string())?;
             let target = compiled
                 .nodes
                 .fader(ow_model::MixerRef::Master)
@@ -555,7 +580,7 @@ fn make_callback(
     info: &StreamInfo,
     shared: Arc<Shared>,
     bank: Arc<TelemetryBank>,
-    project: Option<Arc<Project>>,
+    wanted: Option<Wanted>,
     started_tx: mpsc::Sender<Started>,
 ) -> AudioCallback {
     let mut builder = CoreBuilder::new()
@@ -570,7 +595,7 @@ fn make_callback(
     let control_surface = builder.producer_ring(MIDI_RING_CAPACITY);
     let (mut link, mut core) = builder.build();
     let telemetry = Arc::clone(link.telemetry());
-    let started = first_plan(&mut link, project.as_ref(), info.sample_rate, &bank).map(
+    let started = first_plan(&mut link, wanted.as_ref(), info.sample_rate, &bank).map(
         |(tone_node, nodes, target)| {
             (
                 Live {
@@ -578,7 +603,7 @@ fn make_callback(
                     control: link,
                     tone_node,
                     nodes,
-                    project: project.clone(),
+                    project: wanted.as_ref().map(|w| Arc::clone(&w.project)),
                     sample_rate: info.sample_rate,
                     pending_timeline: None,
                 },
@@ -733,6 +758,7 @@ mod tests {
     #[test]
     fn pending_timeline_never_lets_an_older_tempo_overtake_a_newer_one() {
         let bank = Arc::new(TelemetryBank::new());
+        let ctx = CompileContext::default();
         let (mut live, mut core) = test_live();
         let mut installed = 0_u64;
         let mut bpm = 100.0;
@@ -743,7 +769,7 @@ mod tests {
             assert!(installed < 12, "the timeline ring never filled");
             bpm += 1.0;
             last = project_at(bpm);
-            let swap = install_project(&mut live, Arc::clone(&last), &bank).unwrap();
+            let swap = install_project(&mut live, Arc::clone(&last), &ctx, &bank).unwrap();
             installed += 1;
             assert!(swap.applied);
             assert_eq!(swap.timeline_pending, live.pending_timeline.is_some());
@@ -758,7 +784,7 @@ mod tests {
         // The ring is still full: a newer swap cannot send anything and its timeline replaces
         // the pending one, so the older tempo is dropped instead of queued behind it.
         let newer = project_at(150.0);
-        let swap = install_project(&mut live, Arc::clone(&newer), &bank).unwrap();
+        let swap = install_project(&mut live, Arc::clone(&newer), &ctx, &bank).unwrap();
         installed += 1;
         assert!(swap.timeline_pending);
         assert_eq!(
@@ -773,7 +799,7 @@ mod tests {
             core.process(&mut buffer, 2, None);
         }
         let newest = project_at(160.0);
-        let swap = install_project(&mut live, Arc::clone(&newest), &bank).unwrap();
+        let swap = install_project(&mut live, Arc::clone(&newest), &ctx, &bank).unwrap();
         installed += 1;
         assert!(!swap.timeline_pending && live.pending_timeline.is_none());
         assert!(Arc::ptr_eq(live.project.as_ref().unwrap(), &newest));

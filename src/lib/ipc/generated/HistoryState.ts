@@ -32,4 +32,10 @@ dirty: boolean,
  * Why the audio engine is not playing the current project (its plan could not be swapped
  * in); null while it is. The engine keeps the previous plan and the app retries.
  */
-engineError: string | null, };
+engineError: string | null, 
+/**
+ * Media items the engine could not load when it last compiled the project (the file is
+ * missing or unreadable); their clips play silence. A warning, not an error: the plan is
+ * live. Ids in ascending order.
+ */
+missingMedia: Array<number>, };

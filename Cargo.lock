@@ -3056,6 +3056,7 @@ checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 name = "openwave-studio"
 version = "0.1.0"
 dependencies = [
+ "hound",
  "ow-engine",
  "ow-io",
  "ow-ipc",
@@ -3100,6 +3101,7 @@ dependencies = [
  "assert_no_alloc",
  "audio_thread_priority",
  "criterion",
+ "hound",
  "num_cpus",
  "ow-io",
  "ow-ipc",
