@@ -289,9 +289,9 @@ Extension goals:
 - Depends on: M2
 - Owned paths: `crates/ow-engine/src/record/`, `crates/ow-engine/src/graph/` (input path and record tap), `crates/ow-engine/src/lib.rs` (record wiring), `crates/ow-engine/Cargo.toml`, `crates/ow-engine/tests/record_loopback.rs`, `crates/ow-io/src/` (`latency_frames` on backends and mock), `crates/ow-media/src/record.rs` (fixes only), `crates/ow-ipc/src/` (record commands/types), `src-tauri/src/ipc/` (new `record.rs`, registration), `src-tauri/src/engine.rs`, `src/lib/ipc/`, `src/lib/components/` (arm button, Record button), `src/lib/arrange/` (arm state view-model), `docs/architecture.md` (recording paragraph)
 - Acceptance checks: M-G6; `cargo test --workspace`, clippy, bindings current, `pnpm typecheck`, `pnpm test`.
-- Status: pending
-- Outcome:
-- Handoff notes: none.
+- Status: done (implementation gate runs over M3–M5 together)
+- Outcome: `experimental` `3317da2`; CI 45139130112 (push) and 45139135887 (PR) success. Commands `record_set_arm(track, armed)`, `record_start()`; stop through `transport_stop` (now `IpcState::transport_stop`). Armed set in `history.armedTracks` (not saved, no undo or dirty). Record tap in `AudioCore::cycle` fed through new records/retired-records rings (`ControlLink::swap_record`, `Message::EndRecording`); `Engine::stop_recording` waits up to 2 s for the tap before `finish()`. Takes written to a private temp dir, then imported through the shared `register_media` helper (content hash, peaks, `AddMedia` dedupe) and placed by `AddClip` in one "Record" transaction. `StreamInfo.latency_frames`: mock `max(loopback, buffer)`, cpal 2 × buffer, WASAPI exclusive 0 (output-only). Tests: `record_loopback` 6 (sample-exact placement, take length equals captured frames), `mvp_record` 3, rt_safety record tap, `pnpm test` 93. macOS microphone entitlement and usage string were already present.
+- Handoff notes: owner manual checks: macOS microphone prompt; real-input alignment against a click (cpal latency is an estimate); mono and stereo inputs; Stop during a long take. New non-`Copy` cross-thread items need their own ring retired through `collect_retired`; exhaustive `match` on `Message` needs `EndRecording`.
 
 #### Slice M4: MIDI clips, minimal piano roll and one synth
 
