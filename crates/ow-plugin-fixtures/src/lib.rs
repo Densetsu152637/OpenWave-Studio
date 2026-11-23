@@ -75,6 +75,27 @@ pub fn reported_latency() -> u32 {
         .unwrap_or(GAIN_LATENCY)
 }
 
+/// Environment variable read by the CLAP gain fixture: when set, instantiating it starts a helper
+/// process that inherits standard output and outlives the plugin (see [`spawn_orphan`]), as some
+/// vendors' helper programs do, while the plugin itself works normally.
+pub const ORPHAN_ENV: &str = "OW_FIXTURE_ORPHAN";
+
+/// Starts a helper process that holds this process's standard output for about 20 seconds.
+pub fn spawn_orphan() {
+    let helper = if cfg!(windows) {
+        std::process::Command::new("ping")
+            .args(["-n", "20", "127.0.0.1"])
+            .stdin(std::process::Stdio::null())
+            .spawn()
+    } else {
+        std::process::Command::new("sleep")
+            .arg("20")
+            .stdin(std::process::Stdio::null())
+            .spawn()
+    };
+    drop(helper);
+}
+
 /// Environment variable read by the crash fixture: `hang` makes it sleep forever instead of
 /// aborting; `orphan` first starts a helper process that inherits the scanner's output pipe and
 /// outlives the plugin (about 20 seconds), then aborts.

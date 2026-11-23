@@ -11,7 +11,7 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -28,6 +28,9 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long the scanner waits for a finished child's output pipe to close.
 const PIPE_GRACE: Duration = Duration::from_secs(2);
+
+/// Most output of a scan child that is read looking for its result line.
+const MAX_OUTPUT: usize = 4 << 20;
 
 /// What precedes the JSON result on the child's standard output.
 pub const RESULT_MARKER: &str = "OW-SCAN-RESULT ";
@@ -223,19 +226,52 @@ impl Scanner {
         // Read the pipe on its own thread so a chatty plugin cannot fill it and stall. The thread
         // is never joined: a helper process the plugin started may inherit the pipe and keep it
         // open long after the child itself is gone, and waiting for its end would hang the scan.
-        let mut stdout = child.stdout.take();
-        let (answer, bytes_arrive) = std::sync::mpsc::channel::<Vec<u8>>();
+        let stdout = child.stdout.take();
+        let (answer, arrives) = std::sync::mpsc::channel::<Option<ScanOutput>>();
         std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            if let Some(stdout) = stdout.as_mut() {
-                let _ = stdout.take(4 << 20).read_to_end(&mut bytes);
-            }
-            let _ = answer.send(bytes);
+            // The result is sent as soon as its line is complete: the scan does not depend on the
+            // pipe closing. `None` means the pipe ended (or filled up) without one.
+            let Some(stdout) = stdout else {
+                let _ = answer.send(None);
+                return;
+            };
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = Vec::new();
+            let mut total = 0_usize;
+            let found = loop {
+                line.clear();
+                match reader.read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break None,
+                    Ok(read) => {
+                        total += read;
+                        let text = String::from_utf8_lossy(&line);
+                        if let Some(json) = text.trim_end().strip_prefix(RESULT_MARKER)
+                            && let Ok(output) = serde_json::from_str::<ScanOutput>(json)
+                        {
+                            break Some(output);
+                        }
+                        if total > MAX_OUTPUT {
+                            break None;
+                        }
+                    }
+                }
+            };
+            let _ = answer.send(found);
         });
         let deadline = Instant::now() + self.timeout;
+        let mut early = None;
         let exit = loop {
+            // The result line may arrive while the child (or a helper it started) lives on.
+            if let Ok(found) = arrives.try_recv() {
+                early = Some(found);
+            }
+            if let Some(Some(_)) = early {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Some(None);
+            }
             match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
+                Ok(Some(status)) => break Some(Some(status)),
                 Ok(None) if Instant::now() >= deadline => {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -252,15 +288,13 @@ impl Scanner {
         let Some(exit) = exit else {
             return (ScanStatus::TimedOut, Vec::new());
         };
-        // The child is gone, so its output is complete unless a helper still holds the pipe: give
-        // the reader a moment, then judge by what it has not delivered (nothing).
-        let bytes = bytes_arrive.recv_timeout(PIPE_GRACE).unwrap_or_default();
-        let text = String::from_utf8_lossy(&bytes);
-        let result = text
-            .lines()
-            .rev()
-            .find_map(|line| line.strip_prefix(RESULT_MARKER))
-            .and_then(|json| serde_json::from_str::<ScanOutput>(json).ok());
+        // The child is gone. Its output is complete unless a helper still holds the pipe: give the
+        // reader a moment for a result line it has not delivered yet.
+        let result = match early {
+            Some(found) => found,
+            None => arrives.recv_timeout(PIPE_GRACE).unwrap_or(None),
+        };
+        let exit = exit.map_or_else(|| "killed after its result".to_string(), |s| s.to_string());
         match result {
             Some(ScanOutput::Plugins { plugins, .. }) => (ScanStatus::Ok, plugins),
             Some(ScanOutput::Error { error }) => {

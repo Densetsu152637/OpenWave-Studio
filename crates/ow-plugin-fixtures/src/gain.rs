@@ -107,6 +107,9 @@ impl PluginFactoryImpl for FixtureFactory {
         plugin_id: &CStr,
     ) -> Option<PluginInstance<'a>> {
         if plugin_id == self.gain.id().unwrap_or_default() {
+            if std::env::var_os(crate::ORPHAN_ENV).is_some() {
+                crate::spawn_orphan();
+            }
             let host_gui = host_info.get_extension::<HostGui>();
             Some(PluginInstance::new::<Gain>(
                 host_info,

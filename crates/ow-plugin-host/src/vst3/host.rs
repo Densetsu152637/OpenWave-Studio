@@ -70,7 +70,8 @@ pub(super) struct Shared {
     /// editor, see `note_applied`), by parameter id.
     pub applied: Mutex<HashMap<u32, f64>>,
     /// Parameters whose editor gesture has begun and not ended.
-    pub gestures: Mutex<std::collections::HashSet<u32>>,
+    /// (with the latest plain value of each, so closing them never queries the controller).
+    pub gestures: Mutex<HashMap<u32, f64>>,
     pub sink: Mutex<Option<Sink>>,
     /// The controller, for plain/normalised conversion in the handler.
     pub controller: Mutex<Option<ComPtr<IEditController>>>,
@@ -113,9 +114,9 @@ impl Shared {
     /// Ends every gesture that is still open (the editor closed, the plugin is released, the
     /// project was replaced), so the app closes the undo step it opened for it.
     pub(super) fn close_gestures(&self) {
-        let open: Vec<u32> = lock(&self.gestures).drain().collect();
-        for param in open {
-            let value = self.current_plain(param);
+        // Callable from any thread: the controller is not asked, the last reported value is used.
+        let open: Vec<(u32, f64)> = lock(&self.gestures).drain().collect();
+        for (param, value) in open {
             self.report(EditorEdit {
                 param,
                 phase: EditPhase::End,
@@ -502,13 +503,14 @@ impl Class for ComponentHandler {
 impl IComponentHandlerTrait for ComponentHandler {
     unsafe fn beginEdit(&self, id: ParamID) -> tresult {
         // A second begin of an open gesture is not reported again.
-        if !lock(&self.shared.gestures).insert(id) {
+        let value = self.shared.current_plain(id);
+        if lock(&self.shared.gestures).insert(id, value).is_some() {
             return kResultOk;
         }
         self.shared.report(EditorEdit {
             param: id,
             phase: EditPhase::Begin,
-            value: self.shared.current_plain(id),
+            value,
         });
         kResultOk
     }
@@ -518,6 +520,9 @@ impl IComponentHandlerTrait for ComponentHandler {
         let plain = self.shared.plain(id, value);
         // The processor must hear the edit too (the host is the only link between the editor
         // and the audio side); a full queue drops it, as for edits from the model.
+        if let Some(last) = lock(&self.shared.gestures).get_mut(&id) {
+            *last = plain;
+        }
         lock(&self.shared.edits).send(Edit { id, value });
         // Not recorded in `applied` here: the app does that when it applies this change to the
         // model (`note_applied`), so older values still waiting to be applied cannot travel back
@@ -531,7 +536,7 @@ impl IComponentHandlerTrait for ComponentHandler {
     }
 
     unsafe fn endEdit(&self, id: ParamID) -> tresult {
-        if !lock(&self.shared.gestures).remove(&id) {
+        if lock(&self.shared.gestures).remove(&id).is_none() {
             return kResultOk;
         }
         self.shared.report(EditorEdit {

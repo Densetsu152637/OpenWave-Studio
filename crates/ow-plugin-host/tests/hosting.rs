@@ -118,6 +118,24 @@ fn a_helper_process_holding_the_output_pipe_does_not_hang_the_scan() {
 }
 
 #[test]
+fn a_successful_scan_is_recorded_ok_while_a_helper_holds_the_pipe() {
+    // The plugin loads fine but starts a helper that keeps the output pipe open for twenty
+    // seconds. The result line is read as soon as it is complete.
+    let scanner = Scanner::new(ScanCommand::new(ow_scan()))
+        .with_timeout(Duration::from_secs(10))
+        .with_env(ow_plugin_fixtures::ORPHAN_ENV, "1");
+    let started = std::time::Instant::now();
+    let record = scanner.scan_file(&ow_plugin_fixtures::gain_path());
+    assert_eq!(record.status, ScanStatus::Ok, "{record:?}");
+    assert_eq!(record.plugins.len(), 2);
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn a_file_that_is_not_a_plugin_is_a_failed_record_not_a_crash() {
     let dir = tempfile::tempdir().unwrap();
     let fake = dir.path().join("fake.clap");
