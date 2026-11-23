@@ -965,7 +965,7 @@ mod tests {
             assert_eq!(written, 8);
             let mut at = 0;
             assert_eq!(
-                ptr.seek(4, IBStream_::IStreamSeekMode_::kIBSeekSet, &mut at),
+                ptr.seek(4, IBStream_::IStreamSeekMode_::kIBSeekSet as i32, &mut at),
                 kResultOk
             );
             let mut buffer = [0_u8; 8];

@@ -553,6 +553,8 @@ fn open_gui(key: u64, main: &mut Main, title: &str) -> Result<(), String> {
 }
 
 /// Hides and destroys the plugin's GUI and its window. Idempotent. Main thread only.
+// Without editor windows (Linux) the window type has nothing to release.
+#[allow(clippy::drop_non_drop)]
 fn close_gui(key: u64, main: &mut Main) {
     let editor = EDITORS.with(|editors| editors.borrow_mut().remove(&key));
     let Some(editor) = editor else {
