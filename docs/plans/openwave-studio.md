@@ -2,6 +2,8 @@
 
 Revision: 2026-11-22, revision 3 (critic rounds 1–3 applied; owner answers to open questions 1, 2 and 4 applied; no stage started)
 
+Paused 2026-11-23 at the owner's request: work stops once the app has auto-update, keeping it bare; resumption expected about two months later. State at pause: stages 1–10 done and reviewed on `experimental` (`de71eac`); stage 11 not started (an attempt was cancelled before any commit). Resume at stage 11. Before resuming, check: PR #3 (`experimental` → `main`) merged and a stable `v*` tag pushed, so the `updater-main` feed exists; toolchain and dependency versions in the architecture record's sources still current (Tauri, tauri-action pin, cpal, ts-rs); owner manual checks still open (update procedures for stages 3–4, stage 9 device checks on macOS/Linux, real unplug, real MIDI hardware); open question 1 (content source) still open.
+
 Goals: each is true when its verifying command or observation succeeds.
 
 - G1. The app builds and launches on Windows, macOS and Linux. Verify: `gh run list --workflow ci.yml --branch main --limit 1 --json conclusion` reports `success`; and the stage 2 launch procedure (download each OS's release bundle on a machine without dev tools, launch, main window visible within 10 s, test tone audible) passes on all three OSes, recorded in stage 2's Outcome.
