@@ -32,6 +32,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use clack_extensions::audio_ports::{AudioPortInfoBuffer, PluginAudioPorts};
+use clack_extensions::gui::{
+    GuiApiType, GuiConfiguration, GuiSize, HostGui, HostGuiImpl, PluginGui, Window as GuiWindow,
+};
 use clack_extensions::latency::{HostLatency, HostLatencyImpl, PluginLatency};
 use clack_extensions::log::{HostLog, HostLogImpl, LogSeverity};
 use clack_extensions::note_ports::PluginNotePorts;
@@ -43,11 +46,15 @@ use clack_extensions::state::{HostState, HostStateImpl, PluginState};
 use clack_extensions::thread_check::{HostThreadCheck, HostThreadCheckImpl};
 use clack_host::events::Match;
 use clack_host::events::event_types::{NoteOffEvent, NoteOnEvent, ParamValueEvent};
+use clack_host::events::spaces::CoreEventSpace;
 use clack_host::prelude::*;
 use ow_dsp::{Event, EventKind};
 
+use crate::editor::{self, EditorWindow, WindowEvent};
 use crate::executor::{self, MainThreadExecutor};
-use crate::hosted::{HostedPlugin, PluginError, PluginProcessor, Requests};
+use crate::hosted::{
+    EditPhase, EditSink, EditorEdit, HostedPlugin, PluginError, PluginProcessor, Requests,
+};
 use crate::info::{Format, ParamInfo as ParamRecord, PluginInfo, kind_of};
 
 /// Parameter events the queue between control and audio thread holds; more are dropped (the
@@ -87,6 +94,7 @@ struct Extensions {
     state: Option<PluginState>,
     audio_ports: Option<PluginAudioPorts>,
     note_ports: Option<PluginNotePorts>,
+    gui: Option<PluginGui>,
 }
 
 thread_local! {
@@ -96,9 +104,20 @@ thread_local! {
     static ENTRIES: RefCell<HashMap<PathBuf, PluginEntry>> = RefCell::new(HashMap::new());
     /// Live instances by key (main thread only).
     static INSTANCES: RefCell<HashMap<u64, Main>> = RefCell::new(HashMap::new());
+    /// Open editor windows by instance key (main thread only). Separate from `INSTANCES` so a
+    /// plugin that asks the host to resize its window from inside one of its own calls (while an
+    /// instance is borrowed) finds the window.
+    static EDITORS: RefCell<HashMap<u64, ClapEditor>> = RefCell::new(HashMap::new());
+}
+
+/// An open CLAP editor: the window the plugin's GUI is embedded in.
+struct ClapEditor {
+    window: EditorWindow,
+    resizable: bool,
 }
 
 struct Shared {
+    key: u64,
     flags: Arc<Flags>,
     executor: Arc<dyn MainThreadExecutor>,
     extensions: OnceLock<Extensions>,
@@ -112,6 +131,7 @@ impl<'a> SharedHandler<'a> for Shared {
             state: instance.get_extension(),
             audio_ports: instance.get_extension(),
             note_ports: instance.get_extension(),
+            gui: instance.get_extension(),
         });
     }
 
@@ -144,6 +164,34 @@ impl HostLogImpl for Shared {
             eprintln!("[openwave] plugin: {message}");
         }
     }
+}
+
+impl HostGuiImpl for Shared {
+    fn resize_hints_changed(&self) {}
+
+    fn request_resize(&self, new_size: GuiSize) -> Result<(), clack_host::host::HostError> {
+        let resized = EDITORS.with(|editors| {
+            let editors = editors.try_borrow().ok()?;
+            let editor = editors.get(&self.key)?;
+            editor
+                .window
+                .set_client_size(new_size.width, new_size.height);
+            Some(())
+        });
+        resized.ok_or(clack_host::host::HostError::Message(
+            "the editor window is not open",
+        ))
+    }
+
+    fn request_show(&self) -> Result<(), clack_host::host::HostError> {
+        Ok(())
+    }
+
+    fn request_hide(&self) -> Result<(), clack_host::host::HostError> {
+        Ok(())
+    }
+
+    fn closed(&self, _was_destroyed: bool) {}
 }
 
 impl HostParamsImplShared for Shared {
@@ -194,6 +242,7 @@ impl HostHandlers for ClapHost {
             .register::<HostLog>()
             .register::<HostLatency>()
             .register::<HostParams>()
+            .register::<HostGui>()
             .register::<HostState>()
             .register::<HostThreadCheck>();
     }
@@ -253,6 +302,7 @@ fn create_instance(
     executor: &Arc<dyn MainThreadExecutor>,
     path: &Path,
     id: &str,
+    key: u64,
 ) -> Result<(Main, Arc<Flags>), String> {
     let entry = load_entry(path)?;
     let id = CString::new(id).map_err(|_| "the plugin id contains a NUL".to_string())?;
@@ -261,6 +311,7 @@ fn create_instance(
     let shared_flags = Arc::clone(&flags);
     let instance = PluginInstance::<ClapHost>::new(
         move |_| Shared {
+            key,
             flags: shared_flags,
             executor,
             extensions: OnceLock::new(),
@@ -402,7 +453,164 @@ fn with_main<T>(key: u64, work: impl FnOnce(&mut Main) -> T) -> Result<T, Plugin
 }
 
 // ---------------------------------------------------------------------------------------------
+// Editor (CLAP gui extension, embedded in an OpenWave window)
+
+/// The GUI API this platform embeds.
+fn gui_api() -> GuiApiType<'static> {
+    if cfg!(windows) {
+        GuiApiType::WIN32
+    } else if cfg!(target_os = "macos") {
+        GuiApiType::COCOA
+    } else {
+        GuiApiType::X11
+    }
+}
+
+/// The plugin-facing handle of the native view `handle`, when this platform embeds one.
+#[allow(unsafe_code)]
+fn parent_window(handle: *mut std::ffi::c_void) -> Option<GuiWindow<'static, 'static>> {
+    #[cfg(windows)]
+    {
+        // SAFETY: the window outlives the plugin's GUI (it is destroyed after `gui.destroy`).
+        Some(unsafe { GuiWindow::from_win32_hwnd(handle) })
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: as above.
+        Some(unsafe { GuiWindow::from_cocoa_nsview(handle) })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = handle;
+        None
+    }
+}
+
+/// Opens the plugin's GUI in a new window, or brings the window forward. Main thread only.
+#[allow(unsafe_code)]
+fn open_gui(key: u64, main: &mut Main, title: &str) -> Result<(), String> {
+    let shown = EDITORS.with(|editors| {
+        editors
+            .borrow()
+            .get(&key)
+            .map(|editor| editor.window.show())
+    });
+    if shown.is_some() {
+        return Ok(());
+    }
+    let gui = main
+        .extensions
+        .gui
+        .ok_or_else(|| "the plugin has no editor".to_string())?;
+    let handle = main.instance.plugin_handle();
+    let configuration = GuiConfiguration {
+        api_type: gui_api(),
+        is_floating: false,
+    };
+    if !gui.is_api_supported(&handle, configuration) {
+        return Err("the plugin's editor cannot be embedded on this platform".into());
+    }
+    gui.create(&handle, configuration)
+        .map_err(|error| error.to_string())?;
+    // From here on a failure destroys the plugin's GUI again.
+    let _ = gui.set_scale(&handle, 1.0);
+    let resizable = gui.can_resize(&handle);
+    let size = gui.get_size(&handle).unwrap_or(GuiSize {
+        width: 480,
+        height: 320,
+    });
+    let window = match EditorWindow::create(title, size.width, size.height, resizable) {
+        Ok(window) => window,
+        Err(error) => {
+            gui.destroy(&handle);
+            return Err(error);
+        }
+    };
+    let Some(parent) = parent_window(window.native_handle()) else {
+        gui.destroy(&handle);
+        return Err("the plugin's editor cannot be embedded on this platform".into());
+    };
+    // The window is registered first: the plugin may ask for another size while attaching.
+    EDITORS.with(|editors| {
+        editors
+            .borrow_mut()
+            .insert(key, ClapEditor { window, resizable });
+    });
+    // SAFETY: the parent window stays alive until the GUI is destroyed.
+    let attached = unsafe { gui.set_parent(&handle, parent) };
+    if let Err(error) = attached {
+        EDITORS.with(|editors| editors.borrow_mut().remove(&key));
+        gui.destroy(&handle);
+        return Err(error.to_string());
+    }
+    let _ = gui.show(&handle);
+    EDITORS.with(|editors| {
+        if let Some(editor) = editors.borrow().get(&key) {
+            editor.window.show();
+        }
+    });
+    Ok(())
+}
+
+/// Hides and destroys the plugin's GUI and its window. Idempotent. Main thread only.
+fn close_gui(key: u64, main: &mut Main) {
+    let editor = EDITORS.with(|editors| editors.borrow_mut().remove(&key));
+    let Some(editor) = editor else {
+        return;
+    };
+    if let Some(gui) = main.extensions.gui {
+        let handle = main.instance.plugin_handle();
+        let _ = gui.hide(&handle);
+        gui.destroy(&handle);
+    }
+    drop(editor);
+}
+
+/// Handles what the user did to the editor window. Returns false once the editor is closed.
+fn poll_gui(key: u64, main: &mut Main) -> bool {
+    let polled = EDITORS.with(|editors| {
+        editors
+            .borrow()
+            .get(&key)
+            .map(|editor| (editor.window.poll(), editor.resizable))
+    });
+    let Some((events, resizable)) = polled else {
+        return false;
+    };
+    for event in events {
+        match event {
+            WindowEvent::CloseRequested => {
+                close_gui(key, main);
+                return false;
+            }
+            WindowEvent::Resized { width, height } if resizable => {
+                let Some(gui) = main.extensions.gui else {
+                    continue;
+                };
+                let handle = main.instance.plugin_handle();
+                let wanted = GuiSize { width, height };
+                let accepted = gui.adjust_size(&handle, wanted).unwrap_or(wanted);
+                if gui.set_size(&handle, accepted).is_ok() && accepted != wanted {
+                    EDITORS.with(|editors| {
+                        if let Some(editor) = editors.borrow().get(&key) {
+                            editor
+                                .window
+                                .set_client_size(accepted.width, accepted.height);
+                        }
+                    });
+                }
+            }
+            WindowEvent::Resized { .. } => {}
+        }
+    }
+    true
+}
+
+// ---------------------------------------------------------------------------------------------
 // Audio-thread side
+
+/// Reports the plugin made in one block that the queue holds before the control side serves them.
+const REPORT_QUEUE: usize = 1024;
 
 /// A parameter value queued for the next block.
 #[derive(Debug, Clone, Copy)]
@@ -455,6 +663,8 @@ impl AudioSide {
 struct AudioSlot {
     side: Option<AudioSide>,
     edits: rtrb::Consumer<ParamEdit>,
+    /// Parameter changes the plugin reported while processing (its editor's gestures).
+    reports: rtrb::Producer<EditorEdit>,
 }
 
 type SharedSlot = Arc<Mutex<AudioSlot>>;
@@ -470,7 +680,11 @@ struct ClapProcessor {
 impl ClapProcessor {
     /// Runs the plugin on `audio`. Returns false when the block was not processed.
     fn run(slot: &mut AudioSlot, audio: &mut [&mut [f32]; 2], events: &[Event]) -> bool {
-        let AudioSlot { side, edits } = slot;
+        let AudioSlot {
+            side,
+            edits,
+            reports,
+        } = slot;
         let Some(side) = side.as_mut() else {
             return false;
         };
@@ -576,21 +790,44 @@ impl ClapProcessor {
                     ),
                 }
             }));
-        let input_events = input_events.as_input();
-        let mut output_events = output_events.as_output();
+        let input_view = input_events.as_input();
+        let mut output_view = output_events.as_output();
 
         IN_AUDIO.with(|flag| flag.set(true));
         let result = assert_no_alloc::permit_alloc(|| {
             started.process(
                 &input_audio,
                 &mut output_audio,
-                &input_events,
-                &mut output_events,
+                &input_view,
+                &mut output_view,
                 Some(*steady),
                 None,
             )
         });
         IN_AUDIO.with(|flag| flag.set(false));
+        // What the plugin's editor did during the block (gestures and value changes).
+        // (`output_view`, the plugin's window onto this list, is no longer used.)
+        for event in output_events.iter() {
+            let report = match event.as_core_event() {
+                Some(CoreEventSpace::ParamValue(change)) => change
+                    .param_id()
+                    .map(|id| (id, EditPhase::Change, change.value())),
+                Some(CoreEventSpace::ParamGestureBegin(gesture)) => gesture
+                    .param_id()
+                    .map(|id| (id, EditPhase::Begin, f64::NAN)),
+                Some(CoreEventSpace::ParamGestureEnd(gesture)) => {
+                    gesture.param_id().map(|id| (id, EditPhase::End, f64::NAN))
+                }
+                _ => None,
+            };
+            if let Some((id, phase, value)) = report {
+                let _ = reports.push(EditorEdit {
+                    param: id.get(),
+                    phase,
+                    value,
+                });
+            }
+        }
         *steady += frames as u64;
         if result.is_err() {
             *failed = true;
@@ -656,8 +893,12 @@ pub struct ClapPlugin {
     executor: Arc<dyn MainThreadExecutor>,
     slot: SharedSlot,
     edits: Mutex<rtrb::Producer<ParamEdit>>,
-    /// The values this host last sent, by parameter id.
+    /// The values this host last sent (or the editor last reported), by parameter id.
     applied: Mutex<HashMap<u32, f64>>,
+    /// What the plugin's editor did, as the audio thread saw it.
+    reports: Mutex<rtrb::Consumer<EditorEdit>>,
+    sink: Mutex<Option<EditSink>>,
+    editor_open: Arc<AtomicBool>,
     flags: Arc<Flags>,
     latency: Arc<AtomicU32>,
     /// (sample rate, max block) the instance is activated for.
@@ -676,12 +917,13 @@ impl ClapPlugin {
     ) -> Result<Arc<Self>, PluginError> {
         let key = NEXT_KEY.fetch_add(1, Ordering::Relaxed);
         let (producer, consumer) = rtrb::RingBuffer::new(EDIT_QUEUE);
+        let (report_producer, report_consumer) = rtrb::RingBuffer::new(REPORT_QUEUE);
         let path = PathBuf::from(&info.path);
         let id = info.id.clone();
         let created = {
             let executor = Arc::clone(&executor);
             executor::call(executor.clone().as_ref(), move || {
-                let (mut main, flags) = create_instance(&executor, &path, &id)?;
+                let (mut main, flags) = create_instance(&executor, &path, &id, key)?;
                 if let (Some(state), Some(extension)) = (&state, main.extensions.state) {
                     // A state the plugin cannot read leaves it at its defaults; not fatal.
                     let mut reader: &[u8] = state;
@@ -697,6 +939,7 @@ impl ClapPlugin {
         let slot = Arc::new(Mutex::new(AudioSlot {
             side: Some(side),
             edits: consumer,
+            reports: report_producer,
         }));
         // On macOS the standard mutex allocates its pthread mutex the first time it is locked.
         // Lock it once here, on the control thread, so the audio thread's first `try_lock`
@@ -709,11 +952,51 @@ impl ClapPlugin {
             slot,
             edits: Mutex::new(producer),
             applied: Mutex::new(HashMap::new()),
+            reports: Mutex::new(report_consumer),
+            sink: Mutex::new(None),
+            editor_open: Arc::new(AtomicBool::new(false)),
             flags,
             latency: Arc::new(AtomicU32::new(latency)),
             config: Mutex::new((sample_rate, max_block)),
             destroyed: AtomicBool::new(false),
         }))
+    }
+
+    /// Hands the sink what the plugin's editor did since the last call. No main-thread call.
+    fn serve_reports(&self) {
+        let mut reports = Vec::new();
+        {
+            let mut consumer = lock(&self.reports);
+            while let Ok(report) = consumer.pop() {
+                reports.push(report);
+            }
+        }
+        if reports.is_empty() {
+            return;
+        }
+        let sink = lock(&self.sink).clone();
+        for mut report in reports {
+            {
+                let mut applied = lock(&self.applied);
+                match report.phase {
+                    EditPhase::Change => {
+                        // The model gets this value back through `set_params`: remembering it
+                        // makes that a no-op instead of an echo.
+                        applied.insert(report.param, report.value);
+                    }
+                    EditPhase::Begin | EditPhase::End => {
+                        report.value = applied
+                            .get(&report.param)
+                            .copied()
+                            .or_else(|| self.info.param(report.param).map(|p| p.default))
+                            .unwrap_or(0.0);
+                    }
+                }
+            }
+            if let Some(sink) = &sink {
+                sink(report);
+            }
+        }
     }
 
     fn queue(&self, id: u32, value: f64) -> bool {
@@ -826,6 +1109,8 @@ impl HostedPlugin for ClapPlugin {
         if self.destroyed.load(Ordering::Acquire) {
             return Requests::default();
         }
+        self.serve_reports();
+        let editor = self.editor_open.load(Ordering::Acquire);
         let flags = Arc::clone(&self.flags);
         let pending = [
             &flags.callback,
@@ -835,7 +1120,8 @@ impl HostedPlugin for ClapPlugin {
             &flags.params,
         ]
         .iter()
-        .any(|flag| flag.load(Ordering::Acquire));
+        .any(|flag| flag.load(Ordering::Acquire))
+            || editor;
         if !pending {
             // Nothing was asked: no main-thread call.
             return Requests::default();
@@ -845,9 +1131,13 @@ impl HostedPlugin for ClapPlugin {
         let restart = flags.restart.swap(false, Ordering::AcqRel);
         let config = *lock(&self.config);
         let slot = Arc::clone(&self.slot);
+        let editor_open = Arc::clone(&self.editor_open);
         let served = self.call(move || {
             let mut requests = Requests::default();
             let _ = with_main(key, |main| {
+                if editor && !poll_gui(key, main) {
+                    editor_open.store(false, Ordering::Release);
+                }
                 if flags.callback.swap(false, Ordering::AcqRel) {
                     main.instance.call_on_main_thread_callback();
                 }
@@ -905,6 +1195,51 @@ impl HostedPlugin for ClapPlugin {
         })?
     }
 
+    fn set_edit_sink(&self, sink: EditSink) {
+        *lock(&self.sink) = Some(sink);
+    }
+
+    fn open_editor(&self) -> Result<(), PluginError> {
+        if !editor::AVAILABLE {
+            return Err(PluginError::Plugin(
+                "plugin editor windows are not available on this platform".into(),
+            ));
+        }
+        let key = self.key;
+        let title = self.info.name.clone();
+        self.call(move || {
+            with_main(key, |main| open_gui(key, main, &title))?.map_err(PluginError::Plugin)
+        })??;
+        self.editor_open.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn close_editor(&self) {
+        let key = self.key;
+        let _ = self.call(move || {
+            let _ = with_main(key, |main| close_gui(key, main));
+        });
+        self.editor_open.store(false, Ordering::Release);
+    }
+
+    fn editor_open(&self) -> bool {
+        self.editor_open.load(Ordering::Acquire)
+    }
+
+    fn editor_size(&self) -> Option<(u32, u32)> {
+        let key = self.key;
+        self.call(move || {
+            EDITORS.with(|editors| {
+                editors
+                    .borrow()
+                    .get(&key)
+                    .map(|editor| editor.window.client_size())
+            })
+        })
+        .ok()
+        .flatten()
+    }
+
     fn destroy(&self) {
         if self.destroyed.swap(true, Ordering::AcqRel) {
             return;
@@ -916,9 +1251,11 @@ impl HostedPlugin for ClapPlugin {
             // Taking the audio side first makes any node that still runs output silence.
             let side = lock(&slot).side.take();
             if let (Some(mut main), Some(side)) = (main, side) {
+                close_gui(key, &mut main);
                 main.instance.deactivate(side.processor.into_stopped());
             }
         });
+        self.editor_open.store(false, Ordering::Release);
         if torn_down.is_err() {
             eprintln!(
                 "[openwave] a plugin instance could not be released: the main thread is gone"
@@ -965,7 +1302,7 @@ pub fn describe_file(
         let name = text(descriptor.name());
         let vendor = text(descriptor.vendor());
         let version = text(descriptor.version());
-        let (mut main, _) = create_instance(executor, path, id)?;
+        let (mut main, _) = create_instance(executor, path, id, 0)?;
         let layout = main.layout();
         let params = main.params();
         let mut latency = 0;
@@ -975,6 +1312,15 @@ pub fn describe_file(
             main.instance.deactivate(stopped);
         }
         let instrument = features.iter().any(|feature| feature == "instrument");
+        let editor = main.extensions.gui.is_some_and(|gui| {
+            gui.is_api_supported(
+                &main.instance.plugin_handle(),
+                GuiConfiguration {
+                    api_type: gui_api(),
+                    is_floating: false,
+                },
+            )
+        });
         found.push(PluginInfo {
             format: Format::Clap,
             kind: kind_of(Format::Clap, id),
@@ -993,6 +1339,7 @@ pub fn describe_file(
             note_input: layout.note_input,
             latency,
             params,
+            editor,
             path: std::path::absolute(path)
                 .unwrap_or_else(|_| path.to_path_buf())
                 .to_string_lossy()

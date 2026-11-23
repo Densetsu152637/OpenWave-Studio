@@ -6,7 +6,7 @@ import type { ParamDescriptorDto } from "./ParamDescriptorDto";
  */
 export type DeviceDescriptor = { 
 /**
- * The `Device::kind` string, for example `builtin.synth` or `clap:com.vendor.plugin`.
+ * The `Device::kind` string, for example `builtin.synth` or `clap:com.vendor.plugin` or `vst3:<class id>`.
  */
 kind: string, 
 /**
@@ -22,10 +22,15 @@ instrument: boolean,
  */
 params: Array<ParamDescriptorDto>, 
 /**
- * The plugin format (`clap`); absent for a built-in device.
+ * The plugin format (`clap` or `vst3`); absent for a built-in device.
  */
 format?: string, 
 /**
  * The plugin's vendor; absent for a built-in device.
  */
-vendor?: string, };
+vendor?: string, 
+/**
+ * True when the plugin has an editor window that this platform can show (Windows and
+ * macOS); absent otherwise, and for every built-in device.
+ */
+editor?: boolean, };

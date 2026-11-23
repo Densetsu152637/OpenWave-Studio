@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Fixture plugins for OpenWave Studio's plugin-hosting tests (CLAP now, VST3 later)"
+description = "Fixture plugins for OpenWave Studio's plugin-hosting tests (CLAP and VST3)"
 build = "build.rs"
 # Never published: these are test plugins.
 publish = false
@@ -14,12 +14,24 @@ publish = false
 # default build is a plain rlib that only knows where the bundles are.
 gain = []
 crash = []
+vst3 = ["dep:vst3"]
 
 [dependencies]
 clack-plugin = "=0.2.0"
-clack-extensions = { version = "=0.2.0", features = ["clack-plugin", "audio-ports", "note-ports", "params", "state", "latency"] }
+clack-extensions = { version = "=0.2.0", features = ["clack-plugin", "audio-ports", "note-ports", "params", "state", "latency", "gui"] }
+vst3 = { version = "0.3", optional = true }
 
-# The CLAP entry point is an exported C symbol, which Rust 2024 spells `#[unsafe(no_mangle)]`.
+# The fixture editors draw a plain native child view.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
+
+# The plugin entry points are exported C symbols (Rust 2024 spells them `#[unsafe(no_mangle)]`) and
+# the editors call native window APIs.
 [lints.rust]
 unsafe_code = "allow"
 

@@ -1,4 +1,4 @@
-//! Finding plugin files and scanning them out of process.
+//! Finding plugin files (CLAP and VST3) and scanning them out of process.
 //!
 //! A scan loads each candidate in a child process (`ow-scan <file>`, or the app's own
 //! `openwave-studio --scan-plugin <file>`): loading a plugin and instantiating it to read its
@@ -17,9 +17,11 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::clap;
 use crate::executor::{InlineExecutor, MainThreadExecutor};
-use crate::info::{FileRecord, PluginInfo, RECORD_VERSION, ScanCache, ScanOutput, ScanStatus};
+use crate::info::{
+    FileRecord, Format, PluginInfo, RECORD_VERSION, ScanCache, ScanOutput, ScanStatus,
+};
+use crate::{clap, vst3};
 
 /// The scanner's timeout per file.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -38,8 +40,7 @@ const MAX_CANDIDATES: usize = 2000;
 /// A crashing plugin ends the process before anything is printed, which is what the parent's
 /// `crashed` status means.
 pub fn run_child(path: &Path) -> i32 {
-    let executor: Arc<dyn MainThreadExecutor> = Arc::new(InlineExecutor::new());
-    let (output, code) = match clap::describe_file(&executor, path) {
+    let (output, code) = match scan_in_process(path) {
         Ok(plugins) => (
             ScanOutput::Plugins {
                 version: RECORD_VERSION,
@@ -56,11 +57,28 @@ pub fn run_child(path: &Path) -> i32 {
     code
 }
 
-/// Scans `path` in this process and returns the plugins (what `run_child` prints). A crashing
-/// plugin crashes the caller: tests and tools that need isolation use [`Scanner`].
+/// Scans `path` in this process and returns the plugins (what `run_child` prints). The format
+/// follows the file's extension (`.clap` or `.vst3`). A crashing plugin crashes the caller:
+/// tests and tools that need isolation use [`Scanner`].
 pub fn scan_in_process(path: &Path) -> Result<Vec<PluginInfo>, String> {
     let executor: Arc<dyn MainThreadExecutor> = Arc::new(InlineExecutor::new());
-    clap::describe_file(&executor, path)
+    match format_of(path) {
+        Some(Format::Vst3) => vst3::describe_file(&executor, path),
+        Some(Format::Clap) => clap::describe_file(&executor, path),
+        None => Err("not a CLAP or VST3 plugin file (expected .clap or .vst3)".into()),
+    }
+}
+
+/// The plugin format a file name's extension stands for.
+pub fn format_of(path: &Path) -> Option<Format> {
+    let extension = path.extension()?.to_str()?;
+    if extension.eq_ignore_ascii_case("clap") {
+        Some(Format::Clap)
+    } else if extension.eq_ignore_ascii_case("vst3") {
+        Some(Format::Vst3)
+    } else {
+        None
+    }
 }
 
 /// How to start the scanner child: `program args... <plugin file>`.
@@ -319,27 +337,50 @@ pub fn fingerprint(path: &Path) -> Option<(u64, u64)> {
     Some((meta.len(), u64::try_from(modified).ok()?))
 }
 
-/// The executable inside a `.clap` bundle folder (`Contents/MacOS/*`), when `path` is one.
-fn executable_of(path: &Path) -> Option<PathBuf> {
+/// The executable inside a plugin bundle folder, when `path` is one: `Contents/MacOS/*` on
+/// macOS, `Contents/<arch>-win/*` and `Contents/<arch>-linux/*` for VST3 bundles elsewhere.
+pub(crate) fn executable_of(path: &Path) -> Option<PathBuf> {
     if !path.is_dir() {
         return None;
     }
-    let dir = path.join("Contents").join("MacOS");
-    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
-        .filter_map(|entry| Some(entry.ok()?.path()))
-        .filter(|path| path.is_file())
-        .collect();
-    entries.sort();
-    entries.into_iter().next()
+    let contents = path.join("Contents");
+    let folders: &[&str] = if cfg!(target_os = "macos") {
+        &["MacOS"]
+    } else if cfg!(windows) {
+        &["x86_64-win", "arm64-win", "arm64ec-win"]
+    } else if cfg!(target_arch = "aarch64") {
+        &["aarch64-linux", "x86_64-linux"]
+    } else {
+        &["x86_64-linux", "aarch64-linux"]
+    };
+    let stem = path.file_stem().and_then(|stem| stem.to_str());
+    for folder in folders {
+        let dir = contents.join(folder);
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut entries: Vec<PathBuf> = entries
+            .filter_map(|entry| Some(entry.ok()?.path()))
+            .filter(|path| path.is_file())
+            .collect();
+        entries.sort();
+        // Prefer the file named like the bundle (`Name.vst3/Contents/x86_64-win/Name.vst3`).
+        let named = entries
+            .iter()
+            .find(|entry| entry.file_stem().and_then(|s| s.to_str()) == stem)
+            .cloned();
+        if let Some(found) = named.or_else(|| entries.into_iter().next()) {
+            return Some(found);
+        }
+    }
+    None
 }
 
-fn is_clap_name(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("clap"))
+fn is_plugin_name(path: &Path) -> bool {
+    format_of(path).is_some()
 }
 
-/// The plugin files under `roots`: files (or macOS bundle folders) named `*.clap`, found up to
+/// The plugin files under `roots`: files or bundle folders named `*.clap` or `*.vst3`, found up to
 /// [`MAX_DEPTH`] folders down, in path order. A root that is itself a plugin file counts.
 pub fn candidates(roots: &[PathBuf]) -> Vec<PathBuf> {
     fn walk(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
@@ -352,7 +393,7 @@ pub fn candidates(roots: &[PathBuf]) -> Vec<PathBuf> {
             if found.len() >= MAX_CANDIDATES {
                 return;
             }
-            if is_clap_name(&path) {
+            if is_plugin_name(&path) {
                 found.push(path);
             } else if path.is_dir() && depth < MAX_DEPTH {
                 walk(&path, depth + 1, found);
@@ -364,7 +405,7 @@ pub fn candidates(roots: &[PathBuf]) -> Vec<PathBuf> {
         // Absolute, so the path a record stores still means the same file after the working
         // directory changes.
         let root = std::path::absolute(root).unwrap_or_else(|_| root.clone());
-        if is_clap_name(&root) && root.exists() {
+        if is_plugin_name(&root) && root.exists() {
             found.push(root);
         } else {
             walk(&root, 0, &mut found);
@@ -375,39 +416,47 @@ pub fn candidates(roots: &[PathBuf]) -> Vec<PathBuf> {
     found
 }
 
-/// The folders CLAP plugins are installed in on this OS, plus those of `CLAP_PATH`.
+/// The folders CLAP and VST3 plugins are installed in on this OS, plus those of `CLAP_PATH` and
+/// `VST3_PATH`.
 pub fn default_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     #[cfg(windows)]
     {
         if let Some(common) = std::env::var_os("COMMONPROGRAMFILES") {
-            paths.push(PathBuf::from(common).join("CLAP"));
+            paths.push(PathBuf::from(&common).join("CLAP"));
+            paths.push(PathBuf::from(common).join("VST3"));
         }
         if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-            paths.push(
-                PathBuf::from(local)
-                    .join("Programs")
-                    .join("Common")
-                    .join("CLAP"),
-            );
+            let common = PathBuf::from(local).join("Programs").join("Common");
+            paths.push(common.join("CLAP"));
+            paths.push(common.join("VST3"));
         }
     }
     #[cfg(target_os = "macos")]
     {
         paths.push(PathBuf::from("/Library/Audio/Plug-Ins/CLAP"));
+        paths.push(PathBuf::from("/Library/Audio/Plug-Ins/VST3"));
         if let Some(home) = std::env::var_os("HOME") {
-            paths.push(PathBuf::from(home).join("Library/Audio/Plug-Ins/CLAP"));
+            let plug_ins = PathBuf::from(home).join("Library/Audio/Plug-Ins");
+            paths.push(plug_ins.join("CLAP"));
+            paths.push(plug_ins.join("VST3"));
         }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         paths.push(PathBuf::from("/usr/lib/clap"));
+        paths.push(PathBuf::from("/usr/lib/vst3"));
+        paths.push(PathBuf::from("/usr/local/lib/vst3"));
         if let Some(home) = std::env::var_os("HOME") {
-            paths.push(PathBuf::from(home).join(".clap"));
+            let home = PathBuf::from(home);
+            paths.push(home.join(".clap"));
+            paths.push(home.join(".vst3"));
         }
     }
-    if let Some(extra) = std::env::var_os("CLAP_PATH") {
-        paths.extend(std::env::split_paths(&extra));
+    for variable in ["CLAP_PATH", "VST3_PATH"] {
+        if let Some(extra) = std::env::var_os(variable) {
+            paths.extend(std::env::split_paths(&extra));
+        }
     }
     paths.retain(|path| !path.as_os_str().is_empty());
     paths.dedup();
@@ -427,12 +476,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn candidates_find_clap_files_in_nested_folders_and_skip_the_rest() {
+    fn candidates_find_plugin_files_in_nested_folders_and_skip_the_rest() {
         let dir = std::env::temp_dir().join(format!("ow-scan-candidates-{}", now_ms()));
         let vendor = dir.join("Vendor");
         fs::create_dir_all(&vendor).unwrap();
         fs::write(dir.join("a.clap"), b"x").unwrap();
         fs::write(vendor.join("b.CLAP"), b"x").unwrap();
+        // A VST3 bundle folder is one candidate; what is inside it is not looked at.
+        let bundle = vendor.join("c.vst3");
+        fs::create_dir_all(bundle.join("Contents")).unwrap();
+        fs::write(bundle.join("Contents").join("inner.clap"), b"x").unwrap();
         fs::write(vendor.join("notes.txt"), b"x").unwrap();
         let found = candidates(std::slice::from_ref(&dir));
         let mut names: Vec<_> = found
@@ -440,7 +493,7 @@ mod tests {
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(names, ["a.clap", "b.CLAP"]);
+        assert_eq!(names, ["a.clap", "b.CLAP", "c.vst3"]);
         // A plugin file named directly is a candidate too; a missing root is nothing.
         assert_eq!(candidates(&[dir.join("a.clap")]).len(), 1);
         assert!(candidates(&[dir.join("missing")]).is_empty());

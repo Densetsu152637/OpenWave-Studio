@@ -133,3 +133,62 @@ fn a_plugin_that_is_not_installed_compiles_as_unknown() {
     assert!(out.iter().all(|s| *s == 0.0));
     let _ = BTreeMap::<u32, f64>::new();
 }
+
+#[test]
+fn vst3_plugins_feed_delay_compensation_and_survive_recompiles() {
+    let tone = vst3_tone_kind();
+    let gain = vst3_gain_kind();
+    let mut editor = Editor::new(Project::new("vst3"));
+    let (_, inserts) = add_track(
+        &mut editor,
+        (&tone, &[(PARAM_LEVEL, 1.0)]),
+        &[(&gain, &[(PARAM_GAIN, 1.0)])],
+    );
+    add_track(&mut editor, (&tone, &[(PARAM_LEVEL, 1.0)]), &[]);
+    let cache = fixture_cache();
+    let ctx = CompileContext::default().with_plugins(cache.clone());
+    let before = cache.instances_created();
+    let first = compile_project(&editor.project().clone(), &ctx, RATE, MAX_BLOCK).unwrap();
+    // Three VST3 instances (two tones and a gain), each created once.
+    assert_eq!(cache.instances_created(), before + 3);
+
+    // The gain's 64 frames of latency reach the plan; the track without it is delayed to match.
+    assert_eq!(first.plan.output_latency(), GAIN_LATENCY);
+    let node = first.nodes.get(NodeKey::Device(inserts[0])).unwrap();
+    assert_eq!(first.plan.latency_of(node), Some(GAIN_LATENCY));
+    let mut renderer = player(first);
+    let out = render(&mut renderer, 4096);
+    let lag = GAIN_LATENCY as usize;
+    assert!(out[..lag * 2].iter().all(|s| *s == 0.0));
+    let both = out[3000 * 2];
+    assert!(both > 0.1, "{both}");
+
+    // A live edit reaches the instance without a recompile: the gain halves one of two tracks.
+    let plugin = cache.get(inserts[0].0).unwrap();
+    editor
+        .apply(EditCommand::SetDeviceParam {
+            device: inserts[0],
+            param: PARAM_GAIN,
+            value: Some(0.0),
+        })
+        .unwrap();
+    assert_eq!(
+        plugin.set_params(&editor.project().devices[&inserts[0]].params.clone()),
+        1
+    );
+    let after = render(&mut renderer, 2048);
+    assert!(
+        (after[1500 * 2] - both / 2.0).abs() < 1e-5,
+        "{}",
+        after[1500 * 2]
+    );
+    assert_eq!(cache.instances_created(), before + 3);
+
+    // A full recompile finds the same instances.
+    compile_project(&editor.project().clone(), &ctx, RATE, MAX_BLOCK).unwrap();
+    assert_eq!(cache.instances_created(), before + 3);
+    assert!(std::sync::Arc::ptr_eq(
+        &plugin,
+        &cache.get(inserts[0].0).unwrap()
+    ));
+}

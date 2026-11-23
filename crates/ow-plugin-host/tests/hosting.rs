@@ -44,12 +44,17 @@ fn a_scan_through_ow_scan_survives_the_crashing_plugin() {
         "{:?}",
         by_name(ow_plugin_fixtures::CRASH_FILE)
     );
-    assert_eq!(report.scanned, 2);
+    assert_eq!(
+        by_name(ow_plugin_fixtures::VST3_FILE).status,
+        ScanStatus::Ok
+    );
+    assert_eq!(report.scanned, 3);
     assert_eq!(report.failures().len(), 1);
 
-    // The good plugins are all there with their parameters, ports and latency.
+    // The good plugins are all there with their parameters, ports and latency: two CLAP
+    // plugins and the two VST3 classes.
     let plugins = report.plugins();
-    assert_eq!(plugins.len(), 2, "{plugins:#?}");
+    assert_eq!(plugins.len(), 4, "{plugins:#?}");
     let gain = plugins.iter().find(|p| p.id == GAIN_ID).unwrap();
     assert_eq!(gain.kind, "clap:com.openwave.fixture.gain");
     assert_eq!(gain.name, "OpenWave Fixture Gain");
@@ -74,7 +79,7 @@ fn a_scan_through_ow_scan_survives_the_crashing_plugin() {
     // The cache holds the crash too, keyed by path, size and mtime: a second scan starts no
     // child at all, and the crashing file is not tried again.
     let again = scanner.scan(&[bundles], false);
-    assert_eq!((again.scanned, again.cached), (0, 2));
+    assert_eq!((again.scanned, again.cached), (0, 3));
     assert_eq!(again.files, report.files);
 }
 

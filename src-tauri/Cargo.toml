@@ -39,6 +39,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [dev-dependencies]
 strum = "0.28.0"
+# The plugin_state tests call the test hooks the fixture plugins export.
+libloading = "0.8"
 # Depending on the fixtures builds the plugin bundles the plugin_state test loads.
 ow-plugin-fixtures = { path = "../crates/ow-plugin-fixtures" }
 

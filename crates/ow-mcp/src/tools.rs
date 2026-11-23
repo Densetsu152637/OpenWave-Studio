@@ -231,7 +231,8 @@ pub struct ScanPluginsArgs {
 pub struct PluginEditorArgs {
     /// Open or close.
     pub action: EditorAction,
-    /// The device id of the hosted plugin.
+    /// The device id of the hosted plugin (a device in the project whose kind starts with
+    /// `clap:` or `vst3:`).
     pub device: u64,
 }
 
@@ -344,7 +345,7 @@ tools! {
     ListPlugins(NoArgs) = "list_plugins",
         "List the plugins the last scan found and the plugin files it had to skip (crashed, timed out or failed to load), without scanning again.";
     PluginEditor(PluginEditorArgs) = "plugin_editor",
-        "Open or close a hosted plugin's own editor window. Not available yet: the answer says so; set the plugin's parameters with the edit tool instead.";
+        "Open or close a hosted plugin's own editor window (CLAP and VST3; Windows and macOS). `device` is the id of a plugin device in the project. Changes made in the window arrive as set_device_param edits (one undo step per gesture). On Linux the answer says the editor is unavailable; set the plugin's parameters with the edit tool instead.";
 }
 
 #[cfg(test)]

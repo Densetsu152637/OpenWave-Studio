@@ -38,6 +38,7 @@
     watchPlugins,
   } from "../devices/descriptors";
   import { descriptorFor, setParamCommand } from "../devices/params";
+  import { pluginEditorOpen } from "../ipc/commands";
   import { replaceNotesCommand } from "../pianoroll/notes";
   import { nativeDialogs } from "../arrange/dialogs";
   import {
@@ -532,6 +533,7 @@
             device={dockDevice}
             descriptor={dockDescriptor}
             onParam={(param, value) => setParam(dockDevice, param, value)}
+            onEditor={() => run(() => pluginEditorOpen(dockDevice.id))}
           />
         {/if}
       </section>

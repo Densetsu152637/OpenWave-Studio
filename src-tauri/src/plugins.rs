@@ -11,11 +11,20 @@
 //!   candidate, 10 s timeout) and the `plugin-cache.json` scan cache in the app data folder;
 //! * the conversion of scanned plugins to the [`DeviceDescriptor`]s the UI and MCP show.
 //!
-//! Scan folders are the OS defaults, `CLAP_PATH`, and the user's extra folders from the
-//! preferences (`paths.pluginDirs`).
+//! Scan folders are the OS defaults, `CLAP_PATH` and `VST3_PATH`, and the user's extra folders
+//! from the preferences (`paths.pluginDirs`).
+//!
+//! Editor windows (slice M9): `plugin_editor_open` and `plugin_editor_close` (and the MCP
+//! `plugin_editor` tool, which calls the same [`Plugins`] methods) show and hide a hosted
+//! plugin's own editor. A parameter changed in an editor reaches the project as
+//! `SetDeviceParam` edits, one undo step per gesture ([`start_background`] starts the thread
+//! that applies them): the plugin reports on the plugin main thread, which must not wait for
+//! the control lock, so the reports are handed to that thread through a channel.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -23,17 +32,20 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::engine::EngineState;
 use crate::ipc::IpcState;
+use crate::ipc::control::PlanTarget;
 
 use ow_ipc::{
-    DeviceDescriptor, ParamDescriptorDto, ParamScale, ParamUnit, PluginScanFailure,
-    PluginScanSummary,
+    DeviceDescriptor, EditCommand, ParamDescriptorDto, ParamScale, ParamUnit, PluginScanFailure,
+    PluginScanSummary, UiCommand,
 };
+use ow_model::DeviceId;
 use ow_plugin_host::scan::default_paths;
+use ow_plugin_host::{
+    EditPhase, EditorEdit, FileRecord, MainThreadExecutor, PluginCache, PluginInfo, ScanCommand,
+    ScanStatus, Scanner,
+};
 #[cfg(not(target_os = "linux"))]
 use ow_plugin_host::{ExecutorError, executor::Job};
-use ow_plugin_host::{
-    FileRecord, MainThreadExecutor, PluginCache, PluginInfo, ScanCommand, ScanStatus, Scanner,
-};
 
 /// File name of the scan cache in the plugin cache folder.
 pub const CACHE_FILE: &str = "plugin-cache.json";
@@ -188,6 +200,30 @@ impl Plugins {
         }
     }
 
+    /// Opens the editor window of the hosted plugin on device `device` (or brings it forward) and
+    /// answers its client size. Fails with a reason when the device is not a loaded plugin, the
+    /// plugin has no editor or this platform shows none.
+    pub fn open_editor(&self, device: u64) -> Result<(u32, u32), String> {
+        let plugin = self
+            .cache
+            .get(device)
+            .ok_or_else(|| format!("device {device} is not a loaded plugin"))?;
+        plugin.open_editor().map_err(|error| error.to_string())?;
+        Ok(plugin.editor_size().unwrap_or((0, 0)))
+    }
+
+    /// Closes the editor window of the plugin on device `device`. Returns whether an editor was
+    /// open. Fails when the device is not a loaded plugin.
+    pub fn close_editor(&self, device: u64) -> Result<bool, String> {
+        let plugin = self
+            .cache
+            .get(device)
+            .ok_or_else(|| format!("device {device} is not a loaded plugin"))?;
+        let was_open = plugin.editor_open();
+        plugin.close_editor();
+        Ok(was_open)
+    }
+
     /// The usable plugins as device descriptors.
     pub fn descriptors(&self) -> Vec<DeviceDescriptor> {
         self.cache
@@ -251,6 +287,7 @@ pub fn descriptor_of(info: &PluginInfo) -> DeviceDescriptor {
             .collect(),
         format: Some(info.format.prefix().to_string()),
         vendor: Some(info.vendor.clone()),
+        editor: (info.editor && ow_plugin_host::editor::AVAILABLE).then_some(true),
     }
 }
 
@@ -301,17 +338,111 @@ pub async fn plugins_list(app: AppHandle) -> Result<PluginScanSummary, String> {
     Ok(app.state::<Plugins>().summary())
 }
 
+/// Shows the editor window of the plugin on device `device`, or brings it forward.
+#[tauri::command]
+pub async fn plugin_editor_open(app: AppHandle, device: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Plugins>().open_editor(device).map(|_| ())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Closes the editor window of the plugin on device `device` (nothing happens when it is not
+/// open).
+#[tauri::command]
+pub async fn plugin_editor_close(app: AppHandle, device: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Plugins>().close_editor(device).map(|_| ())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Applies one parameter change reported by a plugin's editor to the project. A gesture is a
+/// transaction (one undo step), so `Begin` and `End` open and close one; a change outside any
+/// gesture is a step of its own. Refusals (the device was removed meanwhile) are dropped.
+pub(crate) fn apply_editor_edit(
+    ipc: &IpcState,
+    target: &dyn PlanTarget,
+    plugins: &PluginCache,
+    device: u64,
+    edit: EditorEdit,
+    open: &mut HashSet<(u64, u32)>,
+) {
+    let key = (device, edit.param);
+    let command = match edit.phase {
+        EditPhase::Begin => {
+            let name = plugins
+                .get(device)
+                .and_then(|plugin| plugin.info().param(edit.param).map(|p| p.name.clone()))
+                .unwrap_or_else(|| "plugin parameter".into());
+            open.insert(key);
+            UiCommand::Begin {
+                label: format!("Edit {name}"),
+            }
+        }
+        EditPhase::Change => UiCommand::Edit {
+            edit: EditCommand::SetDeviceParam {
+                device: DeviceId(device),
+                param: edit.param,
+                value: Some(edit.value),
+            },
+        },
+        EditPhase::End => {
+            if !open.remove(&key) {
+                return;
+            }
+            UiCommand::End
+        }
+    };
+    let begun = matches!(command, UiCommand::Begin { .. });
+    let result = ipc.with_control(|control| control.command(command, target));
+    if result.is_err() && begun {
+        open.remove(&key);
+    }
+}
+
 /// Starts the background work of the plugin registry: one scan at startup (the cache answers
 /// for files that did not change), then a watch over what plugins ask of the host (a latency
-/// change needs a recompile so delay compensation follows it).
+/// change needs a recompile so delay compensation follows it, an open editor needs its window
+/// events served), and the thread that applies parameter changes made in plugin editors.
 pub fn start_background(app: &AppHandle) {
+    let (sender, receiver) = mpsc::channel::<(u64, EditorEdit)>();
+    app.state::<Plugins>()
+        .cache()
+        .set_edit_sink(Arc::new(move |device, edit| {
+            let _ = sender.send((device, edit));
+        }));
+    let editing = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("plugin-edits".into())
+        .spawn(move || {
+            let mut open = HashSet::new();
+            while let Ok((device, edit)) = receiver.recv() {
+                let ipc = editing.state::<IpcState>();
+                let engine = editing.state::<EngineState>();
+                let plugins = editing.state::<Plugins>();
+                apply_editor_edit(
+                    &ipc,
+                    engine.engine(),
+                    plugins.cache(),
+                    device,
+                    edit,
+                    &mut open,
+                );
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("[openwave] could not start the plugin edit thread: {error}");
+    }
     let app = app.clone();
     let spawned = std::thread::Builder::new()
         .name("plugin-registry".into())
         .spawn(move || {
             scan_and_refresh(&app, false);
             while !app.state::<Plugins>().stop.load(Ordering::Acquire) {
-                std::thread::sleep(Duration::from_millis(250));
+                std::thread::sleep(Duration::from_millis(100));
                 let requests = app.state::<Plugins>().cache().service();
                 if requests.iter().any(|(_, request)| request.latency_changed) {
                     app.state::<IpcState>()

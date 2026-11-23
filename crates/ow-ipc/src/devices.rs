@@ -70,7 +70,7 @@ pub struct ParamDescriptorDto {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct DeviceDescriptor {
-    /// The `Device::kind` string, for example `builtin.synth` or `clap:com.vendor.plugin`.
+    /// The `Device::kind` string, for example `builtin.synth` or `clap:com.vendor.plugin` or `vst3:<class id>`.
     pub kind: String,
     /// Name shown in menus and panels.
     pub name: String,
@@ -78,7 +78,7 @@ pub struct DeviceDescriptor {
     pub instrument: bool,
     /// The parameters, in display order.
     pub params: Vec<ParamDescriptorDto>,
-    /// The plugin format (`clap`); absent for a built-in device.
+    /// The plugin format (`clap` or `vst3`); absent for a built-in device.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub format: Option<String>,
@@ -86,6 +86,11 @@ pub struct DeviceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub vendor: Option<String>,
+    /// True when the plugin has an editor window that this platform can show (Windows and
+    /// macOS); absent otherwise, and for every built-in device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub editor: Option<bool>,
 }
 
 /// A plugin file the last scan could not use.
@@ -154,6 +159,7 @@ impl From<&DeviceInfo> for DeviceDescriptor {
             params: info.params.iter().map(ParamDescriptorDto::from).collect(),
             format: None,
             vendor: None,
+            editor: None,
         }
     }
 }

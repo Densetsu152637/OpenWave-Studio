@@ -5,16 +5,23 @@
 //! nested `cargo rustc --crate-type cdylib` of this very package, once per fixture (selected by
 //! a Cargo feature), into a private target folder, and copies the results to
 //! `<target>/plugin-fixtures/` (release) or `<target>/plugin-fixtures-debug/` (other profiles).
-//! On macOS each result is a `.clap` bundle folder; elsewhere it is the library file renamed
-//! `.clap`. A nested build is flagged with `OW_FIXTURES_NESTED` so it does not recurse.
+//! A CLAP result is a `.clap` bundle folder on macOS and the library file renamed `.clap`
+//! elsewhere. The VST3 result follows the VST3 module layout: `Contents/MacOS/<name>` plus an
+//! `Info.plist` on macOS, `Contents/<arch>-linux/<name>.so` on Linux, and the plain library renamed
+//! `.vst3` on Windows. A nested build is flagged with `OW_FIXTURES_NESTED` so it does not
+//! recurse.
 
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// (Cargo feature, bundle name without the extension) of every fixture library.
-const FIXTURES: &[(&str, &str)] = &[("gain", "ow-fixture-gain"), ("crash", "ow-fixture-crash")];
+/// (Cargo feature, bundle name without the extension, extension) of every fixture library.
+const FIXTURES: &[(&str, &str, &str)] = &[
+    ("gain", "ow-fixture-gain", "clap"),
+    ("crash", "ow-fixture-crash", "clap"),
+    ("vst3", "ow-fixture-gain", "vst3"),
+];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -37,9 +44,9 @@ fn main() {
 
     fs::create_dir_all(&bundles).expect("create the fixture folder");
     let nested_target = target.join("plugin-fixtures-build");
-    for (feature, name) in FIXTURES {
+    for (feature, name, extension) in FIXTURES {
         let library = build_cdylib(feature, release, &nested_target);
-        install(&library, &bundles, name);
+        install(&library, &bundles, name, extension);
     }
 }
 
@@ -98,12 +105,25 @@ fn build_cdylib(feature: &str, release: bool, target: &Path) -> PathBuf {
         .join(format!("{prefix}ow_plugin_fixtures.{extension}"))
 }
 
-/// Writes `library` as the bundle `<bundles>/<name>.clap`, unless it already holds the same
-/// bytes (a loaded library cannot be replaced on Windows).
-fn install(library: &Path, bundles: &Path, name: &str) {
+/// Writes `library` as the module `<bundles>/<name>.<extension>`, unless it already holds the
+/// same bytes (a loaded library cannot be replaced on Windows).
+fn install(library: &Path, bundles: &Path, name: &str, extension: &str) {
     let bytes = fs::read(library).expect("read the built fixture");
-    if cfg!(target_os = "macos") {
-        let contents = bundles.join(format!("{name}.clap")).join("Contents");
+    if extension == "vst3" && !cfg!(any(windows, target_os = "macos")) {
+        // The VST3 module layout on Linux: a bundle folder with the library in `Contents/<arch>-linux`.
+        let arch = if cfg!(target_arch = "aarch64") {
+            "aarch64-linux"
+        } else {
+            "x86_64-linux"
+        };
+        let dir = bundles
+            .join(format!("{name}.vst3"))
+            .join("Contents")
+            .join(arch);
+        fs::create_dir_all(&dir).expect("create the bundle");
+        write_if_changed(&dir.join(format!("{name}.so")), &bytes);
+    } else if cfg!(target_os = "macos") {
+        let contents = bundles.join(format!("{name}.{extension}")).join("Contents");
         let binary = contents.join("MacOS").join(name);
         fs::create_dir_all(binary.parent().expect("parent")).expect("create the bundle");
         write_if_changed(&binary, &bytes);
@@ -112,7 +132,7 @@ fn install(library: &Path, bundles: &Path, name: &str) {
              <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
              <plist version=\"1.0\">\n<dict>\n\
              \t<key>CFBundleExecutable</key>\n\t<string>{name}</string>\n\
-             \t<key>CFBundleIdentifier</key>\n\t<string>com.openwave.fixture.{name}</string>\n\
+             \t<key>CFBundleIdentifier</key>\n\t<string>com.openwave.fixture.{name}.{extension}</string>\n\
              \t<key>CFBundleName</key>\n\t<string>{name}</string>\n\
              \t<key>CFBundlePackageType</key>\n\t<string>BNDL</string>\n\
              \t<key>CFBundleSignature</key>\n\t<string>????</string>\n\
@@ -122,7 +142,7 @@ fn install(library: &Path, bundles: &Path, name: &str) {
         write_if_changed(&contents.join("Info.plist"), info.as_bytes());
         write_if_changed(&contents.join("PkgInfo"), b"BNDL????");
     } else {
-        write_if_changed(&bundles.join(format!("{name}.clap")), &bytes);
+        write_if_changed(&bundles.join(format!("{name}.{extension}")), &bytes);
     }
 }
 

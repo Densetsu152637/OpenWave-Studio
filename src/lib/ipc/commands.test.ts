@@ -8,6 +8,8 @@ import {
   exportWav,
   ipcCommand,
   mediaImport,
+  pluginEditorClose,
+  pluginEditorOpen,
   projectNew,
   projectOpen,
   projectSave,
@@ -136,5 +138,24 @@ describe("mix commands", () => {
     expect(calls[2][1]).toEqual({ options: { path: "C:/plain", normalize: null } });
     expect(calls[3][1]).toEqual({ request: { strip: null, startBeat: null, endBeat: null } });
     expect(calls[4][1]).toEqual({ request: { strip: { bus: 3 }, startBeat: 4, endBeat: 8 } });
+  });
+});
+
+describe("plugin editor commands", () => {
+  it("invoke the editor commands with the device id", async () => {
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    const transport: IpcTransport = {
+      available: true,
+      channel: <T>(handler: (message: T) => void) => ({ onmessage: handler }),
+      invoke: (async (command: string, args?: Record<string, unknown>) => {
+        calls.push([command, args]);
+      }) as IpcTransport["invoke"],
+    };
+    await pluginEditorOpen(7, transport);
+    await pluginEditorClose(7, transport);
+    expect(calls).toEqual([
+      ["plugin_editor_open", { device: 7 }],
+      ["plugin_editor_close", { device: 7 }],
+    ]);
   });
 });

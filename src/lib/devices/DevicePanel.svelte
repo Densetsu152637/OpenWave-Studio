@@ -5,16 +5,19 @@
   /**
    * The generic panel of one device: a slider per continuous parameter and a selector per choice,
    * generated from the descriptor. It edits nothing itself; `onParam` is called with the new value
-   * (once, when a slider is released).
+   * (once, when a slider is released). A plugin whose editor this platform can show also gets an
+   * "Open editor" button, which calls `onEditor`.
    */
   let {
     device,
     descriptor,
     onParam,
+    onEditor,
   }: {
     device: Device;
     descriptor: DeviceDescriptor;
     onParam: (param: ParamDescriptorDto, value: number) => void;
+    onEditor?: () => void;
   } = $props();
 
   /** The slider being dragged and the value it shows meanwhile. */
@@ -25,6 +28,9 @@
 
 <section class="device" aria-label="{device.name} panel">
   <h3>{device.name}</h3>
+  {#if descriptor.editor && onEditor}
+    <button type="button" class="editor" onclick={() => onEditor()}>Open editor</button>
+  {/if}
   <div class="controls">
     {#each controls as control (control.param.id)}
       {@const param = control.param}
@@ -84,6 +90,10 @@
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .editor {
+    margin: 0 0 8px;
+    font-size: 12px;
   }
   .controls {
     display: grid;

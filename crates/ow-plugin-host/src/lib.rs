@@ -8,10 +8,11 @@
 //! * [`MainThreadExecutor`]: the one place that decides which thread is "the plugin main
 //!   thread" ([`executor`]).
 //! * [`HostedPlugin`] / [`PluginProcessor`]: one instance, split into the control-side object
-//!   and the audio-thread half ([`hosted`]). [`clap`] implements them on `clack-host`; VST3 will
-//!   implement the same traits.
+//!   and the audio-thread half ([`hosted`]). [`clap`] implements them on `clack-host` and
+//!   [`vst3`] on the `vst3` crate's bindings.
+//! * [`editor`]: the native windows plugin editors are shown in (Windows and macOS).
 //! * [`PluginCache`]: instances by device id, surviving recompiles ([`cache`]).
-//! * [`Scanner`] and `ow-scan`: finding plugin files and reading them in a child process, with a
+//! * [`Scanner`] and `ow-scan`: finding plugin files (CLAP and VST3) and reading them in a child process, with a
 //!   timeout and a cache keyed by path, size and modification time ([`scan`], [`info`]).
 //!
 //! `docs/plugins.md` describes the user-facing side.
@@ -19,15 +20,19 @@
 pub mod cache;
 pub mod clap;
 pub mod device;
+pub mod editor;
 pub mod executor;
 pub mod hosted;
 pub mod info;
 pub mod scan;
+pub mod vst3;
 
-pub use cache::{PluginCache, PluginDirectory};
+pub use cache::{DeviceEditSink, PluginCache, PluginDirectory};
 pub use device::PluginDevice;
 pub use executor::{ExecutorError, InlineExecutor, MainThreadExecutor, ThreadExecutor};
-pub use hosted::{HostedPlugin, PluginError, PluginProcessor, Requests};
+pub use hosted::{
+    EditPhase, EditSink, EditorEdit, HostedPlugin, PluginError, PluginProcessor, Requests,
+};
 pub use info::{
     FileRecord, Format, ParamInfo, PluginInfo, ScanCache, ScanOutput, ScanStatus, is_plugin_kind,
     kind_of, parse_kind,

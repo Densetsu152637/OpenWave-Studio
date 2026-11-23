@@ -1,6 +1,6 @@
 //! Shared helpers: scanning the fixture bundles and driving a processor by hand.
 
-#![allow(dead_code)]
+#![allow(dead_code, unsafe_code)]
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -11,7 +11,9 @@ use ow_model::{
     Clip, ClipContent, Device, DeviceId, EditCommand, Editor, Note, Owned, Strip, Track, TrackId,
     TrackKind,
 };
-use ow_plugin_host::{PluginCache, PluginProcessor, ScanCommand, Scanner, ThreadExecutor};
+use ow_plugin_host::{
+    MainThreadExecutor, PluginCache, PluginProcessor, ScanCommand, Scanner, ThreadExecutor,
+};
 
 pub const RATE: u32 = 48_000;
 pub const BLOCK: usize = 256;
@@ -25,14 +27,25 @@ pub fn scanner() -> Scanner {
     Scanner::new(ScanCommand::new(ow_scan()))
 }
 
-/// A cache on its own plugin main thread whose directory holds the fixture plugins (found by
-/// scanning the gain bundle with the `ow-scan` child).
+/// A cache on its own plugin main thread whose directory holds the fixture plugins, CLAP and
+/// VST3 (found by scanning the bundles with the `ow-scan` child).
 pub fn fixture_cache() -> PluginCache {
-    let cache = PluginCache::new(Arc::new(ThreadExecutor::new()));
-    let report = scanner().scan(&[ow_plugin_fixtures::gain_path()], false);
+    cache_on(Arc::new(ThreadExecutor::new()))
+}
+
+/// Like [`fixture_cache`], with plugin main-thread work on `executor`.
+pub fn cache_on(executor: Arc<dyn MainThreadExecutor>) -> PluginCache {
+    let cache = PluginCache::new(executor);
+    let report = scanner().scan(
+        &[
+            ow_plugin_fixtures::gain_path(),
+            ow_plugin_fixtures::vst3_path(),
+        ],
+        false,
+    );
     assert!(
         report.failures().is_empty(),
-        "the gain fixture must scan: {:?}",
+        "the fixtures must scan: {:?}",
         report.files
     );
     cache.directory().set(report.plugins());
@@ -45,6 +58,70 @@ pub fn gain_kind() -> String {
 
 pub fn tone_kind() -> String {
     format!("clap:{}", ow_plugin_fixtures::TONE_ID)
+}
+
+pub fn vst3_gain_kind() -> String {
+    format!("vst3:{}", ow_plugin_fixtures::VST3_GAIN_ID)
+}
+
+pub fn vst3_tone_kind() -> String {
+    format!("vst3:{}", ow_plugin_fixtures::VST3_TONE_ID)
+}
+
+/// The test hooks a fixture library exports (it acts as the user of the plugin's editor). The
+/// library is the one the host already loaded: loading it again gives the same module.
+pub struct Hooks {
+    library: libloading::Library,
+}
+
+impl Hooks {
+    pub fn of(module: &std::path::Path) -> Self {
+        let file = ow_plugin_fixtures::library_of(module);
+        // SAFETY: the fixture's initialisation code is the same that already ran in the host.
+        let library = unsafe { libloading::Library::new(&file) }
+            .unwrap_or_else(|e| panic!("load {}: {e}", file.display()));
+        Self { library }
+    }
+
+    /// The user's gesture on a parameter (phase 0 begin, 1 change to the plain `value`, 2 end).
+    pub fn simulate_edit(&self, param: u32, value: f64, phase: u32) {
+        // SAFETY: the symbol has this signature (see `ow_plugin_fixtures::hooks`).
+        unsafe {
+            let hook: libloading::Symbol<unsafe extern "C" fn(u32, f64, u32)> = self
+                .library
+                .get(ow_plugin_fixtures::hooks::SIMULATE_EDIT)
+                .unwrap();
+            hook(param, value, phase);
+        }
+    }
+
+    /// The editor asks its host for a new size; true when the host agreed.
+    pub fn request_resize(&self, width: u32, height: u32) -> bool {
+        // SAFETY: as above.
+        unsafe {
+            let hook: libloading::Symbol<unsafe extern "C" fn(u32, u32) -> u32> = self
+                .library
+                .get(ow_plugin_fixtures::hooks::REQUEST_RESIZE)
+                .unwrap();
+            hook(width, height) == 1
+        }
+    }
+
+    /// Whether the editor's view is attached to a window, and its size.
+    pub fn editor_state(&self) -> ow_plugin_fixtures::hooks::EditorState {
+        let mut state = ow_plugin_fixtures::hooks::EditorState::default();
+        // SAFETY: as above.
+        unsafe {
+            let hook: libloading::Symbol<
+                unsafe extern "C" fn(*mut ow_plugin_fixtures::hooks::EditorState),
+            > = self
+                .library
+                .get(ow_plugin_fixtures::hooks::EDITOR_STATE)
+                .unwrap();
+            hook(&mut state);
+        }
+        state
+    }
 }
 
 /// Runs one block through `processor` and returns the left and right output.

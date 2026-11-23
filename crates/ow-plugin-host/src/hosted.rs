@@ -7,10 +7,11 @@
 //! and calls [`process`](PluginProcessor::process) once per block. Both sides share the same
 //! plugin instance, which is why a recompile (a new node) does not re-instantiate anything.
 //!
-//! CLAP implements both in [`crate::clap`]; VST3 will implement the same two traits.
+//! CLAP implements both in [`crate::clap`] and VST3 in [`crate::vst3`].
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use ow_dsp::Event;
 
@@ -45,6 +46,35 @@ impl From<ExecutorError> for PluginError {
         Self::Executor(error)
     }
 }
+
+/// Where a parameter change made in the plugin's own editor is in its gesture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditPhase {
+    /// The user took hold of the control (VST3 `beginEdit`, CLAP gesture begin).
+    Begin,
+    /// The value changed.
+    Change,
+    /// The user let go.
+    End,
+}
+
+/// A parameter change made in the plugin's own editor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditorEdit {
+    /// The plugin's parameter id.
+    pub param: u32,
+    /// Where it is in the gesture.
+    pub phase: EditPhase,
+    /// The parameter's plain value (the current one for [`EditPhase::Begin`] and
+    /// [`EditPhase::End`]).
+    pub value: f64,
+}
+
+/// Receives the parameter changes made in a plugin's editor. Called on whatever thread the
+/// plugin reports them (the plugin main thread, or the thread that calls
+/// [`HostedPlugin::service`]), so it must not block on anything the main thread holds: the app's
+/// sink hands them to another thread.
+pub type EditSink = Arc<dyn Fn(EditorEdit) + Send + Sync>;
 
 /// Things a plugin asked the host for since the last [`HostedPlugin::service`] call.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -95,7 +125,9 @@ pub trait HostedPlugin: Send + Sync {
     /// parameter id): every parameter that differs from what was last sent is queued as a
     /// parameter event for the next block, with no re-instantiation. A parameter that was set
     /// before and is now missing returns to its default. Returns how many events were queued.
-    /// Takes no main-thread call, so it is cheap and safe from any control thread.
+    /// A CLAP instance takes no main-thread call here (the edits go through a lock-free queue); a
+    /// VST3 instance converts plain values to normalised ones through its controller, which is a
+    /// main-thread call.
     fn set_params(&self, params: &BTreeMap<u32, f64>) -> usize;
 
     /// The plugin's own current value of parameter `id` (a main-thread call).
@@ -114,6 +146,26 @@ pub trait HostedPlugin: Send + Sync {
     /// Makes the instance ready for `sample_rate` and blocks of up to `max_block` frames
     /// (re-activating it when they changed). Cheap when nothing changed.
     fn configure(&self, sample_rate: u32, max_block: usize) -> Result<(), PluginError>;
+
+    /// Sets where parameter changes made in the plugin's editor go (replacing an earlier sink).
+    /// The values arrive as plain values, the same as `set_params` takes. Changes the host
+    /// itself makes through [`set_params`](Self::set_params) are never reported back.
+    fn set_edit_sink(&self, sink: EditSink);
+
+    /// Opens the plugin's editor in a window OpenWave creates, or brings it forward when it is
+    /// open (a main-thread call). Fails when the plugin has no editor or the platform cannot
+    /// show one ([`crate::editor::AVAILABLE`]).
+    fn open_editor(&self) -> Result<(), PluginError>;
+
+    /// Closes the editor window and releases the plugin's editor (a main-thread call).
+    /// Idempotent; also what removing the device or closing the project does.
+    fn close_editor(&self);
+
+    /// True while the editor window is open.
+    fn editor_open(&self) -> bool;
+
+    /// The editor window's client size in pixels, when it is open (a main-thread call).
+    fn editor_size(&self) -> Option<(u32, u32)>;
 
     /// Deactivates and destroys the instance. Idempotent. Processors that outlive it output
     /// silence (effects pass their input through).

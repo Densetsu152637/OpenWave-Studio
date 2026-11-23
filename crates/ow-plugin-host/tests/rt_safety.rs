@@ -77,3 +77,50 @@ fn hosted_plugins_run_in_the_engine_cycle_without_allocating() {
     }
     let _ = BTreeMap::<u32, f64>::new();
 }
+
+#[test]
+fn hosted_vst3_plugins_run_in_the_engine_cycle_without_allocating() {
+    let tone = vst3_tone_kind();
+    let gain = vst3_gain_kind();
+    let mut editor = Editor::new(Project::new("rt-vst3"));
+    let (_, inserts) = add_track(
+        &mut editor,
+        (&tone, &[(PARAM_LEVEL, 1.0)]),
+        &[(&gain, &[(PARAM_GAIN, 1.0)])],
+    );
+    let cache = fixture_cache();
+    let ctx = CompileContext::default().with_plugins(cache.clone());
+    let compiled = compile_project(&editor.project().clone(), &ctx, RATE, MAX_BLOCK).unwrap();
+    let mut renderer = player(compiled);
+
+    let plugin = cache.get(inserts[0].0).unwrap();
+    let mut heard = Vec::new();
+    for block in 0..100 {
+        if block == 50 {
+            editor
+                .apply(EditCommand::SetDeviceParam {
+                    device: inserts[0],
+                    param: PARAM_GAIN,
+                    value: Some(0.5),
+                })
+                .unwrap();
+            plugin.set_params(&editor.project().devices[&inserts[0]].params.clone());
+        }
+        let out = renderer.render(512, 512);
+        heard.push(out[510]);
+    }
+    assert!(heard[40] > 0.1, "the instrument and the effect are running");
+    assert!(
+        (heard[90] - 0.5 * heard[40]).abs() < 1e-5,
+        "{} {}",
+        heard[90],
+        heard[40]
+    );
+
+    let second = compile_project(&editor.project().clone(), &ctx, RATE, MAX_BLOCK).unwrap();
+    assert!(renderer.link().swap_plan(second.plan).is_ok());
+    for _ in 0..20 {
+        let out = renderer.render(512, 512);
+        assert!(out.iter().all(|s| s.is_finite()));
+    }
+}

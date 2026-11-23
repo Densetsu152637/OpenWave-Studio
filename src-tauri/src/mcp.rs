@@ -20,7 +20,9 @@
 //! `scan_plugins` and `list_plugins` drive the plugin registry (`crate::plugins`);
 //! `get_device_types` lists the scanned plugins next to the built-in devices; a plugin's
 //! parameters are edited with the `edit` tool's `set_device_param` like any device's. The
-//! `plugin_editor` tool answers "unavailable" until the editor windows exist (slice M9).
+//! `plugin_editor` tool opens and closes a hosted plugin's own editor window (Windows and macOS;
+//! Linux answers "unavailable"); what the user does in that window reaches the project as
+//! `set_device_param` edits, so `undo`, `get_project` and this server see them.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -33,8 +35,9 @@ use ow_ipc::{
 };
 use ow_mcp::listener::{McpListener, announce_disabled};
 use ow_mcp::tools::{
-    AnalyzeArgs, AudioAction, AudioSettingsArgs, EditArgs, ExportWavArgs, ImportAudioArgs,
-    ProjectAction, ProjectArgs, RecordAction, RecordArgs, TransportAction, TransportArgs,
+    AnalyzeArgs, AudioAction, AudioSettingsArgs, EditArgs, EditorAction, ExportWavArgs,
+    ImportAudioArgs, PluginEditorArgs, ProjectAction, ProjectArgs, RecordAction, RecordArgs,
+    TransportAction, TransportArgs,
 };
 use ow_mcp::{Server, ToolBackend, ToolCall, ToolError, ToolOutput, endpoint};
 use serde_json::{Value, json};
@@ -136,18 +139,17 @@ impl ToolBackend for AppBackend {
             ToolCall::AudioSettings(args) => self.audio_settings(&args),
             ToolCall::ScanPlugins(args) => Ok(self.scan_plugins(args.force)),
             ToolCall::ListPlugins(_) => Ok(self.list_plugins()),
-            // Editor windows arrive with plugin hosting II (slice M9).
-            ToolCall::PluginEditor(_) => Ok(plugin_editor_unavailable()),
+            ToolCall::PluginEditor(args) => self.plugin_editor(&args),
         };
         output.map_err(ToolError)
     }
 }
 
-/// The answer of `plugin_editor` until editor windows exist.
+/// The answer of `plugin_editor` on a platform without editor windows.
 fn plugin_editor_unavailable() -> ToolOutput {
     ToolOutput::new(
-        json!({"available": false, "tool": "plugin_editor", "reason": "plugin editor windows are not available in this build yet; edit the plugin's parameters with the edit tool's set_device_param"}),
-        "plugin_editor is unavailable: plugin editor windows are not available in this build yet. Set the plugin's parameters with the edit tool (set_device_param).",
+        json!({"available": false, "tool": "plugin_editor", "reason": "plugin editor windows are not available on this platform (Linux); edit the plugin's parameters with the edit tool's set_device_param"}),
+        "plugin_editor is unavailable: plugin editor windows are not available on this platform. Set the plugin's parameters with the edit tool (set_device_param).",
     )
 }
 
@@ -273,6 +275,36 @@ impl AppBackend {
         let summary = self.plugins().summary();
         let text = scan_line(&summary);
         ToolOutput::new(to_json(&summary).unwrap_or(Value::Null), text)
+    }
+
+    /// Opens or closes the editor window of a hosted plugin.
+    fn plugin_editor(&self, args: &PluginEditorArgs) -> Result<ToolOutput, String> {
+        if !ow_plugin_host::editor::AVAILABLE {
+            return Ok(plugin_editor_unavailable());
+        }
+        let device = args.device;
+        match args.action {
+            EditorAction::Open => {
+                let (width, height) = self.plugins().open_editor(device)?;
+                Ok(ToolOutput::new(
+                    json!({"available": true, "action": "open", "device": device, "open": true, "width": width, "height": height}),
+                    format!(
+                        "Opened the editor of device {device} ({width} x {height} pixels). Changes made in it arrive as set_device_param edits."
+                    ),
+                ))
+            }
+            EditorAction::Close => {
+                let was_open = self.plugins().close_editor(device)?;
+                Ok(ToolOutput::new(
+                    json!({"available": true, "action": "close", "device": device, "open": false, "was_open": was_open}),
+                    if was_open {
+                        format!("Closed the editor of device {device}.")
+                    } else {
+                        format!("The editor of device {device} was not open.")
+                    },
+                ))
+            }
+        }
     }
 
     /// Applies the commands under one lock, as one undo step.
@@ -724,6 +756,8 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("device_descriptors", "get_device_types"),
     ("plugins_scan", "scan_plugins"),
     ("plugins_list", "list_plugins"),
+    ("plugin_editor_open", "plugin_editor"),
+    ("plugin_editor_close", "plugin_editor"),
     ("project_new", "project"),
     ("project_open", "project"),
     ("project_save", "project"),
@@ -1414,7 +1448,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_transport_audio_settings_and_the_plugin_editor_stub() {
+    fn mcp_transport_audio_settings_and_the_plugin_editor_needs_a_hosted_plugin() {
         let fixture = Fixture::start();
         block_on(async {
             let mut client = fixture.client().await;
@@ -1454,10 +1488,20 @@ mod tests {
                 .await;
             assert!(refused.contains("only be changed by the user"), "{refused}");
 
-            let editor = client
-                .call("plugin_editor", json!({"action": "open", "device": 1}))
-                .await;
-            assert_eq!(editor["available"], false);
+            // The editor belongs to a hosted plugin: a device that is not one is refused (and
+            // Linux, which has no editor windows, says so first).
+            if ow_plugin_host::editor::AVAILABLE {
+                let refused = client
+                    .call_error("plugin_editor", json!({"action": "open", "device": 1}))
+                    .await;
+                assert!(refused.contains("not a loaded plugin"), "{refused}");
+            } else {
+                let editor = client
+                    .call("plugin_editor", json!({"action": "open", "device": 1}))
+                    .await;
+                assert_eq!(editor["available"], false);
+                assert!(editor["reason"].as_str().unwrap().contains("Linux"));
+            }
         });
     }
 
@@ -1553,6 +1597,23 @@ mod tests {
             assert_eq!(gain["format"], "clap");
             assert_eq!(gain["instrument"], false);
             assert_eq!(gain["params"][1]["choices"], json!(["Normal", "Inverted"]));
+            // The editor flag says whether this platform can show the plugin's editor.
+            assert_eq!(
+                gain["editor"] == json!(true),
+                ow_plugin_host::editor::AVAILABLE
+            );
+            // VST3 classes are listed next to the CLAP plugins, with the controller's ranges.
+            let vst3 = types["plugins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|plugin| {
+                    plugin["kind"] == format!("vst3:{}", ow_plugin_fixtures::VST3_GAIN_ID)
+                })
+                .expect("the VST3 gain plugin is listed");
+            assert_eq!(vst3["format"], "vst3");
+            assert_eq!(vst3["params"][0]["max"], 2.0);
+            assert_eq!(vst3["params"][1]["choices"], json!(["Normal", "Inverted"]));
 
             // A plugin is a device like any other: added with an edit, its parameters set with
             // set_device_param, saved with the project.
@@ -1577,6 +1638,47 @@ mod tests {
                 .find(|d| d["id"] == device)
                 .expect("the device exists");
             assert_eq!(hosted["params"]["1"], 0.5);
+
+            // The plugin's editor opens and closes through the same tool (the test host's plugin
+            // main thread is not the process's main thread, which AppKit insists on, so the
+            // window itself is only created here on Windows).
+            if cfg!(windows) {
+                let opened = client
+                    .call("plugin_editor", json!({"action": "open", "device": device}))
+                    .await;
+                assert_eq!(opened["open"], true);
+                assert!(opened["width"].as_u64().unwrap() > 0);
+                let plugin = fixture
+                    .host
+                    .plugins()
+                    .cache()
+                    .get(device)
+                    .expect("the plugin is hosted");
+                assert!(plugin.editor_open());
+                let closed = client
+                    .call(
+                        "plugin_editor",
+                        json!({"action": "close", "device": device}),
+                    )
+                    .await;
+                assert_eq!(
+                    (closed["open"].clone(), closed["was_open"].clone()),
+                    (json!(false), json!(true))
+                );
+                assert!(!plugin.editor_open());
+                let again = client
+                    .call(
+                        "plugin_editor",
+                        json!({"action": "close", "device": device}),
+                    )
+                    .await;
+                assert_eq!(again["was_open"], false);
+            } else if !ow_plugin_host::editor::AVAILABLE {
+                let editor = client
+                    .call("plugin_editor", json!({"action": "open", "device": device}))
+                    .await;
+                assert_eq!(editor["available"], false);
+            }
         });
         let live = fixture
             .host

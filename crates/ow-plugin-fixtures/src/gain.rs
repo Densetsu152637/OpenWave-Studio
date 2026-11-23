@@ -5,15 +5,25 @@
 //! State is a small binary blob holding both parameters. Tone: no audio input, one note input
 //! port; while a note is held it outputs a constant level `Level * velocity`, which makes the
 //! host's note events easy to assert on.
+//!
+//! The gain effect also has a minimal editor (the CLAP `gui` extension, embedded): a plain native
+//! child view that fills the host's window (see [`crate::view`]). The hooks at the end of the
+//! file let host tests act as the editor's user (`ow_fixture_simulate_edit` reports a parameter
+//! gesture as output events, `ow_fixture_request_resize` asks the host for a new size).
 
+use std::cell::RefCell;
 use std::ffi::CStr;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
 
 use clack_extensions::audio_ports::{
     AudioPortFlags, AudioPortInfo, AudioPortInfoWriter, AudioPortType, PluginAudioPorts,
     PluginAudioPortsImpl,
+};
+use clack_extensions::gui::{
+    GuiApiType, GuiConfiguration, GuiSize, HostGui, PluginGui, PluginGuiImpl, Window,
 };
 use clack_extensions::latency::{PluginLatency, PluginLatencyImpl};
 use clack_extensions::note_ports::{
@@ -27,12 +37,18 @@ use clack_extensions::params::{
 use clack_extensions::state::{PluginState, PluginStateImpl};
 use clack_plugin::clack_export_entry;
 use clack_plugin::entry::prelude::*;
+use clack_plugin::events::event_types::{
+    ParamGestureBeginEvent, ParamGestureEndEvent, ParamValueEvent,
+};
 use clack_plugin::events::spaces::CoreEventSpace;
+use clack_plugin::host::HostSharedHandle;
 use clack_plugin::plugin::features;
 use clack_plugin::prelude::*;
 use clack_plugin::stream::{InputStream, OutputStream};
 use clack_plugin::utils::Cookie;
 
+use crate::hooks::{EditorState, PHASE_BEGIN, PHASE_CHANGE};
+use crate::view::{ChildView, DEFAULT_SIZE};
 use crate::{GAIN_ID, GAIN_LATENCY, PARAM_GAIN, PARAM_LEVEL, PARAM_POLARITY, TONE_ID};
 
 const LATENCY: usize = GAIN_LATENCY as usize;
@@ -91,11 +107,22 @@ impl PluginFactoryImpl for FixtureFactory {
         plugin_id: &CStr,
     ) -> Option<PluginInstance<'a>> {
         if plugin_id == self.gain.id().unwrap_or_default() {
+            let host_gui = host_info.get_extension::<HostGui>();
             Some(PluginInstance::new::<Gain>(
                 host_info,
                 &self.gain,
                 |_| Ok(GainShared::default()),
-                |_, shared| Ok(GainMain { shared }),
+                move |host, shared| {
+                    Ok(GainMain {
+                        shared,
+                        host: host.shared(),
+                        host_gui,
+                        gui: RefCell::new(GuiState {
+                            view: None,
+                            size: DEFAULT_SIZE,
+                        }),
+                    })
+                },
             ))
         } else if plugin_id == self.tone.id().unwrap_or_default() {
             Some(PluginInstance::new::<Tone>(
@@ -167,12 +194,41 @@ impl GainShared {
             }
         }
     }
+
+    /// Reports the gestures the test hook queued as the editor's output events.
+    fn emit_edits(&self, output: &mut OutputEvents) {
+        let edits = std::mem::take(&mut *EDITS.lock().unwrap_or_else(|e| e.into_inner()));
+        for (phase, param, value) in edits {
+            let id = ClapId::new(param);
+            match phase {
+                PHASE_BEGIN => {
+                    let _ = output.try_push(&ParamGestureBeginEvent::new(0, id));
+                }
+                PHASE_CHANGE => {
+                    self.set(param, value);
+                    let _ = output.try_push(&ParamValueEvent::new(0, id, Pckn::match_all(), value));
+                }
+                _ => {
+                    let _ = output.try_push(&ParamGestureEndEvent::new(0, id));
+                }
+            }
+        }
+    }
 }
 
 impl PluginShared<'_> for GainShared {}
 
 pub struct GainMain<'a> {
     shared: &'a GainShared,
+    host: HostSharedHandle<'a>,
+    host_gui: Option<HostGui>,
+    gui: RefCell<GuiState>,
+}
+
+/// The editor's state: its view while it is attached and the size it wants.
+struct GuiState {
+    view: Option<ChildView>,
+    size: (u32, u32),
 }
 
 impl<'a> PluginMainThread<'a, GainShared> for GainMain<'a> {}
@@ -193,6 +249,7 @@ impl Plugin for Gain {
             .register::<PluginAudioPorts>()
             .register::<PluginParams>()
             .register::<PluginState>()
+            .register::<PluginGui>()
             .register::<PluginLatency>();
     }
 }
@@ -218,6 +275,7 @@ impl<'a> PluginAudioProcessor<'a, GainShared, GainMain<'a>> for GainAudio<'a> {
         events: Events,
     ) -> Result<ProcessStatus, PluginError> {
         self.shared.handle_events(events.input);
+        self.shared.emit_edits(events.output);
         let sign = if self.shared.inverted.load(Ordering::Relaxed) == 1 {
             -1.0
         } else {
@@ -258,8 +316,9 @@ impl<'a> PluginAudioProcessor<'a, GainShared, GainMain<'a>> for GainAudio<'a> {
 }
 
 impl PluginAudioProcessorParams for GainAudio<'_> {
-    fn flush(&mut self, input_parameter_changes: &InputEvents, _output: &mut OutputEvents) {
+    fn flush(&mut self, input_parameter_changes: &InputEvents, output: &mut OutputEvents) {
         self.shared.handle_events(input_parameter_changes);
+        self.shared.emit_edits(output);
     }
 }
 
@@ -370,6 +429,175 @@ impl PluginStateImpl for GainMain<'_> {
         self.shared.set(PARAM_POLARITY, f64::from(bytes[12]));
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gain editor (CLAP gui extension)
+
+/// Gestures queued by `ow_fixture_simulate_edit`: (phase, parameter, plain value).
+static EDITS: Mutex<Vec<(u32, u32, f64)>> = Mutex::new(Vec::new());
+/// The instance whose editor is open (set by `gui.create`, cleared by `gui.destroy`).
+static ACTIVE_GUI: AtomicPtr<GainMain<'static>> = AtomicPtr::new(std::ptr::null_mut());
+
+/// The GUI API this platform's fixture editor embeds (none on Linux).
+fn native_api() -> Option<GuiApiType<'static>> {
+    if cfg!(windows) {
+        Some(GuiApiType::WIN32)
+    } else if cfg!(target_os = "macos") {
+        Some(GuiApiType::COCOA)
+    } else {
+        None
+    }
+}
+
+impl GainMain<'_> {
+    fn resize_view(&self, width: u32, height: u32) {
+        let mut gui = self.gui.borrow_mut();
+        gui.size = (width, height);
+        if let Some(view) = &gui.view {
+            view.set_size(width, height);
+        }
+    }
+}
+
+impl PluginGuiImpl for GainMain<'_> {
+    fn is_api_supported(&self, configuration: GuiConfiguration) -> bool {
+        !configuration.is_floating && native_api().is_some_and(|api| api == configuration.api_type)
+    }
+
+    fn get_preferred_api(&self) -> Option<GuiConfiguration<'_>> {
+        native_api().map(|api_type| GuiConfiguration {
+            api_type,
+            is_floating: false,
+        })
+    }
+
+    fn create(&self, _configuration: GuiConfiguration) -> Result<(), PluginError> {
+        ACTIVE_GUI.store(
+            self as *const GainMain<'_> as *const GainMain<'static> as *mut GainMain<'static>,
+            Ordering::SeqCst,
+        );
+        Ok(())
+    }
+
+    fn destroy(&self) {
+        ACTIVE_GUI.store(std::ptr::null_mut(), Ordering::SeqCst);
+        self.gui.borrow_mut().view = None;
+    }
+
+    fn set_scale(&self, _scale: f64) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    fn get_size(&self) -> Option<GuiSize> {
+        let (width, height) = self.gui.borrow().size;
+        Some(GuiSize { width, height })
+    }
+
+    fn can_resize(&self) -> bool {
+        true
+    }
+
+    fn adjust_size(&self, size: GuiSize) -> Option<GuiSize> {
+        Some(GuiSize {
+            width: size.width.max(100),
+            height: size.height.max(80),
+        })
+    }
+
+    fn set_size(&self, size: GuiSize) -> Result<(), PluginError> {
+        self.resize_view(size.width, size.height);
+        Ok(())
+    }
+
+    fn set_parent(&self, window: Window) -> Result<(), PluginError> {
+        let parent = window
+            .as_win32_hwnd()
+            .or_else(|| window.as_cocoa_nsview())
+            .ok_or(PluginError::Message("no native parent window"))?;
+        let (width, height) = self.gui.borrow().size;
+        let view = ChildView::create(parent, width, height)
+            .ok_or(PluginError::Message("could not create the editor view"))?;
+        self.gui.borrow_mut().view = Some(view);
+        Ok(())
+    }
+
+    fn set_transient(&self, _window: Window) -> Result<(), PluginError> {
+        Err(PluginError::Message("the editor is embedded, not floating"))
+    }
+
+    fn show(&self) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    fn hide(&self) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+
+/// Test hook: the user's gesture on a parameter in the open editor. `phase`: 0 takes hold of
+/// the control, 1 changes it to the plain `value`, 2 lets go. Delivered as output events by the
+/// next `process` call.
+#[unsafe(no_mangle)]
+pub extern "C" fn ow_fixture_simulate_edit(param: u32, value: f64, phase: u32) {
+    EDITS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((phase, param, value));
+}
+
+/// Test hook: the editor asks the host to resize its window. Returns 1 when the host accepted
+/// (the view then follows). Call it on the plugin main thread.
+#[unsafe(no_mangle)]
+pub extern "C" fn ow_fixture_request_resize(width: u32, height: u32) -> u32 {
+    let active = ACTIVE_GUI.load(Ordering::SeqCst);
+    if active.is_null() {
+        return 0;
+    }
+    // SAFETY: the pointer is set by `gui.create` and cleared by `gui.destroy`, both on the main
+    // thread, which is also where this hook is called.
+    let main = unsafe { &*active };
+    let Some(host_gui) = main.host_gui else {
+        return 0;
+    };
+    if host_gui.request_resize(&main.host, width, height).is_ok() {
+        main.resize_view(width, height);
+        1
+    } else {
+        0
+    }
+}
+
+/// Test hook: whether the editor's view is attached and how big it is.
+///
+/// # Safety
+/// `out` must be null or point at an `EditorState`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ow_fixture_editor_state(out: *mut EditorState) {
+    if out.is_null() {
+        return;
+    }
+    let active = ACTIVE_GUI.load(Ordering::SeqCst);
+    let state = if active.is_null() {
+        EditorState::default()
+    } else {
+        // SAFETY: as in `ow_fixture_request_resize`.
+        let main = unsafe { &*active };
+        let gui = main.gui.borrow();
+        match &gui.view {
+            Some(view) => {
+                let (width, height) = view.size();
+                EditorState {
+                    attached: 1,
+                    width,
+                    height,
+                }
+            }
+            None => EditorState::default(),
+        }
+    };
+    // SAFETY: the caller guarantees `out`.
+    unsafe { *out = state };
 }
 
 // ---------------------------------------------------------------------------------------------

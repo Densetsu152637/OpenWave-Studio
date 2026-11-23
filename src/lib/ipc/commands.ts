@@ -182,7 +182,7 @@ export function recordStart(transport: IpcTransport = tauriTransport): Promise<v
 }
 
 /**
- * Scans the plugin folders (the standard ones, `CLAP_PATH` and the saved extra folders) for CLAP
+ * Scans the plugin folders (the standard ones, `CLAP_PATH` and the saved extra folders) for CLAP and VST3
  * plugins. Each file is loaded in a separate process, so a plugin that crashes or hangs is
  * skipped and reported in `failures`. Unchanged files come from the cache unless `force`. Not
  * queued behind edits: a scan can take seconds. The backend also emits `plugins-changed`.
@@ -199,6 +199,27 @@ export function pluginsList(
   transport: IpcTransport = tauriTransport,
 ): Promise<PluginScanSummary> {
   return transport.invoke<PluginScanSummary>("plugins_list");
+}
+
+/**
+ * Shows the editor window of the hosted plugin on device `device`, or brings it forward when it
+ * is open (CLAP and VST3, Windows and macOS). What the user does in the window arrives as
+ * ordinary `set_device_param` edits, one undo step per gesture. Rejects when the device is not a
+ * loaded plugin or the plugin has no editor. Not queued behind edits.
+ */
+export function pluginEditorOpen(
+  device: number,
+  transport: IpcTransport = tauriTransport,
+): Promise<void> {
+  return transport.invoke<void>("plugin_editor_open", { device });
+}
+
+/** Closes the editor window of the plugin on device `device` (nothing happens when it is not open). */
+export function pluginEditorClose(
+  device: number,
+  transport: IpcTransport = tauriTransport,
+): Promise<void> {
+  return transport.invoke<void>("plugin_editor_close", { device });
 }
 
 /**

@@ -97,7 +97,7 @@
   {/if}
   {#if scan}
     <p class="hint">
-      {scan.plugins.length} usable CLAP plugin{scan.plugins.length === 1 ? "" : "s"} in {scan.files} file{scan.files ===
+      {scan.plugins.length} usable plugin{scan.plugins.length === 1 ? "" : "s"} in {scan.files} file{scan.files ===
       1
         ? ""
         : "s"}.

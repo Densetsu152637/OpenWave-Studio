@@ -2,7 +2,7 @@
 //!
 //! This is to plugins what `SourceCache` is to loaded audio: shared by every compile, so a
 //! recompile finds the plugin it built last time instead of making another. An instance is
-//! created the first time a device of kind `clap:<id>` is compiled and lives until its device
+//! created the first time a device of kind `clap:<id>` or `vst3:<id>` is compiled and lives until its device
 //! leaves the project or changes kind; parameter edits and recompiles never re-instantiate it.
 //! Cloning a cache shares it.
 //!
@@ -15,8 +15,13 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use crate::clap::ClapPlugin;
 use crate::executor::MainThreadExecutor;
-use crate::hosted::{HostedPlugin, PluginError, Requests};
+use crate::hosted::{EditorEdit, HostedPlugin, PluginError, Requests};
 use crate::info::{Format, PluginInfo};
+use crate::vst3::Vst3Plugin;
+
+/// Receives the parameter changes made in plugin editors, with the id of the device they belong
+/// to. See [`PluginCache::set_edit_sink`].
+pub type DeviceEditSink = Arc<dyn Fn(u64, EditorEdit) + Send + Sync>;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -68,6 +73,8 @@ struct Inner {
     executor: Arc<dyn MainThreadExecutor>,
     directory: Arc<PluginDirectory>,
     entries: Mutex<HashMap<u64, Entry>>,
+    /// Where editor-side parameter changes go (the live cache only, not its forks).
+    sink: Mutex<Option<DeviceEditSink>>,
     /// Plugin instances created by this cache and its forks.
     created: Arc<AtomicU64>,
 }
@@ -77,6 +84,13 @@ impl Drop for Inner {
         for (_, entry) in lock(&self.entries).drain() {
             entry.plugin.destroy();
         }
+    }
+}
+
+fn attach_sink(inner: &Inner, device: u64, plugin: &dyn HostedPlugin) {
+    let sink = lock(&inner.sink).clone();
+    if let Some(sink) = sink {
+        plugin.set_edit_sink(Arc::new(move |edit| sink(device, edit)));
     }
 }
 
@@ -102,6 +116,7 @@ impl PluginCache {
                 executor,
                 directory: Arc::new(PluginDirectory::default()),
                 entries: Mutex::new(HashMap::new()),
+                sink: Mutex::new(None),
                 created: Arc::new(AtomicU64::new(0)),
             }),
         }
@@ -132,6 +147,7 @@ impl PluginCache {
                 executor: Arc::clone(&self.inner.executor),
                 directory: Arc::clone(&self.inner.directory),
                 entries: Mutex::new(HashMap::new()),
+                sink: Mutex::new(None),
                 created: Arc::clone(&self.inner.created),
             }),
         }
@@ -175,13 +191,16 @@ impl PluginCache {
                 max_block,
                 state,
             )?,
-            Format::Vst3 => {
-                return Err(PluginError::Plugin(
-                    "VST3 hosting is not available in this build".into(),
-                ));
-            }
+            Format::Vst3 => Vst3Plugin::create(
+                Arc::clone(&self.inner.executor),
+                info,
+                sample_rate,
+                max_block,
+                state,
+            )?,
         };
         self.inner.created.fetch_add(1, Ordering::SeqCst);
+        attach_sink(&self.inner, device, plugin.as_ref());
         plugin.set_params(params);
         entries.insert(
             device,
@@ -191,6 +210,17 @@ impl PluginCache {
             },
         );
         Ok(plugin)
+    }
+
+    /// Sends every parameter change made in a plugin's editor to `sink` (with the device id), for
+    /// the instances that exist and those created later. Offline renders (forks) have no
+    /// editors and no sink.
+    pub fn set_edit_sink(&self, sink: DeviceEditSink) {
+        *lock(&self.inner.sink) = Some(sink);
+        let entries = lock(&self.inner.entries);
+        for (device, entry) in entries.iter() {
+            attach_sink(&self.inner, *device, entry.plugin.as_ref());
+        }
     }
 
     /// The live instance for `device`, if any.

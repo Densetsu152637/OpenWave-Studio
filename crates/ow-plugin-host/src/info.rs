@@ -1,17 +1,17 @@
 //! What the scanner learns about a plugin file, and the scan cache's record format.
 //!
-//! Everything here is plain serialisable data with no format-specific types, so VST3 (the next
-//! slice) fills the same records: [`PluginInfo`] is one plugin, [`FileRecord`] is one scanned
+//! Everything here is plain serialisable data with no format-specific types, so CLAP and VST3
+//! fill the same records: [`PluginInfo`] is one plugin, [`FileRecord`] is one scanned
 //! file with its outcome, [`ScanCache`] is the `plugin-cache.json` file.
 //!
-//! A plugin's `kind` is what projects store in `Device::kind`: `clap:<plugin id>` now, and
-//! `vst3:<class id>` later.
+//! A plugin's `kind` is what projects store in `Device::kind`: `clap:<plugin id>` or
+//! `vst3:<class id>` (the class id as 32 hexadecimal digits).
 
 use serde::{Deserialize, Serialize};
 
 /// Version of the scan record format. A cache file with another version is ignored (and
 /// rebuilt by the next scan).
-pub const RECORD_VERSION: u32 = 1;
+pub const RECORD_VERSION: u32 = 2;
 
 /// A plugin format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub const RECORD_VERSION: u32 = 1;
 pub enum Format {
     /// CLAP.
     Clap,
-    /// VST3 (hosted from the next slice on).
+    /// VST3.
     Vst3,
 }
 
@@ -102,7 +102,7 @@ impl ParamInfo {
 pub struct PluginInfo {
     /// The format.
     pub format: Format,
-    /// `Device::kind`: `clap:<id>`.
+    /// `Device::kind`: `clap:<id>` or `vst3:<class id>`.
     pub kind: String,
     /// The plugin's own identifier.
     pub id: String,
@@ -126,6 +126,10 @@ pub struct PluginInfo {
     pub latency: u32,
     /// The parameters.
     pub params: Vec<ParamInfo>,
+    /// The plugin has an editor window this platform's hosting can show (whether the platform
+    /// can show one at all is [`crate::editor::AVAILABLE`]).
+    #[serde(default)]
+    pub editor: bool,
     /// The file the plugin was found in.
     pub path: String,
 }
@@ -150,7 +154,7 @@ pub enum ScanStatus {
     },
     /// The scanner did not finish in time. The file is blacklisted until it changes.
     TimedOut,
-    /// The file could not be loaded or has no CLAP entry; not a crash.
+    /// The file could not be loaded or has no plugin entry; not a crash.
     Failed {
         /// Why.
         message: String,

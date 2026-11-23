@@ -16,18 +16,36 @@ use super::mvp::{CompilingTarget, command, edit};
 use super::{IpcState, lock};
 
 const KIND: &str = "clap:com.openwave.fixture.gain";
+const VST3_KIND: &str = "vst3:4F574658565354334741494E50524F43";
 
-/// A cache whose directory holds the fixture plugins, scanned in this process (the scanner
-/// child has its own tests in `ow-plugin-host`).
+/// The fixture plugins' test hooks act on whichever instance was made last and their queues are
+/// shared by every instance in the process, so the tests that host fixtures run one at a time.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// A cache whose directory holds the fixture plugins (CLAP and VST3), scanned in this process
+/// (the scanner child has its own tests in `ow-plugin-host`).
 fn fixture_cache() -> PluginCache {
     let cache = PluginCache::new(Arc::new(ThreadExecutor::new()));
-    let plugins = scan::scan_in_process(&ow_plugin_fixtures::gain_path()).expect("scan fixtures");
+    let mut plugins =
+        scan::scan_in_process(&ow_plugin_fixtures::gain_path()).expect("scan fixtures");
+    plugins.extend(scan::scan_in_process(&ow_plugin_fixtures::vst3_path()).expect("scan vst3"));
     cache.directory().set(plugins);
     cache
 }
 
 /// An audio track whose only insert is the fixture gain plugin; returns the plugin's device id.
 fn add_gain_track(state: &IpcState, target: &dyn PlanTarget) -> DeviceId {
+    add_plugin_track(state, target, KIND)
+}
+
+/// An audio track whose only insert is the plugin `kind`; returns the plugin's device id.
+fn add_plugin_track(state: &IpcState, target: &dyn PlanTarget, kind: &str) -> DeviceId {
     let ids = command(state, target, UiCommand::AllocIds { count: 2 });
     let (track, device) = (TrackId(ids[0]), DeviceId(ids[1]));
     edit(
@@ -50,7 +68,7 @@ fn add_gain_track(state: &IpcState, target: &dyn PlanTarget) -> DeviceId {
                 clips: vec![],
                 devices: vec![Device {
                     id: device,
-                    kind: KIND.into(),
+                    kind: kind.into(),
                     name: "Gain".into(),
                     enabled: true,
                     params: Default::default(),
@@ -88,6 +106,7 @@ fn set_param(state: &IpcState, target: &dyn PlanTarget, device: DeviceId, param:
 
 #[test]
 fn plugin_state_a_parameter_edit_needs_no_recompile_and_keeps_the_instance() {
+    let _serial = serial();
     let cache = fixture_cache();
     let state = IpcState::with_plugins(cache.clone());
     let target = CompilingTarget::default();
@@ -144,6 +163,7 @@ fn plugin_state_a_parameter_edit_needs_no_recompile_and_keeps_the_instance() {
 
 #[test]
 fn plugin_state_is_saved_with_the_project_and_restored_on_open() {
+    let _serial = serial();
     let cache = fixture_cache();
     let state = IpcState::with_plugins(cache.clone());
     let target = CompilingTarget::default();
@@ -199,6 +219,7 @@ fn plugin_state_is_saved_with_the_project_and_restored_on_open() {
 
 #[test]
 fn plugin_state_an_export_renders_its_own_instances_and_leaves_the_live_ones() {
+    let _serial = serial();
     let cache = fixture_cache();
     let state = IpcState::with_plugins(cache.clone());
     let target = CompilingTarget::default();
@@ -223,4 +244,138 @@ fn plugin_state_an_export_renders_its_own_instances_and_leaves_the_live_ones() {
         compiled.plan.output_latency(),
         ow_plugin_fixtures::GAIN_LATENCY
     );
+}
+
+/// Calls a test hook a fixture library exports, on the plugin main thread.
+#[allow(unsafe_code)]
+fn hook(cache: &PluginCache, module: std::path::PathBuf, phase: u32, value: f64) {
+    ow_plugin_host::executor::call(cache.executor().as_ref(), move || {
+        let file = ow_plugin_fixtures::library_of(&module);
+        // SAFETY: the fixture is the library the cache already loaded; the symbol has this
+        // signature (see `ow_plugin_fixtures::hooks`).
+        unsafe {
+            let library = libloading::Library::new(&file).expect("the fixture is loaded");
+            let simulate: libloading::Symbol<unsafe extern "C" fn(u32, f64, u32)> = library
+                .get(ow_plugin_fixtures::hooks::SIMULATE_EDIT)
+                .expect("the fixture exports its test hook");
+            simulate(PARAM_GAIN, value, phase);
+        }
+    })
+    .unwrap();
+}
+
+/// A gesture made in a plugin's editor reaches the model as `SetDeviceParam` edits inside one
+/// transaction: undo reverts the whole gesture at once, and the plugin follows the undo.
+fn a_gesture_is_one_undo_step(kind: &str, module: std::path::PathBuf) {
+    use ow_plugin_fixtures::hooks::{PHASE_BEGIN, PHASE_CHANGE, PHASE_END};
+    let cache = fixture_cache();
+    let state = IpcState::with_plugins(cache.clone());
+    let target = CompilingTarget::default();
+    let device = add_plugin_track(&state, &target, kind);
+    let plugin = cache.get(device.0).unwrap();
+    let compiles = target.applied.borrow().len();
+
+    // What the app does: the plugin's report goes through a channel, because it comes from a
+    // thread that must not wait for the control lock.
+    let (sender, receiver) = std::sync::mpsc::channel();
+    cache.set_edit_sink(Arc::new(move |device, edit| {
+        let _ = sender.send((device, edit));
+    }));
+    hook(&cache, module.clone(), PHASE_BEGIN, 0.0);
+    hook(&cache, module.clone(), PHASE_CHANGE, 0.5);
+    hook(&cache, module.clone(), PHASE_CHANGE, 0.75);
+    hook(&cache, module, PHASE_END, 0.0);
+    // CLAP plugins report from the audio thread: a block and the service pass deliver it.
+    value_after_a_block(&plugin, PARAM_GAIN);
+    plugin.service();
+
+    let mut open = std::collections::HashSet::new();
+    let mut applied = 0;
+    while let Ok((device, edit)) = receiver.try_recv() {
+        crate::plugins::apply_editor_edit(&state, &target, &cache, device, edit, &mut open);
+        applied += 1;
+    }
+    assert_eq!(applied, 4, "begin, two changes, end");
+    assert!(open.is_empty());
+    assert_eq!(
+        target.applied.borrow().len(),
+        compiles,
+        "an editor gesture needs no recompile"
+    );
+    let snapshot = lock(&state.control).snapshot();
+    assert_eq!(
+        snapshot.project.devices[&device].params.get(&PARAM_GAIN),
+        Some(&0.75)
+    );
+    assert!(!snapshot.history.in_transaction);
+    assert_eq!(snapshot.history.undo_label.as_deref(), Some("Edit Gain"));
+    assert!(snapshot.history.dirty);
+
+    // One undo reverts the whole gesture (the model and the plugin), one redo restores it.
+    lock(&state.control)
+        .command(UiCommand::Undo, &target)
+        .unwrap();
+    let snapshot = lock(&state.control).snapshot();
+    assert_eq!(
+        snapshot.project.devices[&device].params.get(&PARAM_GAIN),
+        None
+    );
+    assert_eq!(value_after_a_block(&plugin, PARAM_GAIN), 1.0);
+    lock(&state.control)
+        .command(UiCommand::Redo, &target)
+        .unwrap();
+    assert_eq!(value_after_a_block(&plugin, PARAM_GAIN), 0.75);
+    assert!(Arc::ptr_eq(&plugin, &cache.get(device.0).unwrap()));
+}
+
+#[test]
+fn plugin_state_a_clap_editor_gesture_is_one_undo_step() {
+    let _serial = serial();
+    a_gesture_is_one_undo_step(KIND, ow_plugin_fixtures::gain_path());
+}
+
+#[test]
+fn plugin_state_a_vst3_editor_gesture_is_one_undo_step() {
+    let _serial = serial();
+    a_gesture_is_one_undo_step(VST3_KIND, ow_plugin_fixtures::vst3_path());
+}
+
+#[test]
+fn plugin_state_a_vst3_plugin_is_saved_with_the_project_and_restored_on_open() {
+    let _serial = serial();
+    let cache = fixture_cache();
+    let state = IpcState::with_plugins(cache.clone());
+    let target = CompilingTarget::default();
+    let device = add_plugin_track(&state, &target, VST3_KIND);
+    set_param(&state, &target, device, PARAM_GAIN, 0.25);
+    set_param(&state, &target, device, PARAM_POLARITY, 1.0);
+    let plugin = cache.get(device.0).unwrap();
+    assert_eq!(value_after_a_block(&plugin, PARAM_GAIN), 0.25);
+
+    let dir = tempfile::tempdir().unwrap();
+    state
+        .project_save(Some(&dir.path().join("vst3-song")), &target)
+        .unwrap();
+    let saved = ow_model::bundle::load(&dir.path().join("vst3-song.owave")).unwrap();
+    let saved_device = &saved.devices[&device];
+    assert_eq!(saved_device.params.get(&PARAM_GAIN), Some(&0.25));
+    assert_eq!(saved_device.state.len(), 1);
+    assert_eq!(saved_device.state[0].format, "vst3");
+    let bytes = decode_state(&saved_device.state[0].data).expect("base64 state");
+    assert_eq!(bytes, plugin.save_state().unwrap());
+
+    let reopened_cache = fixture_cache();
+    let reopened = IpcState::with_plugins(reopened_cache.clone());
+    let reopened_target = CompilingTarget::default();
+    let snapshot = reopened
+        .project_open(&dir.path().join("vst3-song.owave"), &reopened_target)
+        .unwrap();
+    assert_eq!(
+        snapshot.project.devices[&device].params.get(&PARAM_GAIN),
+        Some(&0.25)
+    );
+    let restored = reopened_cache.get(device.0).expect("instantiated on open");
+    assert_eq!(restored.param_value(PARAM_GAIN).unwrap(), Some(0.25));
+    assert_eq!(restored.param_value(PARAM_POLARITY).unwrap(), Some(1.0));
+    assert_eq!(restored.save_state().unwrap(), bytes);
 }
