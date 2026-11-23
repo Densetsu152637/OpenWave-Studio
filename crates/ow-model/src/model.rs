@@ -312,7 +312,7 @@ pub struct Device {
     /// Processing enabled (false is bypass).
     pub enabled: bool,
     /// Parameter values by parameter id; unset parameters hold their defaults.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "params_from_any_key")]
     pub params: BTreeMap<u32, f64>,
     /// Saved state, per format.
     #[serde(default)]
@@ -320,6 +320,68 @@ pub struct Device {
     /// Sidechain source strip, if the device takes one.
     #[serde(default)]
     pub sidechain: Option<MixerRef>,
+}
+
+/// Reads `Device::params` with parameter ids as integers or as decimal strings. Serde's buffered
+/// path (an edit command nested in an internally tagged enum, or a `batch`) turns integer map
+/// keys into strings, so both forms must be accepted. The on-disk form is unchanged.
+fn params_from_any_key<'de, D>(deserializer: D) -> Result<BTreeMap<u32, f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Key(u32);
+
+    impl<'de> Deserialize<'de> for Key {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct KeyVisitor;
+            impl serde::de::Visitor<'_> for KeyVisitor {
+                type Value = Key;
+
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a parameter id (an integer or a decimal string)")
+                }
+
+                fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Key, E> {
+                    u32::try_from(v)
+                        .map(Key)
+                        .map_err(|_| E::custom("parameter id out of range"))
+                }
+
+                fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Key, E> {
+                    u32::try_from(v)
+                        .map(Key)
+                        .map_err(|_| E::custom("parameter id out of range"))
+                }
+
+                fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Key, E> {
+                    v.parse()
+                        .map(Key)
+                        .map_err(|_| E::custom("parameter id is not a number"))
+                }
+            }
+            deserializer.deserialize_any(KeyVisitor)
+        }
+    }
+
+    impl PartialEq for Key {
+        fn eq(&self, other: &Self) -> bool {
+            self.0 == other.0
+        }
+    }
+    impl Eq for Key {}
+    impl PartialOrd for Key {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Key {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.0.cmp(&other.0)
+        }
+    }
+
+    let map = BTreeMap::<Key, f64>::deserialize(deserializer)?;
+    Ok(map.into_iter().map(|(key, value)| (key.0, value)).collect())
 }
 
 /// Which strip parameter an automation lane drives.

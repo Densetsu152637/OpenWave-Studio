@@ -382,7 +382,11 @@ impl AppBackend {
             TransportAction::Status => {}
         }
         let moving = args.action == TransportAction::Status;
-        let (state, summary) = self.transport_state(moving);
+        let target = match args.action {
+            TransportAction::Locate => args.beats,
+            _ => None,
+        };
+        let (state, summary) = self.transport_state(moving, target);
         let verb = match args.action {
             TransportAction::Play => "Playing.",
             TransportAction::Stop => "Stopped.",
@@ -392,28 +396,57 @@ impl AppBackend {
         Ok(ToolOutput::new(state, format!("{verb} {summary}")))
     }
 
-    /// The engine status and the transport position; with `measure_motion` also whether the
-    /// position is advancing (two samples a few milliseconds apart).
-    fn transport_state(&self, measure_motion: bool) -> (Value, String) {
+    /// The engine status and the transport position. With `measure_motion` also whether the
+    /// transport is playing: the engine publishes no play flag, so the position must advance in
+    /// two consecutive samples by about the time that passed (a locate is a jump, not playing).
+    /// With `target_beats` (after a locate) it waits up to about 100 ms for the engine to reach
+    /// that position, and reports the requested target when it has not yet.
+    fn transport_state(&self, measure_motion: bool, target_beats: Option<f64>) -> (Value, String) {
         let engine_state = self.engine_state();
         let bank = engine_state.engine().telemetry_bank();
-        let first = bank.position();
+        let (rate, tempo) = self.ipc().with_control(|control| {
+            let project = control.session().project();
+            (project.settings.sample_rate, project.tempo_map.clone())
+        });
+        let mut confirmed = true;
+        let mut requested = None;
+        if let Some(beats) = target_beats {
+            let want = ow_model::time::beats_to_sample_index(&tempo, beats, rate);
+            let close = u64::from(rate) / 50;
+            let deadline = std::time::Instant::now() + Duration::from_millis(100);
+            while bank.position().abs_diff(want) > close {
+                if std::time::Instant::now() >= deadline {
+                    confirmed = false;
+                    requested = Some(beats);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
         let moving = measure_motion.then(|| {
-            std::thread::sleep(Duration::from_millis(40));
-            bank.position() != first
+            const STEP: Duration = Duration::from_millis(30);
+            let expected = f64::from(rate) * STEP.as_secs_f64();
+            let advanced = |from: u64, to: u64| {
+                let delta = to.wrapping_sub(from) as f64;
+                to > from && delta > expected * 0.3 && delta < expected * 3.0
+            };
+            let first = bank.position();
+            std::thread::sleep(STEP);
+            let second = bank.position();
+            std::thread::sleep(STEP);
+            let third = bank.position();
+            advanced(first, second) && advanced(second, third)
         });
         let position = bank.position();
-        let (rate, beats) = self.ipc().with_control(|control| {
-            let project = control.session().project();
-            let rate = project.settings.sample_rate;
-            (
-                rate,
-                project.tempo_map.samples_to_beats(position as f64, rate),
-            )
-        });
+        let beats = requested.unwrap_or_else(|| tempo.samples_to_beats(position as f64, rate));
         let status = engine_state.status();
         let summary = format!(
-            "Position {beats:.3} beats; audio {}{}.",
+            "Position {beats:.3} beats{}; audio {}{}.",
+            if confirmed {
+                ""
+            } else {
+                " (requested; the engine has not confirmed it yet)"
+            },
             status.audio_state,
             match moving {
                 Some(true) => ", playing",
@@ -425,6 +458,7 @@ impl AppBackend {
             json!({
                 "position_frames": position,
                 "position_beats": beats,
+                "position_confirmed": confirmed,
                 "sample_rate": rate,
                 "moving": moving,
                 "engine": to_json(&status).unwrap_or(Value::Null),
@@ -476,11 +510,21 @@ impl AppBackend {
                 let current =
                     ipc.with_control(|control| control.session().project_path().map(str::to_owned));
                 let same = current.as_deref().map(Path::new) == Some(target.as_path());
-                if target.exists() && !same && !args.overwrite {
-                    return Err(format!(
-                        "{} already exists; pass overwrite=true to replace it",
-                        target.display()
-                    ));
+                if target.exists() && !same {
+                    // Only an existing OpenWave project may be replaced, never another file or
+                    // folder (saving writes into the folder).
+                    if !target.join(ow_model::PROJECT_FILE).is_file() {
+                        return Err(format!(
+                            "{} exists and is not an OpenWave project bundle; choose another path",
+                            target.display()
+                        ));
+                    }
+                    if !args.overwrite {
+                        return Err(format!(
+                            "{} already exists; pass overwrite=true to replace it",
+                            target.display()
+                        ));
+                    }
                 }
                 let saved = ipc.project_save(Some(Path::new(path)), engine)?;
                 Ok(ToolOutput::new(
@@ -553,6 +597,14 @@ impl AppBackend {
     }
 
     fn export_wav(&self, args: ExportWavArgs) -> Result<ToolOutput, String> {
+        if !Path::new(&args.path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
+        {
+            return Err(
+                "the export path must end in .wav; export_wav never writes other file types".into(),
+            );
+        }
         let target = wav_path(Path::new(&args.path));
         if target.exists() && !args.overwrite {
             return Err(format!(
@@ -1750,5 +1802,125 @@ mod tests {
         assert!(endpoint::read(&dir).unwrap().enabled);
         state.stop();
         assert!(endpoint::read(&dir).is_err());
+    }
+
+    fn device_json(id: u64) -> Value {
+        json!({"id": id, "kind": "builtin.eq", "name": "EQ", "enabled": true,
+               "params": {"0": 70.0, "3": -2.5}, "state": [], "sidechain": null})
+    }
+
+    #[test]
+    fn mcp_edit_accepts_device_params_in_bundles_and_batches() {
+        let fixture = Fixture::start();
+        block_on(async {
+            let mut client = fixture.client().await;
+            let ids = client.call("alloc_ids", json!({"count": 3})).await["ids"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let (track, device, nested) = (
+                ids[0].as_u64().unwrap(),
+                ids[1].as_u64().unwrap(),
+                ids[2].as_u64().unwrap(),
+            );
+            let mut bundle = insert_track(track);
+            bundle["bundle"]["devices"] = json!([device_json(device)]);
+            bundle["bundle"]["item"]["strip"]["inserts"] = json!([device]);
+            client.call("edit", json!({"commands": [bundle]})).await;
+            let project = fixture.host.ipc.snapshot().project;
+            assert_eq!(
+                project.devices[&ow_model::DeviceId(device)].params[&0],
+                70.0
+            );
+            assert_eq!(
+                project.devices[&ow_model::DeviceId(device)].params[&3],
+                -2.5
+            );
+
+            // The same through a batch nested inside edit.
+            let insert = json!({"command": "insert_device",
+                "slot": serde_json::to_value(ow_model::DeviceSlot::Insert {
+                    strip: ow_model::MixerRef::Track(TrackId(track)),
+                    index: 1,
+                }).unwrap(),
+                "bundle": {"device": device_json(nested), "lanes": []}});
+            client
+                .call(
+                    "edit",
+                    json!({"commands": [{"command": "batch", "commands": [insert]}]}),
+                )
+                .await;
+            let project = fixture.host.ipc.snapshot().project;
+            assert_eq!(
+                project.devices[&ow_model::DeviceId(nested)].params[&0],
+                70.0
+            );
+        });
+    }
+
+    #[test]
+    fn mcp_transport_is_not_playing_after_a_locate_and_reports_the_target() {
+        let fixture = Fixture::start();
+        block_on(async {
+            let mut client = fixture.client().await;
+            client.call("transport", json!({"action": "stop"})).await;
+            let located = client
+                .call("transport", json!({"action": "locate", "beats": 8}))
+                .await;
+            let beats = located["position_beats"].as_f64().unwrap();
+            assert!((beats - 8.0).abs() < 0.1, "locate answered {beats}");
+            let status = client.call("transport", json!({"action": "status"})).await;
+            assert_eq!(status["moving"], false);
+        });
+    }
+
+    #[test]
+    fn mcp_export_and_save_never_replace_other_kinds_of_file() {
+        let fixture = Fixture::start();
+        let document = fixture.work.path().join("notes.docx");
+        std::fs::write(&document, b"precious").unwrap();
+        let folder = fixture.work.path().join("photos.owave");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("keep.txt"), b"keep").unwrap();
+        block_on(async {
+            let mut client = fixture.client().await;
+            for path in [
+                document.clone(),
+                fixture.work.path().join("mix.mp3"),
+                fixture.work.path().join("mix"),
+            ] {
+                let error = client
+                    .call_error(
+                        "export_wav",
+                        json!({"path": path.to_string_lossy(), "overwrite": true}),
+                    )
+                    .await;
+                assert!(error.contains(".wav"), "{error}");
+            }
+            assert_eq!(std::fs::read(&document).unwrap(), b"precious");
+            let upper = fixture.work.path().join("LOUD.WAV");
+            client
+                .call("export_wav", json!({"path": upper.to_string_lossy()}))
+                .await;
+            assert!(upper.is_file());
+
+            // An existing folder that is not a project bundle is refused, overwrite or not.
+            let error = client
+                .call_error(
+                    "project",
+                    json!({"action": "save_as", "path": folder.to_string_lossy(), "overwrite": true}),
+                )
+                .await;
+            assert!(error.contains("not an OpenWave project bundle"), "{error}");
+            assert!(!folder.join(ow_model::PROJECT_FILE).exists());
+            // A file that merely lacks the extension is not touched: `.owave` is appended.
+            client
+                .call(
+                    "project",
+                    json!({"action": "save_as", "path": document.to_string_lossy()}),
+                )
+                .await;
+            assert_eq!(std::fs::read(&document).unwrap(), b"precious");
+        });
     }
 }
