@@ -7,5 +7,11 @@ fn main() {
     if let Some(code) = openwave_studio_lib::cli::handle_args(std::env::args_os().skip(1)) {
         std::process::exit(code);
     }
+    // The portable update helper (a copy of this exe run with `--apply-update`) never opens a window.
+    if let Some(code) =
+        openwave_studio_lib::portable_update::handle_args(std::env::args_os().skip(1))
+    {
+        std::process::exit(code);
+    }
     openwave_studio_lib::run();
 }

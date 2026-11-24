@@ -1,0 +1,8 @@
+# Fixture for tests/render.rs: oscillator -> gain -> stereo master.
+# The expected output is analytic: sample n = osc_amp * gain * sin(2*pi*osc_freq*n/sample_rate),
+# evaluated in f64, identical on both master channels. Tolerance is -90 dBFS.
+sample_rate = 48000
+frames = 96000
+osc_freq = 1000.0
+osc_amp = 0.8
+gain = 0.5

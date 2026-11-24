@@ -12,8 +12,9 @@ if [[ "$version" == *-* ]]; then
   bundles="$(tr ',' '\n' <<< "$bundles" | grep -vxE 'rpm' | paste -sd, -)"
 fi
 
-# Updater artifacts need the signing key, which arrives with the updater stage.
-updater=false
+# Signed updater artifacts (.sig beside each installer); they need the TAURI_SIGNING_PRIVATE_KEY
+# secret, which reaches only the tauri-action step. The feed is built from them in publish.
+updater=true
 
 mkdir -p target
 printf '{"version":"%s","bundle":{"createUpdaterArtifacts":%s}}\n' "$version" "$updater" \

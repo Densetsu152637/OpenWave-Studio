@@ -12,6 +12,24 @@ on:
         type: string
         required: true
 
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+
 permissions:
   contents: read
 
@@ -71,22 +89,6 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Developer ID signing and notarization run only when the APPLE_* secrets exist. Tauri treats
-      # an empty variable as configured, so only non-empty ones reach the build. Without them the
-      # macOS bundle is ad-hoc signed (bundle.macOS.signingIdentity "-").
-      - name: Signing environment
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
-            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [ -n "${!var:-}" ]; then printf '%s=%s\n' "$var" "${!var}" >> "$GITHUB_ENV"; fi
-          done
       - id: prepare
         name: Prepare build
         env:
@@ -100,16 +102,29 @@ jobs:
         name: Build desktop bundles
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
+          # Developer ID signing and notarization run only when the APPLE_* secrets exist; without
+          # them the macOS bundle is ad-hoc signed (bundle.macOS.signingIdentity "-"). The secrets
+          # reach only this step; scripts/ci/tauri.sh drops the empty ones, because Tauri treats an
+          # empty variable as configured.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # The app prints this for `--version`; it matches the channel version set in --config.
           OW_VERSION: ${{ inputs.version }}
         with:
-          tauriScript: pnpm tauri
+          tauriScript: bash scripts/ci/tauri.sh
           args: ${{ steps.prepare.outputs.args }}
       - name: Launch smoke test
         env:
           ID: ${{ matrix.id }}
           TAURI_TARGET: ${{ matrix.tauri_target }}
           VERSION: ${{ inputs.version }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: bash scripts/ci/smoke.sh "$ID" "$TAURI_TARGET" "$VERSION"
       - name: Collect release files
         env:
@@ -118,6 +133,9 @@ jobs:
           VERSION: ${{ inputs.version }}
           ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
           UPDATER: ${{ steps.prepare.outputs.updater }}
+          # Signs the portable zips (tauri signer sign); reaches only this step.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bash scripts/ci/collect-dist.sh "$ID" "$TAURI_TARGET" "$VERSION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

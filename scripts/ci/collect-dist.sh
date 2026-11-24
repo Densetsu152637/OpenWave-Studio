@@ -2,7 +2,9 @@
 # Gather one matrix target's release files into release-dist/: collect-dist.sh <platform-id> <tauri-target> <version>
 # Environment:
 #   ARTIFACT_PATHS  JSON array of bundle paths, tauri-action's `artifactPaths` output
-#   UPDATER         "true" when updater artifacts were requested; then every installer needs a .sig
+#   UPDATER         "true" when updater artifacts were requested; then every installer and every
+#                   portable zip needs a .sig (the zips are signed here)
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  the updater key, for the portable zips
 # Copies the installers (spaces in names become hyphens, which is what GitHub stores), then builds
 # the portable package: a plain-exe zip on Windows, the .app zip on macOS (each with a `portable`
 # marker beside the program), and on Linux the AppImage itself.
@@ -59,17 +61,53 @@ case "$id" in
   *) echo "::error::unknown platform id $id"; exit 1 ;;
 esac
 
-# Every installer that updates itself needs its signature; the portable zips are signed from
-# the portable-update stage on.
+# Portable zips are signed here, with the updater key, because the Tauri bundler never sees them:
+# `tauri signer sign` writes <zip>.sig, which the feed carries for the Windows zips (the app
+# verifies the download against the public key) and which ships beside the macOS zip. The key
+# reaches this script only through TAURI_SIGNING_PRIVATE_KEY(_PASSWORD), set on this step alone.
+if [ "$updater" = true ] && [ -n "$portable" ]; then
+  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+    echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, so the portable zip cannot be signed."
+    exit 1
+  fi
+  # --app-version binds the signed version into the signature, which the app requires.
+  bash scripts/ci/tauri.sh signer sign --app-version "$version" "release-dist/$portable"
+fi
+
+# Every updater artifact and every portable zip needs its signature.
 if [ "$updater" = true ]; then
-  for file in release-dist/*-setup.exe release-dist/*.app.tar.gz release-dist/*.AppImage; do
+  for file in release-dist/*-setup.exe release-dist/*.app.tar.gz release-dist/*.AppImage release-dist/*_portable.zip; do
     [ -e "$file" ] || continue
-    if [ ! -e "$file.sig" ]; then
+    if [ ! -s "$file.sig" ]; then
       echo "::error::$file has no updater signature (.sig)."
       exit 1
     fi
   done
 fi
+
+# The portable zips must hold the program, the license and the marker at the top level.
+list_zip() {
+  if py="$(command -v python3 || command -v python)"; then
+    "$py" -I -c 'import sys, zipfile; print(chr(10).join(zipfile.ZipFile(sys.argv[1]).namelist()))' "$1"
+  else
+    powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::OpenRead('$(cygpath -w "$1")').Entries | Select-Object -ExpandProperty FullName"
+  fi
+}
+check_zip() {
+  local zip="$1" program="$2" entries
+  entries="$(list_zip "$zip" | sed 's/[[:cntrl:]]$//')"
+  for want in portable LICENSE "$program"; do
+    if ! grep -qxF -- "$want" <<< "$entries" && ! grep -qF -- "$want/" <<< "$entries"; then
+      echo "::error::$zip is missing top-level $want. Contents:"
+      echo "$entries"
+      exit 1
+    fi
+  done
+}
+case "$id" in
+  windows-*) check_zip "release-dist/$portable" "OpenWave Studio.exe" ;;
+  macos-*) check_zip "release-dist/$portable" "OpenWave Studio.app" ;;
+esac
 
 # The expected files must exist.
 need=()
@@ -78,6 +116,8 @@ case "$id" in
   macos-*) need=("release-dist/*.dmg" "release-dist/$portable") ;;
   linux-*) need=("release-dist/*.AppImage" "release-dist/*.deb") ;;
 esac
+# RPM is built for stable versions only (it rejects the hyphen).
+if [ "$id" != "${id#linux-}" ] && [[ "$version" != *-* ]]; then need+=("release-dist/*.rpm"); fi
 for pattern in "${need[@]}"; do
   # shellcheck disable=SC2086
   if ! ls $pattern > /dev/null 2>&1; then

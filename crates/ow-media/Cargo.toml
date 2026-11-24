@@ -1,0 +1,22 @@
+[package]
+name = "ow-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Media import, peak pyramids, disk streaming and recording for OpenWave Studio"
+
+[dependencies]
+hound = "3.5.1"
+rtrb = "0.4.1"
+rubato = { version = "5.1.0", default-features = false }
+sha2 = "0.10"
+# Permissive-only codec set (all MPL-2.0 file-level); no AAC/ALAC/MKV/ADPCM.
+symphonia = { version = "0.6.1", default-features = false, features = ["wav", "aiff", "flac", "mp3", "ogg", "vorbis", "pcm", "id3v1", "id3v2"] }
+
+[dev-dependencies]
+assert_no_alloc = { version = "1.1.2", features = ["disable_release"] }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

@@ -2,6 +2,7 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, experimental]
   merge_group:
@@ -85,6 +86,43 @@ jobs:
       # The app crate embeds the built frontend, so it must exist before fmt/clippy/test.
       - run: pnpm build
       - run: bash scripts/check-rust.sh
+      # Device stage 9: the source-build-only ASIO feature must keep compiling. Build only, never
+      # published. cpal's build script downloads the SDK; bindgen needs the runner's LLVM.
+      - name: Build ow-io with ASIO (build only)
+        if: runner.os == 'Windows'
+        timeout-minutes: 20
+        env:
+          LIBCLANG_PATH: 'C:/Program Files/LLVM/bin'
+        run: cargo build -p ow-io --features asio --locked
+      # Engine stage 6: the RT-safety suite again with eight DSP workers (allocation guard on
+      # every worker and the callback thread).
+      - name: RT safety with 8 DSP workers
+        timeout-minutes: 15
+        run: OW_TEST_WORKERS=8 cargo test -p ow-engine --locked --test rt_safety
+      # The workspace run covers this test too; this step shows its join or skip reason.
+      - name: macOS audio workgroup join
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        run: cargo test -p ow-engine --locked --lib workgroup -- --nocapture
+      # IPC stage 10: the generated TypeScript types and the stream fixture the UI tests replay
+      # must be current (Linux only: Windows checkouts convert line endings).
+      - name: IPC bindings are current
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          cargo test -p ow-ipc --locked export_bindings
+          git diff --exit-code src/lib/ipc/generated src/lib/stores/fixtures
+          # New files (an uncommitted generated type) do not show in `git diff`.
+          test -z "$(git status --porcelain -- src/lib/ipc/generated src/lib/stores/fixtures)"
+      # IPC stage 10: sampling and packing 128 meters plus the transport, median under 100 us.
+      - name: Telemetry budget (release)
+        timeout-minutes: 10
+        run: cargo test -p ow-ipc --locked --release telemetry_budget
+      # Track-count benchmark: tracked for trends, timings are not gated.
+      - name: Track-count benchmark
+        if: runner.os == 'Linux'
+        timeout-minutes: 20
+        run: cargo bench -p ow-engine --locked --bench tracks -- --quick
 
   # Licenses of every platform's dependency graph (deny.toml): GPL, LGPL and AGPL are rejected.
   deny:

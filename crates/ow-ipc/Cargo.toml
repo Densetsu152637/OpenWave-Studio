@@ -1,0 +1,24 @@
+[package]
+name = "ow-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "IPC contract between the OpenWave Studio engine and its UI: DTOs, patches, state mirror and telemetry"
+
+[dependencies]
+ow-dsp = { path = "../ow-dsp" }
+ow-model = { path = "../ow-model", features = ["ts"] }
+serde = { version = "1.0.229", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
+# TypeScript bindings for the DTOs (MIT); written to src/lib/ipc/generated/ by the tests.
+ts-rs = "12.0.1"
+
+[dev-dependencies]
+assert_no_alloc = { version = "1.1.2" }
+proptest = { version = "1.9.0", default-features = false, features = ["std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+
+[lints]
+workspace = true

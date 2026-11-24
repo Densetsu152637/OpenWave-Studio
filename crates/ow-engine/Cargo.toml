@@ -7,7 +7,30 @@ repository.workspace = true
 description = "Real-time audio engine for OpenWave Studio"
 
 [dependencies]
+assert_no_alloc = { version = "1.1.2", features = ["disable_release"] }
+# No D-Bus (rtkit): on Linux the crate promotes threads with SCHED_FIFO directly.
+audio_thread_priority = { version = "0.38.0", default-features = false }
+num_cpus = "1.17.0"
+ow-dsp = { path = "../ow-dsp" }
 ow-io = { path = "../ow-io" }
+# Only the telemetry bank (atomics the audio thread writes); `ow-ipc` depends on `ow-model` alone.
+ow-ipc = { path = "../ow-ipc" }
+# `AudioSource` for the clip source node (decoding, streaming and peaks stay in `ow-media`).
+ow-media = { path = "../ow-media" }
+ow-model = { path = "../ow-model" }
+# Hosted third-party plugins as device nodes, and the cache that keeps their instances across
+# recompiles.
+ow-plugin-host = { path = "../ow-plugin-host" }
+rtrb = "0.4.1"
+
+[dev-dependencies]
+hound = "3.5.1"
+tempfile = "3.27.0"
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "tracks"
+harness = false
 
 [lints]
 workspace = true
