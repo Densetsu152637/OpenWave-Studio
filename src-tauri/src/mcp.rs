@@ -939,6 +939,7 @@ mod tests {
         ("update_check", "the updater (see update_status)"),
         ("update_set_channel", "the updater (see update_status)"),
         ("update_restart", "the updater (see update_status)"),
+        ("update_install_now", "the updater (see update_status)"),
     ];
 
     fn sources(dir: &Path, found: &mut Vec<String>) {

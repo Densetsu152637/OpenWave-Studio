@@ -31,6 +31,8 @@
 
   let status = $state<EngineStatus>(offlineStatus);
   let settingsOpen = $state(false);
+  /** The Settings section to open at; the version button opens it at About › Updates. */
+  let settingsTab = $state<"audio" | "about">("audio");
   let mirror = $state.raw<MirrorState>(modelMirror.state);
   let notice = $state<string | null>(null);
   let playing = $state(false);
@@ -174,7 +176,14 @@
 
 <div class="shell">
   <MenuBar
-    onSettings={() => (settingsOpen = true)}
+    onSettings={() => {
+      settingsTab = "audio";
+      settingsOpen = true;
+    }}
+    onUpdates={() => {
+      settingsTab = "about";
+      settingsOpen = true;
+    }}
     file={files}
     title={mirror.history?.dirty ? `${projectName} *` : projectName}
     hasProject={mirror.project !== null}
@@ -203,7 +212,7 @@
 {/if}
 
 {#if settingsOpen}
-  <SettingsDialog {status} onStatus={(next) => (status = next)} onClose={() => (settingsOpen = false)} />
+  <SettingsDialog initialTab={settingsTab} {status} onStatus={(next) => (status = next)} onClose={() => (settingsOpen = false)} />
 {/if}
 
 <style>

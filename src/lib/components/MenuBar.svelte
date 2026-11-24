@@ -1,14 +1,18 @@
 <script lang="ts">
   import type { FileActions } from "../arrange/files";
+  import UpdateControl from "./UpdateControl.svelte";
 
   let {
     onSettings,
+    onUpdates,
     file,
     title,
     hasProject,
     onError,
   }: {
     onSettings: () => void;
+    /** Opens Settings at the Updates section. */
+    onUpdates: () => void;
     file: FileActions;
     /** The project's name, with a mark when it has unsaved changes. */
     title: string;
@@ -76,7 +80,10 @@
     <button type="button" class="menu">{menu}</button>
   {/each}
   <span class="title" title="Project">{title}</span>
-  <button type="button" class="menu settings" onclick={onSettings}>Settings</button>
+  <span class="end">
+    <UpdateControl onOpen={onUpdates} />
+    <button type="button" class="menu" onclick={onSettings}>Settings</button>
+  </span>
 </nav>
 
 <style>
@@ -99,8 +106,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .settings {
+  .end {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .menu {
     background: transparent;

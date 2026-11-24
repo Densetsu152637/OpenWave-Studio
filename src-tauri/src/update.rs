@@ -528,6 +528,27 @@ pub fn update_restart<R: Runtime>(
     app: AppHandle<R>,
     updater: tauri::State<'_, Updater>,
 ) -> Result<(), String> {
+    install_and_restart(&app, &updater)
+}
+
+/// Checks the channel now and, when it offers a build to install, downloads it, installs it and
+/// starts the new version. Returns the status when there is nothing to install.
+#[tauri::command]
+pub async fn update_install_now<R: Runtime>(app: AppHandle<R>) -> Result<UpdateStatus, String> {
+    let updater = app.state::<Updater>();
+    if let Some(reason) = updater.disabled {
+        return Err(reason.message().to_owned());
+    }
+    check(&app).await;
+    let status = updater.status(&app);
+    match &status.state {
+        UpdateState::Ready { .. } => install_and_restart(&app, &updater).map(|()| status),
+        UpdateState::Failed { message } => Err(message.clone()),
+        _ => Ok(status),
+    }
+}
+
+fn install_and_restart<R: Runtime>(app: &AppHandle<R>, updater: &Updater) -> Result<(), String> {
     let ready = updater.inner.lock().expect("updater state").ready.take();
     let Some((update, bytes)) = ready else {
         return Err("No update has been downloaded.".into());
@@ -545,7 +566,17 @@ pub fn update_restart<R: Runtime>(
         return Ok(());
     }
     // On Windows the installer takes over here, exits this process and starts the new version.
-    update.install(bytes).map_err(|error| error.to_string())?;
+    if let Err(error) = update.install(bytes) {
+        // The downloaded build is used up, so the panel must not keep offering it.
+        let message = format!("Installing {} failed: {error}", update.version);
+        updater.set_state(
+            app,
+            UpdateState::Failed {
+                message: message.clone(),
+            },
+        );
+        return Err(message);
+    }
     app.restart()
 }
 

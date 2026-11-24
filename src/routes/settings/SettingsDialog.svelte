@@ -25,10 +25,13 @@
 
   let {
     onClose,
+    initialTab = "audio",
     status = offlineStatus,
     onStatus = () => {},
   }: {
     onClose: () => void;
+    /** The section shown when the dialog opens. */
+    initialTab?: Tab;
     /** Live engine status, polled by the app. */
     status?: EngineStatus;
     onStatus?: (status: EngineStatus) => void;
@@ -44,7 +47,8 @@
     { id: "about", label: "About" },
   ];
 
-  let tab = $state<Tab>("audio");
+  // svelte-ignore state_referenced_locally
+  let tab = $state<Tab>(initialTab);
   let saved = $state<Preferences>(structuredClone(defaultPreferences));
   let draft = $state<Preferences>(structuredClone(defaultPreferences));
   let lists = $state<DeviceLists>(noDevices);

@@ -3,9 +3,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type Channel = "main" | "experimental";
 
-export const CHANNELS: readonly { id: Channel; label: string }[] = [
-  { id: "main", label: "Main (stable)" },
-  { id: "experimental", label: "Experimental" },
+export const CHANNELS: readonly { id: Channel; label: string; hint: string }[] = [
+  { id: "main", label: "Main", hint: "Stable releases" },
+  { id: "experimental", label: "Experimental", hint: "Every build of the experimental branch; may be unstable" },
 ];
 
 /** Mirrors `UpdateStatus` in src-tauri/src/update.rs (camelCase over IPC, state tagged). */
@@ -35,15 +35,15 @@ export const offlineStatus: UpdateStatus = {
 export function describeStatus(status: UpdateStatus): string {
   switch (status.state) {
     case "idle":
-      return status.automatic ? "Waiting for the next check." : "Updates are checked when you ask.";
+      return status.automatic ? "Checks automatically every few hours" : "Development build: checks only when asked";
     case "checking":
-      return "Checking for updates...";
+      return "Checking…";
     case "up_to_date":
-      return "OpenWave Studio is up to date.";
+      return "Up to date";
     case "downloading":
-      return `Downloading ${status.version}...`;
+      return `Downloading ${status.version}…`;
     case "ready":
-      return `Update ready: ${status.version}. It installs when you quit, or restart now.`;
+      return `${status.version} is ready. It installs when you quit, or choose Restart to update.`;
     case "failed":
       return status.message;
     case "disabled":
@@ -51,7 +51,7 @@ export function describeStatus(status: UpdateStatus): string {
   }
 }
 
-/** Whether "Check now" does anything in this state. */
+/** Whether "Check and install updates" and the channel choice are usable in this state. */
 export function canCheck(status: UpdateStatus): boolean {
   return status.state !== "checking" && status.state !== "downloading" && status.state !== "disabled";
 }
@@ -69,6 +69,12 @@ export async function updateCheck(): Promise<void> {
 export async function updateSetChannel(channel: Channel): Promise<UpdateStatus> {
   if (!isTauri()) return { ...offlineStatus, channel };
   return invoke<UpdateStatus>("update_set_channel", { channel });
+}
+
+/** Checks now and, when a build is found, installs it and restarts; otherwise returns the status. */
+export async function updateInstallNow(): Promise<UpdateStatus> {
+  if (!isTauri()) return offlineStatus;
+  return invoke<UpdateStatus>("update_install_now");
 }
 
 export async function updateRestart(): Promise<void> {

@@ -56,6 +56,7 @@ pub const COMMANDS: &[&str] = &[
     "update_check",
     "update_set_channel",
     "update_restart",
+    "update_install_now",
 ];
 
 /// Starts the application. Never returns until the last window closes.
@@ -144,7 +145,8 @@ pub fn run() {
             update::update_status,
             update::update_check,
             update::update_set_channel,
-            update::update_restart
+            update::update_restart,
+            update::update_install_now
         ])
         .build(tauri::generate_context!());
     match result {
