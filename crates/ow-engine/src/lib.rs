@@ -762,6 +762,7 @@ fn make_callback(
         }
         // Relaxed atomic stores into the preallocated bank: nothing here allocates or locks.
         bank.set_position(telemetry.transport_position());
+        bank.set_transport_flags(telemetry.transport_flags());
         bank.set_cpu_load(cpu);
         bank.set_overflow(Overflow::Ring, core.overflow_total());
         bank.set_overflow(Overflow::Unrouted, telemetry.unrouted());

@@ -53,6 +53,12 @@ pub struct EngineStatus {
     /// A project plan replaced the smoke-path test tone, so the test tone is unavailable.
     pub project_plan: bool,
     pub cpu_load: f32,
+    /// The transport position is advancing (the engine reports it, as of its last cycle).
+    pub moving: bool,
+    /// A count-in is running: play was requested and the position holds.
+    pub counting_in: bool,
+    /// Recording is active (armed and past the count-in).
+    pub recording: bool,
     pub error: Option<String>,
     /// `running`, `recovering` or `failed`.
     pub audio_state: &'static str,
@@ -166,6 +172,7 @@ impl EngineState {
             AudioState::Failed => ("failed", 0, 0),
         };
         let info = audio.info.as_ref();
+        let flags = self.engine.telemetry_bank().transport_flags();
         let error = match (&audio.state, &audio.error) {
             (AudioState::Recovering { attempt, max }, reason) => Some(format!(
                 "Reconnecting the audio device (attempt {} of {max}){}",
@@ -182,6 +189,9 @@ impl EngineState {
             test_tone: self.engine.test_tone(),
             project_plan: self.engine.project_plan_live(),
             cpu_load: self.engine.cpu_load(),
+            moving: flags & ow_ipc::TRANSPORT_PLAYING != 0,
+            counting_in: flags & ow_ipc::TRANSPORT_COUNTING_IN != 0,
+            recording: flags & ow_ipc::TRANSPORT_RECORDING != 0,
             error,
             audio_state,
             recovery_attempt: attempt,

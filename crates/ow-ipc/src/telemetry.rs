@@ -36,12 +36,19 @@
 //! outside the bank is never sent. Meter slots are assigned by [`meter_slot`]: the master is
 //! slot 0, then tracks in display order, then buses.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 
 use ow_model::{MixerRef, Project};
 
 /// Meter slots in the bank (strips beyond that are not metered).
 pub const METER_SLOTS: usize = 256;
+
+/// `transport_flags` bit: the position is advancing.
+pub const TRANSPORT_PLAYING: u8 = 1;
+/// `transport_flags` bit: a count-in is running (play was requested; the position holds).
+pub const TRANSPORT_COUNTING_IN: u8 = 2;
+/// `transport_flags` bit: recording is active.
+pub const TRANSPORT_RECORDING: u8 = 4;
 /// Slot of the master strip.
 pub const MASTER_SLOT: usize = 0;
 /// Frame format version carried in word 0.
@@ -82,6 +89,7 @@ struct MeterCell {
 pub struct TelemetryBank {
     meters: Box<[MeterCell]>,
     position: AtomicU64,
+    transport: AtomicU8,
     cpu: AtomicU32,
     overflow: [AtomicU64; 3],
 }
@@ -98,6 +106,7 @@ impl TelemetryBank {
         Self {
             meters: (0..METER_SLOTS).map(|_| MeterCell::default()).collect(),
             position: AtomicU64::new(0),
+            transport: AtomicU8::new(0),
             cpu: AtomicU32::new(0),
             overflow: [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)],
         }
@@ -133,6 +142,16 @@ impl TelemetryBank {
     /// Publishes an overflow counter's running total. Any thread.
     pub fn set_overflow(&self, kind: Overflow, total: u64) {
         self.overflow[kind as usize].store(total, Ordering::Relaxed);
+    }
+
+    /// Publishes what the transport is doing, as `TRANSPORT_*` bits. Audio thread.
+    pub fn set_transport_flags(&self, flags: u8) {
+        self.transport.store(flags, Ordering::Relaxed);
+    }
+
+    /// The published `TRANSPORT_*` bits.
+    pub fn transport_flags(&self) -> u8 {
+        self.transport.load(Ordering::Relaxed)
     }
 
     /// The published transport position in frames.

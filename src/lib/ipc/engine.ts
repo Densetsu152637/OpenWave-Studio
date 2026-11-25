@@ -11,6 +11,12 @@ export interface EngineStatus {
   projectPlan: boolean;
   /** Smoothed audio callback load, 0..1. */
   cpuLoad: number;
+  /** The transport position is advancing, as the engine reported it. */
+  moving: boolean;
+  /** A count-in is running (play was requested; the position holds). */
+  countingIn: boolean;
+  /** Recording is active. */
+  recording: boolean;
   /** Why audio is not running (also while reconnecting), or null. */
   error: string | null;
   audioState: "running" | "recovering" | "failed";
@@ -48,6 +54,9 @@ export const offlineStatus: EngineStatus = {
   testTone: false,
   projectPlan: false,
   cpuLoad: 0,
+  moving: false,
+  countingIn: false,
+  recording: false,
   error: "Not running inside OpenWave Studio",
   audioState: "failed",
   recoveryAttempt: 0,

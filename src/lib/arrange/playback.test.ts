@@ -1,31 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { MovingTracker, START_GRACE_MS, STALL_MS, derivePlaying } from "./playback";
+import { SETTLE_MS, mergeTransport, type EngineTransport } from "./playback";
 
-describe("engine moving state", () => {
-  it("moves while the position advances and stops when it holds", () => {
-    const tracker = new MovingTracker();
-    expect(tracker.moving(0)).toBe(false);
-    tracker.update(1000, 0);
-    tracker.update(1512, 10);
-    expect(tracker.moving(20)).toBe(true);
-    tracker.update(1512, 100);
-    tracker.update(1512, 10 + STALL_MS);
-    expect(tracker.moving(10 + STALL_MS)).toBe(false);
+const idle: EngineTransport = { moving: false, countingIn: false, recording: false };
+const stopped = { playing: false, recording: false };
+const playing = { playing: true, recording: false };
+
+describe("transport view merge", () => {
+  it("ignores a status reply issued before a Stop settled", () => {
+    // Stop pressed at t=1000 (optimistic false); a reply sent at 1000 still says moving.
+    const reply = { ...idle, moving: true };
+    expect(mergeTransport(stopped, reply, 1000, 1000)).toBe(stopped);
+    expect(mergeTransport(stopped, reply, 1000 + SETTLE_MS - 1, 1000)).toBe(stopped);
+    expect(mergeTransport(stopped, idle, 1000 + SETTLE_MS, 1000)).toBe(stopped);
   });
 
-  it("a locate while stopped shows as moving for one stall window only", () => {
-    const tracker = new MovingTracker();
-    tracker.update(0, 0);
-    tracker.update(48_000, 1000);
-    expect(tracker.moving(1010)).toBe(true);
-    expect(tracker.moving(1000 + STALL_MS)).toBe(false);
+  it("keeps an optimistic Play until a reply issued after it settled", () => {
+    expect(mergeTransport(playing, idle, 1000, 1000)).toBe(playing);
+    expect(mergeTransport(playing, { ...idle, moving: true }, 1200, 1000)).toBe(playing);
   });
 
-  it("derives playing from the engine, with a grace after the UI's own Play", () => {
-    expect(derivePlaying(true, false, -1e9, 5000)).toBe(true); // an agent started it
-    expect(derivePlaying(false, true, -1e9, 5000)).toBe(false); // stopped at the end or by an agent
-    expect(derivePlaying(false, true, 5000, 5000 + START_GRACE_MS - 1)).toBe(true);
-    expect(derivePlaying(false, true, 5000, 5000 + START_GRACE_MS)).toBe(false);
-    expect(derivePlaying(false, false, 5000, 5001)).toBe(false);
+  it("a locate while stopped does not show playing", () => {
+    expect(mergeTransport(stopped, idle, 5000, 0)).toBe(stopped);
+  });
+
+  it("a count-in shows playing and keeps recording", () => {
+    const view = { playing: true, recording: true };
+    expect(mergeTransport(view, { ...idle, countingIn: true }, 5000, 1000)).toBe(view);
+    expect(
+      mergeTransport(view, { moving: true, countingIn: false, recording: true }, 6000, 1000),
+    ).toBe(view);
+  });
+
+  it("an engine that stops itself re-enables Play and clears recording", () => {
+    expect(mergeTransport(playing, idle, 9000, 1000)).toEqual(stopped);
+    const recording = { playing: true, recording: true };
+    expect(mergeTransport(recording, idle, 9000, 1000)).toEqual(stopped);
+  });
+
+  it("an agent starting or stopping playback shows in the view", () => {
+    expect(mergeTransport(stopped, { ...idle, moving: true }, 9000, 1000)).toEqual(playing);
+    expect(
+      mergeTransport(stopped, { moving: true, countingIn: false, recording: true }, 9000, 1000),
+    ).toEqual({ playing: true, recording: true });
+    expect(mergeTransport(playing, idle, 9000, 1000)).toEqual(stopped);
   });
 });

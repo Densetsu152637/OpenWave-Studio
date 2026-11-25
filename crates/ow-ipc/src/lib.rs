@@ -60,7 +60,8 @@ pub use mirror::{Gap, Mirror, diff};
 pub use session::{Outcome, Session};
 pub use telemetry::{
     FRAME_VERSION, Frame, FramePacker, HEADER_WORDS, MASTER_SLOT, METER_SLOTS, Overflow,
-    STRIP_WORDS, StripMeter, Subscriptions, TelemetryBank, meter_slot,
+    STRIP_WORDS, StripMeter, Subscriptions, TRANSPORT_COUNTING_IN, TRANSPORT_PLAYING,
+    TRANSPORT_RECORDING, TelemetryBank, meter_slot,
 };
 
 /// The model types the DTOs carry, re-exported so the app crate needs only `ow-ipc` for them.

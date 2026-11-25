@@ -5,7 +5,7 @@
 #![allow(unsafe_code)]
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::thread;
 
 use assert_no_alloc::assert_no_alloc;
@@ -89,6 +89,8 @@ pub struct Telemetry {
     plan_swaps: AtomicU64,
     unrouted: AtomicU64,
     position: AtomicU64,
+    /// `ow_ipc::TRANSPORT_*` bits at the end of the last cycle.
+    transport_flags: AtomicU8,
     /// Nodes run per DSP thread: index 0 is the callback thread, `1..` the workers.
     nodes_run: Box<[AtomicU64]>,
     realtime_workers: AtomicU32,
@@ -103,6 +105,7 @@ impl Telemetry {
             plan_swaps: AtomicU64::new(0),
             unrouted: AtomicU64::new(0),
             position: AtomicU64::new(0),
+            transport_flags: AtomicU8::new(0),
             nodes_run: (0..threads).map(|_| AtomicU64::new(0)).collect(),
             realtime_workers: AtomicU32::new(0),
             unpromoted_workers: AtomicU32::new(0),
@@ -174,6 +177,10 @@ impl Telemetry {
     /// readout; a relaxed atomic the audio thread stores once per cycle).
     pub fn transport_position(&self) -> u64 {
         self.position.load(Ordering::Relaxed)
+    }
+    /// What the transport was doing at the end of the last cycle, as `ow_ipc::TRANSPORT_*` bits.
+    pub fn transport_flags(&self) -> u8 {
+        self.transport_flags.load(Ordering::Relaxed)
     }
 }
 
@@ -569,6 +576,20 @@ impl AudioCore {
         self.telemetry
             .position
             .store(self.transport.position(), Ordering::Relaxed);
+        let state = self.transport.summary();
+        let mut flags = 0;
+        for (on, bit) in [
+            (state.playing, ow_ipc::TRANSPORT_PLAYING),
+            (state.counting_in, ow_ipc::TRANSPORT_COUNTING_IN),
+            (state.recording, ow_ipc::TRANSPORT_RECORDING),
+        ] {
+            if on {
+                flags |= bit;
+            }
+        }
+        self.telemetry
+            .transport_flags
+            .store(flags, Ordering::Relaxed);
     }
 
     /// Hands a previously swapped-out plan back to the control thread; keeps it for the next

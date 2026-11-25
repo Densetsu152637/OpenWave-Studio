@@ -8,8 +8,7 @@
   import { nativeDialogs } from "./lib/arrange/dialogs";
   import { fileActions } from "./lib/arrange/files";
   import {
-    MovingTracker,
-    derivePlaying,
+    mergeTransport,
     positionLabel,
     transportLocate,
     transportPlay,
@@ -35,14 +34,9 @@
   import { modelMirror, telemetryStore, type MirrorState } from "./lib/stores";
 
   const POLL_MS = 500;
-  /** Follows the engine: Play re-enables when it stops by itself or an agent stops it. */
-  const engineMoving = new MovingTracker();
-  let playStartedAt = Number.NEGATIVE_INFINITY;
-  const syncPlaying = () => {
-    const now = performance.now();
-    const next = derivePlaying(engineMoving.moving(now), playing, playStartedAt, now);
-    if (next !== playing) playing = next;
-  };
+  /** When the UI last started or stopped the transport itself; older status replies are stale. */
+  let actionAt = Number.NEGATIVE_INFINITY;
+  const acted = () => (actionAt = performance.now());
 
   let status = $state<EngineStatus>(offlineStatus);
   let settingsOpen = $state(false);
@@ -68,6 +62,7 @@
   // A new or opened project replaces the one that was playing: stop, so Play is usable again.
   const stopAfter = (op: () => Promise<unknown>) => async () => {
     const result = await op();
+    acted();
     playing = false;
     recording = false;
     await transportStop().catch(() => {});
@@ -94,7 +89,7 @@
   async function play() {
     try {
       await transportPlay();
-      playStartedAt = performance.now();
+      acted();
       playing = true;
     } catch (error) {
       playing = false;
@@ -105,8 +100,8 @@
   async function record() {
     try {
       await startRecording(recordApi, armedSet(mirror.history));
+      acted();
       recording = true;
-      playStartedAt = performance.now();
       playing = true;
     } catch (error) {
       recording = false;
@@ -122,6 +117,7 @@
       fail(error);
     } finally {
       // Whatever the engine is doing, Play must stay usable.
+      acted();
       playing = false;
       recording = false;
     }
@@ -154,7 +150,13 @@
 
   async function refresh() {
     try {
-      status = await engineStatus();
+      const issuedAt = performance.now();
+      const reply = await engineStatus();
+      status = reply;
+      // The engine's own state wins: it stops by itself, and agents play and stop it too.
+      const next = mergeTransport({ playing, recording }, reply, issuedAt, actionAt);
+      playing = next.playing;
+      recording = next.recording;
     } catch (error) {
       status = { ...offlineStatus, error: String(error) };
     }
@@ -174,22 +176,15 @@
     const stopMirror = modelMirror.subscribe((state) => (mirror = state));
     void modelMirror.attach();
     // The transport position for the playhead.
-    const stopTelemetry = telemetryStore.subscribe((frame) => {
-      framePosition = frame?.position ?? null;
-      engineMoving.update(framePosition, performance.now());
-      syncPlaying();
-    });
+    const stopTelemetry = telemetryStore.subscribe((frame) => (framePosition = frame?.position ?? null));
     telemetryStore.start().catch(() => {});
     // The saved theme applies at launch, not only when Settings opens.
     prefsGet()
       .then((snapshot) => applyTheme(snapshot.prefs.appearance.theme))
       .catch(() => {});
     const timer = setInterval(refresh, POLL_MS);
-    // Frames may stop arriving (a stalled position then means stopped): re-check on a timer too.
-    const syncTimer = setInterval(syncPlaying, 250);
     return () => {
       clearInterval(timer);
-      clearInterval(syncTimer);
       stopMirror();
       stopTelemetry();
     };

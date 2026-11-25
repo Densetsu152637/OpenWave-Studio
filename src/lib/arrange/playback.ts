@@ -27,38 +27,42 @@ export function positionLabel(beat: number, signatures: SignatureMap): string {
   return `${bar.index + 1}.${inBar + 1}`;
 }
 
-/** How long a transport position may stand still before the engine counts as stopped. */
-export const STALL_MS = 200;
-/** After the UI itself starts playback, how long the engine may still look stopped. */
-export const START_GRACE_MS = 600;
+/** What the UI shows of the transport. */
+export interface TransportView {
+  playing: boolean;
+  recording: boolean;
+}
 
-/**
- * Derives "the engine is moving" from the telemetry position: it advances while the transport
- * plays (a stopped transport holds it), so a position unchanged for `STALL_MS` means stopped.
- * This is how the UI notices a stop at the project end and a play or stop from an agent.
- */
-export class MovingTracker {
-  #position: number | null = null;
-  #changedAt = Number.NEGATIVE_INFINITY;
-
-  /** Feeds a telemetry position seen at `now` (ms). */
-  update(position: number | null, now: number): void {
-    if (position !== null && position !== this.#position) this.#changedAt = now;
-    this.#position = position;
-  }
-
-  /** Whether the position moved within the last `STALL_MS`. */
-  moving(now: number): boolean {
-    return now - this.#changedAt < STALL_MS;
-  }
+/** The transport state the engine reported in its status. */
+export interface EngineTransport {
+  moving: boolean;
+  countingIn: boolean;
+  recording: boolean;
 }
 
 /**
- * The UI's `playing` flag given the engine's state. A running engine always shows playing; a
- * stopped one shows stopped, except within `START_GRACE_MS` of the UI's own Play (`startedAt`),
- * so the button does not flicker before the first position change arrives.
+ * A status reply issued this soon after a Play, Stop or Record may predate the audio thread
+ * applying it, so it is ignored (the next poll settles).
  */
-export function derivePlaying(moving: boolean, playing: boolean, startedAt: number, now: number): boolean {
-  if (moving) return true;
-  return playing && now - startedAt < START_GRACE_MS;
+export const SETTLE_MS = 150;
+
+/**
+ * The transport view after a status reply. The engine's state wins, so Play re-enables when the
+ * engine stops by itself or an agent stops it, and Stop shows when an agent plays. A reply issued
+ * (`issuedAt`) before the UI's last own action settled (`actionAt`) is stale and changes nothing.
+ * A count-in counts as playing and keeps `recording` as the UI set it, since recording only
+ * starts after it.
+ */
+export function mergeTransport(
+  current: TransportView,
+  reply: EngineTransport,
+  issuedAt: number,
+  actionAt: number,
+): TransportView {
+  if (issuedAt < actionAt + SETTLE_MS) return current;
+  const playing = reply.moving || reply.countingIn;
+  const recording = reply.recording || (reply.countingIn && current.recording);
+  return playing === current.playing && recording === current.recording
+    ? current
+    : { playing, recording };
 }
