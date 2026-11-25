@@ -7,7 +7,14 @@
   import SettingsDialog from "./routes/settings/SettingsDialog.svelte";
   import { nativeDialogs } from "./lib/arrange/dialogs";
   import { fileActions } from "./lib/arrange/files";
-  import { positionLabel, transportLocate, transportPlay, transportStop } from "./lib/arrange/playback";
+  import {
+    MovingTracker,
+    derivePlaying,
+    positionLabel,
+    transportLocate,
+    transportPlay,
+    transportStop,
+  } from "./lib/arrange/playback";
   import { armedSet, canRecord, recordApi, startRecording } from "./lib/arrange/record";
   import { SignatureMap, TempoMap } from "./lib/arrange/time";
   import {
@@ -28,6 +35,14 @@
   import { modelMirror, telemetryStore, type MirrorState } from "./lib/stores";
 
   const POLL_MS = 500;
+  /** Follows the engine: Play re-enables when it stops by itself or an agent stops it. */
+  const engineMoving = new MovingTracker();
+  let playStartedAt = Number.NEGATIVE_INFINITY;
+  const syncPlaying = () => {
+    const now = performance.now();
+    const next = derivePlaying(engineMoving.moving(now), playing, playStartedAt, now);
+    if (next !== playing) playing = next;
+  };
 
   let status = $state<EngineStatus>(offlineStatus);
   let settingsOpen = $state(false);
@@ -79,6 +94,7 @@
   async function play() {
     try {
       await transportPlay();
+      playStartedAt = performance.now();
       playing = true;
     } catch (error) {
       playing = false;
@@ -90,6 +106,7 @@
     try {
       await startRecording(recordApi, armedSet(mirror.history));
       recording = true;
+      playStartedAt = performance.now();
       playing = true;
     } catch (error) {
       recording = false;
@@ -157,15 +174,22 @@
     const stopMirror = modelMirror.subscribe((state) => (mirror = state));
     void modelMirror.attach();
     // The transport position for the playhead.
-    const stopTelemetry = telemetryStore.subscribe((frame) => (framePosition = frame?.position ?? null));
+    const stopTelemetry = telemetryStore.subscribe((frame) => {
+      framePosition = frame?.position ?? null;
+      engineMoving.update(framePosition, performance.now());
+      syncPlaying();
+    });
     telemetryStore.start().catch(() => {});
     // The saved theme applies at launch, not only when Settings opens.
     prefsGet()
       .then((snapshot) => applyTheme(snapshot.prefs.appearance.theme))
       .catch(() => {});
     const timer = setInterval(refresh, POLL_MS);
+    // Frames may stop arriving (a stalled position then means stopped): re-check on a timer too.
+    const syncTimer = setInterval(syncPlaying, 250);
     return () => {
       clearInterval(timer);
+      clearInterval(syncTimer);
       stopMirror();
       stopTelemetry();
     };
