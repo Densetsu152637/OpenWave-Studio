@@ -27,6 +27,9 @@ pub const MIN_WARP_BPM: f64 = 20.0;
 pub const MAX_WARP_BPM: f64 = 999.0;
 /// Largest pitch shift of a warped clip, in semitones either way.
 pub const MAX_TRANSPOSE_SEMITONES: f64 = 24.0;
+/// Largest source frame a warp marker may name (2^40: about 260 years at 48 kHz), so frame
+/// arithmetic in the engine can never overflow.
+pub const MAX_MARKER_FRAME: u64 = 1 << 40;
 /// Most warp markers one clip may carry.
 pub const MAX_WARP_MARKERS: usize = 256;
 /// Longest device kind, format tag or media path, in bytes.
@@ -257,6 +260,12 @@ fn check_warp(warp: &Warp) -> Result {
     let mut previous: Option<&WarpMarker> = None;
     for (index, marker) in warp.markers.iter().enumerate() {
         position(&format!("content.warp.markers[{index}].beat"), marker.beat)?;
+        if marker.source_frame > MAX_MARKER_FRAME {
+            return bad(
+                format!("content.warp.markers[{index}].source_frame"),
+                format!("at most {MAX_MARKER_FRAME}"),
+            );
+        }
         if previous.is_some_and(|p| marker.source_frame <= p.source_frame || marker.beat <= p.beat)
         {
             return bad(

@@ -83,7 +83,7 @@ pub struct IpcState {
     /// The recording in progress, if any (see [`record`]).
     recording: Mutex<Option<record::ActiveRecording>>,
     /// The loop library: the last index, the running scan (see [`library`]).
-    library: Mutex<library::LibraryState>,
+    library: Arc<Mutex<library::LibraryState>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -111,7 +111,7 @@ impl IpcState {
             peaks: peaks::PeakStore::default(),
             builds: Mutex::new(Vec::new()),
             recording: Mutex::new(None),
-            library: Mutex::new(library::LibraryState::default()),
+            library: Arc::default(),
         }
     }
 }

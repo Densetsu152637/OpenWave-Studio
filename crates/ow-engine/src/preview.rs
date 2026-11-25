@@ -91,6 +91,13 @@ impl Preview {
         self.handle.done.load(Ordering::Relaxed)
     }
 
+    /// Starts the fade-out (as a stop does); the preview ends when it is done.
+    pub fn fade_out(&mut self) {
+        if self.fade_left.is_none() {
+            self.fade_left = Some(STOP_FADE_FRAMES);
+        }
+    }
+
     /// Ends the preview now (the audio thread does this to a preview that is replaced).
     pub fn end(&mut self) {
         self.handle.done.store(true, Ordering::Relaxed);

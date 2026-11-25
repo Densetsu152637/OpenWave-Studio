@@ -1,3 +1,4 @@
+import { shiftWarpMarkers } from "../../browser/markers";
 import type { Clip, EditCommand, MediaItem } from "../../ipc/types";
 import { inTransaction, type ArrangeApi } from "../edits";
 import { snapBeat, type SnapResolution } from "../snap";
@@ -99,7 +100,14 @@ export function trimLeft(clip: Clip, target: number, tempo: TempoMap, media?: Me
     content.source_offset +
     framesBetween(tempo, clip.start, start - clip.start, media, warpBpm(clip));
   const offset = clamp(Math.round(frames), 0, Math.max(0, media.frames - 1));
-  return clampFades({ ...moved, content: { ...content, source_offset: offset } });
+  // Marker beats are clip-local: the audio stays where it was, so they move back by the trim.
+  const warp = content.warp
+    ? shiftWarpMarkers(content.warp, start - clip.start, media.sample_rate)
+    : content.warp;
+  return clampFades({
+    ...moved,
+    content: { ...content, source_offset: offset, ...(warp ? { warp } : {}) },
+  });
 }
 
 /** `clip` (already given its new start and length) with its notes moved back by `delta` beats. */
@@ -253,6 +261,9 @@ export function splitClip(
       ...content,
       source_offset: Math.round(content.source_offset + advance),
       fade_in: 0,
+      ...(content.warp
+        ? { warp: shiftWarpMarkers(content.warp, leftLength, media.sample_rate) }
+        : {}),
     };
     return { left: clampFades(left), right: clampFades(right) };
   }

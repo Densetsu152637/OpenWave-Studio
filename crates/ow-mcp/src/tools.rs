@@ -110,7 +110,8 @@ pub struct ImportAudioArgs {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LibraryScanAction {
-    /// Scan the library folders and wait for the result (the default).
+    /// Start scanning the library folders and answer at once (the default); the scan goes on in
+    /// the background, follow it with `status`.
     #[default]
     Scan,
     /// Report the running scan's progress, or the last scan's result.
@@ -465,7 +466,7 @@ tools! {
     ImportAudio(ImportAudioArgs) = "import_audio",
         "Decode an audio file, convert it to the project's sample rate and add it to the media pool. Answers the media id; place it on the timeline by adding an audio clip that references the media id with the edit tool. The same content is not added twice.";
     LibraryScan(LibraryScanArgs) = "library_scan",
-        "Scan the loop and sample library: the folders listed in the preferences (audio_settings set `{\"paths\":{\"libraryDirs\":[\"/absolute/folder\"]}}`) are read recursively and every WAV, AIFF, FLAC, Ogg and MP3 file is analysed for tempo, key and length (unchanged files come from a cache unless force is true). Tags come from folder and file names. action `status` reports a running scan's progress or the last result, `cancel` stops it. Search the result with library_search.";
+        "Scan the loop and sample library (the call starts the scan and answers at once with `scanning: true`; poll with action `status` until `scanning` is false): the folders listed in the preferences (audio_settings set `{\"paths\":{\"libraryDirs\":[\"/absolute/folder\"]}}`) are read recursively and every WAV, AIFF, FLAC, Ogg and MP3 file is analysed for tempo, key and length (unchanged files come from a cache unless force is true). Tags come from folder and file names. action `status` reports a running scan's progress or the last result, `cancel` stops it. Search the result with library_search.";
     LibrarySearch(LibrarySearchArgs) = "library_search",
         "Search the scanned loop and sample library by words, tags, tempo range (bpm_min, bpm_max, optionally also half and double time) and key. Answers each file's absolute path, tempo (`bpm`, from the file name or detected), key, length and tags. Add a file to the project with import_audio (answers the media with its detected tempo) and an edit that adds a clip whose audio content has `warp` {mode: follow_tempo, source_bpm, markers: [], transpose_semitones: 0}.";
     LibraryPreview(LibraryPreviewArgs) = "library_preview",

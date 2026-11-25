@@ -325,3 +325,74 @@ describe("editing a warped clip", () => {
     expect(right.length).toBeCloseTo(16, 9);
   });
 });
+
+describe("warp markers", () => {
+  const withMarkers = (): Clip => ({
+    ...warped(0, 120),
+    content: {
+      type: "audio",
+      media: 7,
+      source_offset: 0,
+      gain_db: 0,
+      fade_in: 0,
+      fade_out: 0,
+      warp: {
+        mode: "follow_tempo",
+        source_bpm: 120,
+        markers: [
+          { source_frame: 24_000, beat: 1 },
+          { source_frame: 120_000, beat: 4 },
+        ],
+        transpose_semitones: 0,
+      },
+    },
+  });
+  const bounds = { sample_rate: 48_000, frames: 384_000 };
+
+  it("a left trim keeps every later beat on the same source frame", async () => {
+    const { trimLeft } = await import("../arrange/clips/edit");
+    const { sourceFrameAt } = await import("./markers");
+    const clip = withMarkers();
+    const trimmed = trimLeft(clip, clip.start + 2, tempo(90), bounds);
+    if (clip.content.type !== "audio" || trimmed.content.type !== "audio") throw new Error("audio");
+    const before = clip.content.warp!;
+    const after = trimmed.content.warp!;
+    expect(after.markers[0]).toEqual({ source_frame: expect.closeTo(56_000, 0), beat: 0 });
+    expect(after.markers[1]).toEqual({ source_frame: 120_000, beat: 2 });
+    for (const beat of [0, 1, 2, 3, 5.5]) {
+      expect(sourceFrameAt(after, beat, 48_000, 0)).toBeCloseTo(
+        sourceFrameAt(before, beat + 2, 48_000, 0),
+        0,
+      );
+    }
+  });
+
+  it("a split gives the right part the shifted markers and leaves the left part alone", async () => {
+    const { splitClip } = await import("../arrange/clips/edit");
+    const { sourceFrameAt } = await import("./markers");
+    const clip = withMarkers();
+    const parts = splitClip(clip, clip.start + 6, tempo(90), 99, bounds);
+    if (!parts || parts.left.content.type !== "audio" || parts.right.content.type !== "audio") {
+      throw new Error("split");
+    }
+    expect(parts.left.content.warp?.markers).toEqual(clip.content.type === "audio" ? clip.content.warp?.markers : []);
+    const right = parts.right.content.warp!;
+    // Beat 6 of the original is beat 0 of the right part.
+    expect(sourceFrameAt(right, 0, 48_000, 0)).toBeCloseTo(
+      sourceFrameAt(parts.left.content.warp!, 6, 48_000, 0),
+      0,
+    );
+    expect(right.markers).toHaveLength(1);
+    expect(right.markers[0]!.beat).toBe(0);
+  });
+
+  it("flags clips whose stretch is beyond 4x", async () => {
+    const { warpOutOfRange } = await import("./markers");
+    const clip = warped(0, 120);
+    expect(warpOutOfRange(clip, tempo(90), 48_000)).toBe(false);
+    expect(warpOutOfRange(clip, tempo(30), 48_000)).toBe(false); // exactly 4x
+    expect(warpOutOfRange(clip, tempo(25), 48_000)).toBe(true);
+    expect(warpOutOfRange(clip, tempo(600), 48_000)).toBe(true);
+    expect(warpOutOfRange(audioClip(), tempo(25), 48_000)).toBe(false);
+  });
+});

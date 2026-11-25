@@ -456,6 +456,7 @@ fn compile_inner(
         project.time_signature_map.clone(),
     );
     let mut missing = BTreeSet::new();
+    prerender_warps(project, ctx, &timeline, sample_rate);
     // The device input is read by the plan's monitor nodes: one bus when any track monitors.
     let monitors = ctx.input_channels > 0
         && project
@@ -616,6 +617,91 @@ struct ClipEnv<'a> {
     missing: &'a mut BTreeSet<MediaId>,
     /// The device input bus, when some track monitors.
     bus: Option<Arc<InputBus>>,
+}
+
+/// The most threads that render warped clips at once.
+const MAX_WARP_THREADS: usize = 4;
+
+/// Renders the warped clips that are not cached yet, several at a time, before the strips are
+/// built, so the sequential build then finds every render in the cache. A project with one
+/// uncached warped clip gains nothing and is left to the build. (Rendering still happens while
+/// the caller holds the control lock; see `clips::warp`.)
+fn prerender_warps(project: &Project, ctx: &CompileContext, timeline: &Timeline, rate: u32) {
+    type Job = (
+        u64,
+        (u32, usize, u64),
+        Vec<warp::Segment>,
+        f32,
+        Arc<ow_media::Pcm>,
+    );
+    let mut jobs: Vec<Job> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for clip in project.clips.values() {
+        let ClipContent::Audio {
+            media,
+            source_offset,
+            warp: Some(settings),
+            ..
+        } = &clip.content
+        else {
+            continue;
+        };
+        if !warp::active(settings) || clip.muted || clip.take.is_some_and(|take| !take.active) {
+            continue;
+        }
+        let Some(item) = project.media_pool.get(media) else {
+            continue;
+        };
+        let Ok(loaded) = ctx.sources.load(&ctx.media_root.join(&item.path), rate) else {
+            continue;
+        };
+        let channels = loaded.pcm.channels.len();
+        if channels == 0 || loaded.pcm.frames() == 0 {
+            continue;
+        }
+        let segments = warp::plan(
+            clip.start,
+            clip.length,
+            settings,
+            *source_offset,
+            loaded.source_rate,
+            timeline,
+            rate,
+        );
+        let frames = warp::total_frames(&segments);
+        let span = timeline
+            .beat_to_sample_index(clip.start + clip.length, rate)
+            .saturating_sub(timeline.beat_to_sample_index(clip.start, rate));
+        if frames == 0 || frames > warp::MAX_WARPED_FRAMES || frames != span {
+            continue;
+        }
+        let pitch = warp::pitch(settings);
+        let key = warp::key(&item.hash, rate, channels, pitch, &segments);
+        if seen.insert(key) {
+            jobs.push((key, (rate, channels, frames), segments, pitch, loaded.pcm));
+        }
+    }
+    if jobs.len() < 2 {
+        return;
+    }
+    let threads = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(MAX_WARP_THREADS)
+        .min(jobs.len());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                while let Some((key, shape, segments, pitch, pcm)) =
+                    jobs.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                {
+                    ctx.sources.warped(&ctx.media_root, *key, *shape, || {
+                        warp::render(pcm, segments, *pitch)
+                    });
+                }
+            });
+        }
+    });
 }
 
 /// Adds a [`ClipSourceNode`] for `clip` and wires it into the track's summing node `sum`.

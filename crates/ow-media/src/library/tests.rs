@@ -638,6 +638,18 @@ mod control {
         assert!(stopped.index.entries.is_empty());
         assert_eq!(stop.progress().1, files);
 
+        // A stopped scan that was given the cache must not overwrite it with its short list.
+        let stopped_with_cache = scan(
+            &[dir.path().to_path_buf()],
+            &ScanOptions {
+                control: Some(stop),
+                force: true,
+                ..options(Some(cache.clone()))
+            },
+        );
+        assert!(stopped_with_cache.cancelled);
+        assert_eq!(load_index(&cache).entries.len(), files);
+
         // The cache of the first scan still serves a later one, and `load_index` reads it.
         let cached = load_index(&cache);
         assert_eq!(cached.entries.len(), files);

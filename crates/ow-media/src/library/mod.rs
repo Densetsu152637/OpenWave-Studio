@@ -561,7 +561,9 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
         version: INDEX_VERSION,
         entries,
     };
-    if let Some(path) = &options.cache_path {
+    // A stopped scan lists only the files it reached; writing that would make the cache forget
+    // the others, so the cache keeps what the last complete scan found.
+    if let Some(path) = options.cache_path.as_ref().filter(|_| !cancelled) {
         save_cache(path, &index);
     }
     ScanReport {

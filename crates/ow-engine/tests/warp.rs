@@ -317,3 +317,53 @@ fn warp_follows_a_tempo_change_inside_the_clip() {
         assert!(peak(&out[at..at + 2_400]) > 0.3, "beat {beat}");
     }
 }
+
+/// A tempo change of more than four times either way is beyond the stretcher: that clip is
+/// silent, while the clip around it is unaffected.
+#[test]
+fn warp_beyond_four_times_is_silent() {
+    let mut fx = Fixture::new(false, 25.0);
+    // 2 beats of a 120 bpm loop (1 s of source) fill 4.8 s at 25 bpm: a ratio of 4.8.
+    fx.clip(0.0, 2.0, Some(follow(120.0)));
+    fx.clip(2.0, 2.0, None);
+    let out = left(&fx.render(&fx.ctx(), 5 * 48_000));
+    // 2 beats at 25 bpm are 4.8 s.
+    let end = 4.8 * 48_000.0;
+    assert_eq!(
+        peak(&out[..end as usize - 1]),
+        0.0,
+        "the warped clip is silent"
+    );
+    // The unwarped clip that follows it is the file as it is.
+    assert!(peak(&out[end as usize + 100..end as usize + 4_800]) > 0.1);
+}
+
+/// Trimming a clip with markers moves the markers' beats back by the trim and keeps their
+/// source frames: the remaining stretch of the clip is the same audio at the same speed.
+#[test]
+fn warp_markers_shifted_by_a_trim_play_the_same_source() {
+    let timeline = ow_engine::Timeline::new(
+        TempoMap::constant(90.0).unwrap(),
+        ow_model::time::TimeSignatureMap::default(),
+    );
+    let marker = |source_frame: u64, beat: f64| ow_model::WarpMarker { source_frame, beat };
+    let mut original = follow(120.0);
+    original.markers = vec![marker(24_000, 1.0), marker(120_000, 4.0)];
+    let before = warp::plan(0.0, 8.0, &original, 0, RATE, &timeline, RATE);
+    // Trim two beats off the left: the clip starts at beat 2 and the markers move to -1 and 2.
+    // The one before the clip becomes a marker at 0 on the line through both original markers
+    // (at beat 2 that line is at source frame 24000 + (120000 - 24000) / 3 = 56000).
+    let mut trimmed = follow(120.0);
+    trimmed.markers = vec![marker(56_000, 0.0), marker(120_000, 2.0)];
+    let after = warp::plan(2.0, 6.0, &trimmed, 0, RATE, &timeline, RATE);
+    assert_eq!(after.len(), 2);
+    assert_eq!(
+        after[1],
+        *before.last().unwrap(),
+        "from the second marker on it is identical"
+    );
+    assert_eq!(before.len(), 3);
+    assert_eq!(after[0].source_start, 56_000);
+    assert_eq!(after[0].source_end, 120_000);
+    assert_eq!(after[0].frames, 2 * 32_000);
+}

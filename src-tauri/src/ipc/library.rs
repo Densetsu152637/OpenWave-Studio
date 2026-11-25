@@ -21,6 +21,8 @@ use ow_media::library::{
     LibraryEntry, LibraryIndex, Query, ScanControl, ScanOptions, load_index, preview_in_tempo, scan,
 };
 
+use std::sync::{Arc, Mutex};
+
 use super::{IpcState, lock};
 
 /// Longest file the audition takes, in seconds (a loop browser previews loops, not songs).
@@ -79,50 +81,39 @@ impl IpcState {
         cache: &Path,
         force: bool,
     ) -> Result<LibraryScanStatus, String> {
-        let control = ScanControl::new();
-        {
-            let mut library = lock(&self.library);
-            if library.running.is_some() {
-                return Err("a library scan is already running".into());
-            }
-            if roots.is_empty() {
-                return Err(
-                    "no library folders: add some in Settings, Folders (paths.libraryDirs)".into(),
-                );
-            }
-            library.running = Some(control.clone());
-        }
-        let report = scan(
-            roots,
-            &ScanOptions {
-                cache_path: Some(cache.to_path_buf()),
-                force,
-                control: Some(control),
-                ..ScanOptions::default()
-            },
-        );
-        let mut library = lock(&self.library);
-        library.running = None;
-        library.last = LibraryScanStatus {
-            scanning: false,
-            done: 0,
-            total: 0,
-            entries: count(report.index.entries.len()),
-            analysed: count(report.analysed),
-            cached: count(report.cached),
-            failed: count(report.failed),
-            cancelled: report.cancelled,
-            roots: roots
-                .iter()
-                .map(|r| r.to_string_lossy().into_owned())
-                .collect(),
-        };
-        // A cancelled scan lists only what it reached; keep the earlier index when it knew more.
-        if !report.cancelled || report.index.entries.len() >= library.index.entries.len() {
-            library.index = report.index;
-        }
-        library.loaded = true;
-        Ok(library.last.clone())
+        let control = begin_scan(&self.library, roots)?;
+        Ok(run_scan(&self.library, control, roots, cache, force))
+    }
+
+    /// Starts the scan on a thread of its own and answers at once with its status (scanning).
+    /// Progress and the end come from [`library_status`](Self::library_status), the scan can be
+    /// stopped with [`library_cancel`](Self::library_cancel); what the MCP tool uses, so its
+    /// connection stays free for those calls.
+    pub fn library_scan_background(
+        &self,
+        roots: &[PathBuf],
+        cache: &Path,
+        force: bool,
+    ) -> Result<LibraryScanStatus, String> {
+        let control = begin_scan(&self.library, roots)?;
+        let state = Arc::clone(&self.library);
+        let (roots_owned, cache_owned) = (roots.to_vec(), cache.to_path_buf());
+        std::thread::Builder::new()
+            .name("library-scan".into())
+            .spawn(move || {
+                run_scan(&state, control, &roots_owned, &cache_owned, force);
+            })
+            .map_err(|error| {
+                lock(&self.library).running = None;
+                format!("could not start the scan: {error}")
+            })?;
+        Ok(self.library_status())
+    }
+
+    /// Whether the scan thread of [`library_scan_background`](Self::library_scan_background) or
+    /// a blocking scan is running.
+    pub fn library_scanning(&self) -> bool {
+        lock(&self.library).running.is_some()
     }
 
     /// The running scan's progress, or the last scan's result.
@@ -233,6 +224,61 @@ impl IpcState {
     pub fn library_preview_stop(&self, engine: &Engine) {
         engine.stop_preview();
     }
+}
+
+/// Marks a scan as running (refusing a second one) and returns its handles.
+fn begin_scan(state: &Mutex<LibraryState>, roots: &[PathBuf]) -> Result<ScanControl, String> {
+    let control = ScanControl::new();
+    let mut library = lock(state);
+    if library.running.is_some() {
+        return Err("a library scan is already running".into());
+    }
+    if roots.is_empty() {
+        return Err("no library folders: add some in Settings, Folders (paths.libraryDirs)".into());
+    }
+    library.running = Some(control.clone());
+    Ok(control)
+}
+
+/// Runs the scan to its end and keeps the result; clears the running mark.
+fn run_scan(
+    state: &Mutex<LibraryState>,
+    control: ScanControl,
+    roots: &[PathBuf],
+    cache: &Path,
+    force: bool,
+) -> LibraryScanStatus {
+    let report = scan(
+        roots,
+        &ScanOptions {
+            cache_path: Some(cache.to_path_buf()),
+            force,
+            control: Some(control),
+            ..ScanOptions::default()
+        },
+    );
+    let mut library = lock(state);
+    library.running = None;
+    library.last = LibraryScanStatus {
+        scanning: false,
+        done: 0,
+        total: 0,
+        entries: count(report.index.entries.len()),
+        analysed: count(report.analysed),
+        cached: count(report.cached),
+        failed: count(report.failed),
+        cancelled: report.cancelled,
+        roots: roots
+            .iter()
+            .map(|r| r.to_string_lossy().into_owned())
+            .collect(),
+    };
+    // A cancelled scan lists only what it reached; keep the earlier index when it knew more.
+    if !report.cancelled || report.index.entries.len() >= library.index.entries.len() {
+        library.index = report.index;
+    }
+    library.loaded = true;
+    library.last.clone()
 }
 
 /// Where the library index is cached.

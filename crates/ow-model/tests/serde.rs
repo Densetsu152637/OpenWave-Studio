@@ -120,6 +120,8 @@ fn serde_rejects_invalid_warp_and_analysis() {
         &|w| w.markers[1].beat = 1.0,
         &|w| w.markers[1].source_frame = 10,
         &|w| w.markers = vec![w.markers[0]; 300],
+        &|w| w.markers[1].source_frame = u64::MAX,
+        &|w| w.markers[1].source_frame = (1 << 40) + 1,
     ] {
         let mut broken = project.clone();
         set_warp(&mut broken, change);

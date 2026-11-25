@@ -557,7 +557,7 @@ impl AppBackend {
                 let dirs = self.engine_state().preferences().paths.library_dirs;
                 let roots = crate::ipc::library::roots_of(&dirs);
                 let cache = crate::ipc::library::index_cache_path(&self.host.cache_dir());
-                ipc.library_scan(&roots, &cache, args.force)?
+                ipc.library_scan_background(&roots, &cache, args.force)?
             }
             LibraryScanAction::Status => ipc.library_status(),
             LibraryScanAction::Cancel => {
@@ -1644,13 +1644,29 @@ mod tests {
                     json!({"action": "set", "preferences": {"paths": {"libraryDirs": [library.to_string_lossy()]}}}),
                 )
                 .await;
-            let scanned = client.call("library_scan", json!({})).await;
-            assert_eq!(scanned["entries"], 2);
-            assert_eq!(scanned["scanning"], false);
-            let status = client
+            // The scan runs in the background: the call answers at once and the same
+            // connection can ask for the status (and stop it) while it runs.
+            let started = client.call("library_scan", json!({})).await;
+            assert!(started["scanning"].is_boolean());
+            let mut status = client
                 .call("library_scan", json!({"action": "status"}))
                 .await;
+            for _ in 0..500 {
+                if status["scanning"] == false {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                status = client
+                    .call("library_scan", json!({"action": "status"}))
+                    .await;
+            }
+            assert_eq!(status["scanning"], false);
             assert_eq!(status["entries"], 2);
+            // Cancelling with nothing running is harmless.
+            let stopped = client
+                .call("library_scan", json!({"action": "cancel"}))
+                .await;
+            assert_eq!(stopped["entries"], 2);
 
             let slow = client.call("library_search", json!({"bpm_max": 100})).await;
             assert_eq!(slow["matched"], 1);

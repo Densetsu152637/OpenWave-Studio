@@ -402,6 +402,7 @@ impl CoreBuilder {
                 previews: preview_rx,
                 retire_previews: preview_retire_tx,
                 preview: None,
+                fading_preview: None,
                 pending_retire_preview: None,
                 transport: TransportState::new(),
                 telemetry,
@@ -583,6 +584,8 @@ pub struct AudioCore {
     retire_previews: RingSender<Box<Preview>>,
     /// The preview being mixed into the output, until it ends.
     preview: Option<Box<Preview>>,
+    /// The preview a newer one replaced, fading out.
+    fading_preview: Option<Box<Preview>>,
     /// A preview that ended and waits for room in the retire ring.
     pending_retire_preview: Option<Box<Preview>>,
     transport: TransportState,
@@ -761,6 +764,9 @@ impl AudioCore {
         if let Some(preview) = self.preview.as_deref_mut() {
             preview.mix(out, channels);
         }
+        if let Some(preview) = self.fading_preview.as_deref_mut() {
+            preview.mix(out, channels);
+        }
         self.flush_preview();
         self.telemetry
             .position
@@ -860,9 +866,14 @@ impl AudioCore {
             return;
         }
         if let Some(new) = self.previews.pop() {
+            // The preview that was playing keeps playing while it fades out (no hard cut); one
+            // that was still fading from an earlier replacement is ended and retired.
             if let Some(mut old) = self.preview.replace(new) {
-                old.end();
-                self.pending_retire_preview = Some(old);
+                old.fade_out();
+                if let Some(mut fading) = self.fading_preview.replace(old) {
+                    fading.end();
+                    self.pending_retire_preview = Some(fading);
+                }
             }
             self.flush_preview();
         }
@@ -875,6 +886,14 @@ impl AudioCore {
             && self.preview.as_deref().is_some_and(Preview::is_ended)
         {
             self.pending_retire_preview = self.preview.take();
+        }
+        if self.pending_retire_preview.is_none()
+            && self
+                .fading_preview
+                .as_deref()
+                .is_some_and(Preview::is_ended)
+        {
+            self.pending_retire_preview = self.fading_preview.take();
         }
         if let Some(preview) = self.pending_retire_preview.take()
             && let Err(preview) = self.retire_previews.try_push(preview)

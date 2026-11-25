@@ -599,7 +599,13 @@ fn the_preview_is_allocation_free() {
     core.process(&mut output, 2, None);
     let (third, third_handle) = Preview::new(pcm(100_000));
     link.swap_preview(third).unwrap();
-    core.process(&mut output, 2, None);
+    assert!(
+        !second_handle.finished(),
+        "the replaced preview fades out first"
+    );
+    for _ in 0..10 {
+        core.process(&mut output, 2, None);
+    }
     assert!(second_handle.finished());
     third_handle.stop();
     for _ in 0..40 {
@@ -607,6 +613,41 @@ fn the_preview_is_allocation_free() {
     }
     assert!(third_handle.finished());
     // Everything handed back is freed on the control thread.
+    link.collect_retired();
+}
+
+/// Replacing a preview is not a hard cut: the old one fades out under the new one's fade-in,
+/// so no sample steps by more than a small amount (a cut from 0.5 to 0 would step by 0.5).
+#[test]
+fn replacing_a_preview_has_no_discontinuity() {
+    use ow_engine::Preview;
+    let constant = |frames: usize, value: f32| ow_media::Pcm {
+        sample_rate: SAMPLE_RATE,
+        channels: vec![vec![value; frames]],
+    };
+    let (mut link, mut core) = builder().build();
+    link.swap_plan(plan(0).0).unwrap();
+    let mut heard = Vec::new();
+    let mut output = vec![0.0_f32; 128];
+    let mut cycle = |core: &mut ow_engine::AudioCore, heard: &mut Vec<f32>| {
+        core.process(&mut output, 2, None);
+        heard.extend(output.chunks(2).map(|f| f[0]));
+    };
+    link.swap_preview(Preview::new(constant(100_000, 0.5)).0)
+        .unwrap();
+    for _ in 0..40 {
+        cycle(&mut core, &mut heard);
+    }
+    link.swap_preview(Preview::new(constant(100_000, 0.5)).0)
+        .unwrap();
+    for _ in 0..40 {
+        cycle(&mut core, &mut heard);
+    }
+    let biggest = heard
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(biggest < 0.02, "largest step {biggest}");
     link.collect_retired();
 }
 

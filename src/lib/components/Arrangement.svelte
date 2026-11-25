@@ -14,6 +14,7 @@
     warpState,
   } from "../browser/warp";
   import { bpmLabel } from "../browser/library";
+  import { warpOutOfRange } from "../browser/markers";
   import TrackHeader from "./TrackHeader.svelte";
   import BusHeader from "./BusHeader.svelte";
   import SendsPanel from "./SendsPanel.svelte";
@@ -612,6 +613,13 @@
   const warping = $derived(warpState(selectedAudio));
   const warpBpm = $derived(sharedSourceBpm(selectedAudio));
   const transposition = $derived(sharedTranspose(selectedAudio));
+  /** Warped clips whose tempo ratio is beyond the stretcher's 4x limit: they play silent. */
+  const silentWarps = $derived(
+    [...(project?.clips.values() ?? [])].filter((clip) => {
+      const media = clip.content.type === "audio" ? project?.media_pool.get(clip.content.media) : undefined;
+      return media !== undefined && warpOutOfRange(clip, tempo, media.sample_rate);
+    }).length,
+  );
   const toggleWarp = () =>
     run(() =>
       setClipsWarp(
@@ -944,6 +952,11 @@
         }}
       />
     </label>
+    {#if silentWarps > 0}
+      <span class="warn" role="alert" title="The tempo change is more than 4x from the clip's own tempo: the stretcher cannot do it, so those clips play silent">
+        {silentWarps} warped clip{silentWarps === 1 ? "" : "s"} beyond 4x (silent)
+      </span>
+    {/if}
     {#if warpBpm !== null}
       <span class="snap" title="Tempo of the clip's audio, from which it is stretched">
         Source {bpmLabel(warpBpm)} BPM
@@ -1328,6 +1341,9 @@
   }
   .spacer {
     flex: 1;
+  }
+  .warn {
+    color: var(--danger);
   }
   .scroller {
     flex: 1;

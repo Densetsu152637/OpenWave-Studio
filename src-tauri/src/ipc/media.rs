@@ -72,12 +72,23 @@ impl IpcState {
         src: &Path,
         target: &dyn PlanTarget,
     ) -> Result<MediaImportReply, String> {
+        self.media_import_with(src, target, || {})
+    }
+
+    /// [`media_import`](Self::media_import) with a hook that runs after the analysis and before
+    /// the media is registered (where a project change can slip in; tests use it to cause one).
+    pub(super) fn media_import_with(
+        &self,
+        src: &Path,
+        target: &dyn PlanTarget,
+        after_detect: impl FnOnce(),
+    ) -> Result<MediaImportReply, String> {
         let (root, rate) = {
             let mut control = super::lock(&self.control);
             let root = control.media_root_for_import()?;
             (root, control.session().project().settings.sample_rate)
         };
-        let imported = import_into(&root, src, rate)?;
+        let mut imported = import_into(&root, src, rate)?;
         // Analysis can take a few seconds; the control lock is not held for it. Media that is
         // already in the pool keeps what it has.
         let known = {
@@ -97,7 +108,20 @@ impl IpcState {
             },
             None => detect(&root, &imported),
         };
+        after_detect();
         let mut control = super::lock(&self.control);
+        // The project can have been replaced, opened or saved elsewhere while the file was
+        // analysed: then the media root (or the rate) is another one and the file is not in it.
+        // Importing is addressed by content hash and repeatable, so import again into the
+        // current root, which is the one the media item must point into.
+        let now = control.media_root_for_import()?;
+        let now_rate = control.session().project().settings.sample_rate;
+        let root = if now != root || now_rate != rate {
+            imported = import_into(&now, src, now_rate)?;
+            now
+        } else {
+            root
+        };
         let id = self.register_media_detected(&mut control, &root, &imported, detected, target)?;
         Ok(MediaImportReply {
             media: id.0,
@@ -185,4 +209,51 @@ pub(super) fn import_into(root: &Path, src: &Path, rate: u32) -> Result<Imported
     }
     import_file(src, root, rate, &ImportLimits::default())
         .map_err(|error| format!("could not import {}: {error}", src.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::mvp::CompilingTarget;
+    use super::*;
+
+    fn write_tone(path: &Path) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for i in 0..48_000_u32 {
+            writer
+                .write_sample(((f64::from(i) * 0.05).sin() * 8_000.0) as i16)
+                .unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    /// A project replaced while the file is analysed must still end up with the media in its
+    /// own media root.
+    #[test]
+    fn an_import_overtaken_by_a_new_project_lands_in_the_new_media_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("tone.wav");
+        write_tone(&wav);
+        let state = IpcState::new();
+        let target = CompilingTarget::default();
+        let reply = state
+            .media_import_with(&wav, &target, || {
+                state.project_new(&target).unwrap();
+            })
+            .unwrap();
+        let control = super::super::lock(&state.control);
+        let item = control
+            .session()
+            .project()
+            .media_pool
+            .get(&MediaId(reply.media))
+            .expect("the media is in the new project");
+        let file = control.media_root().join(&item.path);
+        assert!(file.is_file(), "{} is missing", file.display());
+    }
 }
