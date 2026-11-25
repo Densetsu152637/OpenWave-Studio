@@ -327,6 +327,11 @@ pub(super) fn import_atomically(
     tempo_map: Option<TempoMap>,
     target: &dyn PlanTarget,
 ) -> Result<MidiImportReply, String> {
+    // Cancel reverts the whole open transaction whatever its depth, so an import must not
+    // start inside someone else's gesture.
+    if control.snapshot().history.in_transaction {
+        return Err("finish the open edit first".into());
+    }
     control.command(
         UiCommand::Begin {
             label: "Import MIDI".into(),

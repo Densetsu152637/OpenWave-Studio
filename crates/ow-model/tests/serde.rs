@@ -105,7 +105,7 @@ fn serde_rejects_invalid_warp_and_analysis() {
     let mut project = reference_project_v3();
     let media = *project.media_pool.keys().next().unwrap();
     let clip = *project.clips.keys().next().unwrap();
-    let mut set_warp = |project: &mut Project, change: &dyn Fn(&mut Warp)| {
+    let set_warp = |project: &mut Project, change: &dyn Fn(&mut Warp)| {
         if let ClipContent::Audio { warp: Some(w), .. } =
             &mut project.clips.get_mut(&clip).unwrap().content
         {

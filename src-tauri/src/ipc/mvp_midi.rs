@@ -424,29 +424,33 @@ fn add_midi_track_compiled(state: &IpcState, target: &CompilingTarget) -> TrackI
 }
 
 #[test]
-fn a_failed_import_leaves_nothing_behind() {
+fn a_failed_import_leaves_nothing_behind_and_a_gesture_is_not_cancelled() {
     let state = IpcState::new();
     let target = CompilingTarget::default();
-    let file = ow_model::midi::ImportedMidi {
-        tracks: vec![ow_model::midi::ImportedTrack {
-            name: "x".into(),
-            notes: vec![note(0.0, 1.0, 60)],
-            controllers: vec![],
-            end: 1.0,
+    let track = |name: &str, key: u8| ow_model::midi::ImportedTrack {
+        name: name.into(),
+        notes: vec![Note {
+            key,
+            ..note(0.0, 1.0, 60)
         }],
+        controllers: vec![],
+        end: 1.0,
+    };
+    // The first file track imports fine; the second has a key the model refuses.
+    let file = ow_model::midi::ImportedMidi {
+        tracks: vec![track("good", 60), track("bad", 200)],
         tempo: vec![],
         time_signature: None,
     };
     let before = lock(&state.control).snapshot().project;
     let tempo = ow_model::time::TempoMap::constant(90.0).unwrap();
-    // The tempo map is replaced first, then the clip is refused (its track does not exist).
     let result = super::midi::import_atomically(
         &mut lock(&state.control),
         &file,
-        Some(9_999),
+        None,
         0.0,
         "x",
-        Some(tempo),
+        Some(tempo.clone()),
         &target,
     );
     assert!(result.is_err());
@@ -454,9 +458,42 @@ fn a_failed_import_leaves_nothing_behind() {
     // Reserved ids are never given back; everything else is as it was.
     let mut restored = after.project.clone();
     restored.next_id = before.next_id;
-    assert_eq!(restored, before, "the tempo change was rolled back");
+    assert_eq!(
+        restored, before,
+        "the first track and the tempo change were rolled back"
+    );
     assert!(!after.history.in_transaction);
     assert!(!after.history.can_undo);
+
+    // Inside someone else's open edit the import is refused and that edit survives.
+    command(
+        &state,
+        &target,
+        UiCommand::Begin {
+            label: "Drag".into(),
+        },
+    );
+    edit(
+        &state,
+        &target,
+        EditCommand::SetName {
+            name: "mid-gesture".into(),
+        },
+    );
+    let refused = super::midi::import_atomically(
+        &mut lock(&state.control),
+        &file,
+        None,
+        0.0,
+        "x",
+        None,
+        &target,
+    )
+    .unwrap_err();
+    assert!(refused.contains("open edit"), "{refused}");
+    let snapshot = lock(&state.control).snapshot();
+    assert!(snapshot.history.in_transaction);
+    assert_eq!(snapshot.project.name, "mid-gesture");
 }
 
 #[test]
