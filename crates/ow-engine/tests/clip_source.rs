@@ -54,6 +54,8 @@ const PLACEMENT: ClipPlacement = ClipPlacement {
     length: 3000,
     source_offset: 500,
     gain: 0.5,
+    fade_in: 0,
+    fade_out: 0,
 };
 
 /// What the placement alone produces at timeline sample `t`.
@@ -92,6 +94,8 @@ fn overlapping_placements_sum_and_a_loop_replays_the_clip() {
         length: 500,
         source_offset: 0,
         gain: 1.0,
+        fade_in: 0,
+        fade_out: 0,
     };
     let mut r = renderer(
         Box::new(MemorySource::new(Arc::new(pcm()))),

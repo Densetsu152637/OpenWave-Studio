@@ -6,7 +6,8 @@
 //! sample-accurate and nothing plays while the transport is stopped.
 //!
 //! The source must already be at the plan's sample rate (import resamples to the project
-//! rate). Placements that overlap are summed. A streamed source is read at each placement's
+//! rate. Fades are linear ramps (see [`ClipPlacement::with_fades`]); audio-clip compilation
+//! stays in [`compile`](crate::compile) next to the other node builders. Placements that overlap are summed. A streamed source is read at each placement's
 //! own position, so overlapping placements of one stream make it seek back and forth; give
 //! every simultaneously playing clip its own source.
 
@@ -25,6 +26,38 @@ pub struct ClipPlacement {
     pub source_offset: u64,
     /// Linear gain.
     pub gain: f32,
+    /// Length of the fade-in ramp in frames, from the start of the clip.
+    pub fade_in: u64,
+    /// Length of the fade-out ramp in frames, ending at the end of the clip.
+    pub fade_out: u64,
+}
+
+impl ClipPlacement {
+    /// The same placement with fades of `fade_in` and `fade_out` frames.
+    ///
+    /// Fades are linear gain ramps (0 to 1 over the fade-in, 1 to 0 over the fade-out) that
+    /// multiply `gain`. They are clamped so that `fade_in + fade_out <= length`; the fade-in
+    /// keeps its length and the fade-out gives way.
+    #[must_use]
+    pub fn with_fades(mut self, fade_in: u64, fade_out: u64) -> Self {
+        self.fade_in = fade_in.min(self.length);
+        self.fade_out = fade_out.min(self.length - self.fade_in);
+        self
+    }
+
+    /// Linear fade envelope at `index` frames into the clip (1.0 outside the ramps).
+    #[inline]
+    fn envelope(&self, index: u64) -> f32 {
+        let mut level = 1.0_f32;
+        if index < self.fade_in {
+            level = index as f32 / self.fade_in as f32;
+        }
+        let from_end = self.length.saturating_sub(index);
+        if from_end <= self.fade_out {
+            level = level.min(from_end as f32 / self.fade_out as f32);
+        }
+        level
+    }
 }
 
 /// Plays an [`AudioSource`] through its placements; outputs the source's channels.
@@ -84,10 +117,18 @@ impl Node for ClipSourceNode {
                 let frame = span.frame() + (from - span_start) as usize;
                 let position = placement.source_offset + (from - placement.start);
                 self.source.read(position, &mut self.scratch, count);
+                let first = from - placement.start;
+                let faded = placement.fade_in > 0 || placement.fade_out > 0;
                 for (channel, scratch) in self.scratch.iter().enumerate() {
                     let out = &mut ctx.outputs.channel_mut(channel)[frame..frame + count];
-                    for (dst, src) in out.iter_mut().zip(&scratch[..count]) {
-                        *dst += src * placement.gain;
+                    if faded {
+                        for (k, (dst, src)) in out.iter_mut().zip(&scratch[..count]).enumerate() {
+                            *dst += src * placement.gain * placement.envelope(first + k as u64);
+                        }
+                    } else {
+                        for (dst, src) in out.iter_mut().zip(&scratch[..count]) {
+                            *dst += src * placement.gain;
+                        }
                     }
                 }
             }

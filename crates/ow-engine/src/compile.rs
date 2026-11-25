@@ -580,7 +580,8 @@ fn add_audio_clip(
         media,
         source_offset,
         gain_db,
-        ..
+        fade_in,
+        fade_out,
     } = &clip.content
     else {
         return false;
@@ -623,7 +624,24 @@ fn add_audio_clip(
         length: end.saturating_sub(start),
         source_offset: offset,
         gain: db_to_linear(*gain_db),
+        fade_in: 0,
+        fade_out: 0,
     };
+    // Fade lengths convert beats to samples through the tempo map like the clip edges.
+    let fade_frames = |from: f64, to: f64| {
+        env.timeline
+            .beat_to_sample_index(to, rate)
+            .saturating_sub(env.timeline.beat_to_sample_index(from, rate))
+    };
+    let fade_in_beats = fade_in.clamp(0.0, clip.length);
+    let fade_out_beats = fade_out.clamp(0.0, clip.length - fade_in_beats);
+    let placement = placement.with_fades(
+        fade_frames(clip.start, clip.start + fade_in_beats),
+        fade_frames(
+            clip.start + clip.length - fade_out_beats,
+            clip.start + clip.length,
+        ),
+    );
     let source = Box::new(MemorySource::new(loaded.pcm));
     let node = add(
         graph,

@@ -137,8 +137,8 @@ impl Fixture {
                         media,
                         source_offset: spec.offset,
                         gain_db: spec.gain_db,
-                        fade_in: 0.0,
-                        fade_out: 0.0,
+                        fade_in: spec.fade_in,
+                        fade_out: spec.fade_out,
                     },
                 }),
             })
@@ -164,6 +164,8 @@ struct ClipSpec {
     offset: u64,
     gain_db: f64,
     muted: bool,
+    fade_in: f64,
+    fade_out: f64,
 }
 
 impl Default for ClipSpec {
@@ -174,6 +176,8 @@ impl Default for ClipSpec {
             offset: 0,
             gain_db: 0.0,
             muted: false,
+            fade_in: 0.0,
+            fade_out: 0.0,
         }
     }
 }
@@ -512,4 +516,136 @@ fn export_renders_the_mix_offline_to_the_last_clip_end_plus_a_second() {
         render_project(&broken, &ctx, 10),
         Err(ExportError::Compile(_))
     ));
+}
+
+/// Linear fade envelope of a `length`-frame clip at `index` with ramps of `fade_in`/`fade_out`
+/// frames (the engine's documented curve).
+fn envelope(index: usize, length: usize, fade_in: usize, fade_out: usize) -> f64 {
+    let mut level = 1.0_f64;
+    if index < fade_in {
+        level = index as f64 / fade_in as f64;
+    }
+    if length - index <= fade_out {
+        level = level.min((length - index) as f64 / fade_out as f64);
+    }
+    level
+}
+
+#[test]
+fn fades_ramp_the_clip_linearly_in_and_out() {
+    let mut fx = Fixture::new();
+    let media = fx.media("mono", RATE, 2 * RATE, &[LEFT]);
+    let track = fx.track(StripSettings::default());
+    // One beat long from beat 1, 0.25 beat fade-in (6000 frames), 0.5 beat fade-out (12000).
+    fx.clip(
+        track,
+        media,
+        ClipSpec {
+            start_beats: 1.0,
+            fade_in: 0.25,
+            fade_out: 0.5,
+            ..ClipSpec::default()
+        },
+    );
+    let ctx = fx.ctx();
+    let out = fx.render(&ctx, 3 * BEAT);
+    let expected = |frame: usize| {
+        if !(BEAT..2 * BEAT).contains(&frame) {
+            return 0.0;
+        }
+        let i = frame - BEAT;
+        CENTRE * LEFT.at(i as f64 / f64::from(RATE)) * envelope(i, BEAT, BEAT / 4, BEAT / 2)
+    };
+    assert!(max_error(&out, 0, expected) < TOLERANCE);
+    assert!(max_error(&out, 1, expected) < TOLERANCE);
+    // The ramps are really there: the first frame is silent and the last is nearly so.
+    assert_eq!(out[BEAT * 2], 0.0);
+    assert!(out[(2 * BEAT - 1) * 2].abs() < 1e-3);
+}
+
+#[test]
+fn fades_that_overlap_clamp_to_the_clip_length() {
+    let mut fx = Fixture::new();
+    let media = fx.media("mono", RATE, 2 * RATE, &[LEFT]);
+    let track = fx.track(StripSettings::default());
+    // 0.8 + 0.8 beats on a one-beat clip: the fade-in keeps 0.8, the fade-out gets 0.2.
+    fx.clip(
+        track,
+        media,
+        ClipSpec {
+            fade_in: 0.8,
+            fade_out: 0.8,
+            ..ClipSpec::default()
+        },
+    );
+    let ctx = fx.ctx();
+    let out = fx.render(&ctx, BEAT);
+    let fade_in = BEAT * 4 / 5;
+    let expected = |frame: usize| {
+        CENTRE
+            * LEFT.at(frame as f64 / f64::from(RATE))
+            * envelope(frame, BEAT, fade_in, BEAT - fade_in)
+    };
+    assert!(max_error(&out, 0, expected) < TOLERANCE);
+}
+
+#[test]
+fn a_left_trimmed_clip_plays_the_same_audio_as_the_untrimmed_clip_from_that_point() {
+    let mut fx = Fixture::new();
+    let media = fx.media("mono", RATE, 4 * RATE, &[LEFT]);
+    let track = fx.track(StripSettings::default());
+    // Untrimmed: beat 1 for 2 beats from the file start. Trimmed by half a beat (12000
+    // frames at the media rate): start moves to 1.5, the offset advances by 12000.
+    fx.clip(
+        track,
+        media,
+        ClipSpec {
+            start_beats: 1.5,
+            length_beats: 1.5,
+            offset: (BEAT / 2) as u64,
+            fade_in: 0.25,
+            ..ClipSpec::default()
+        },
+    );
+    let ctx = fx.ctx();
+    let out = fx.render(&ctx, 4 * BEAT);
+    let start = BEAT + BEAT / 2;
+    let length = BEAT + BEAT / 2;
+    let expected = |frame: usize| {
+        if !(start..start + length).contains(&frame) {
+            return 0.0;
+        }
+        let i = frame - start;
+        // Same source time as the untrimmed clip would have at this frame.
+        CENTRE * LEFT.at((frame - BEAT) as f64 / f64::from(RATE)) * envelope(i, length, BEAT / 4, 0)
+    };
+    assert!(max_error(&out, 0, expected) < TOLERANCE);
+    assert!(out[..start * 2].iter().all(|s| *s == 0.0));
+}
+
+#[test]
+fn a_right_trimmed_clip_stops_early_and_a_fade_out_ends_at_the_new_edge() {
+    let mut fx = Fixture::new();
+    let media = fx.media("mono", RATE, 4 * RATE, &[LEFT]);
+    let track = fx.track(StripSettings::default());
+    fx.clip(
+        track,
+        media,
+        ClipSpec {
+            length_beats: 0.5,
+            fade_out: 0.25,
+            ..ClipSpec::default()
+        },
+    );
+    let ctx = fx.ctx();
+    let out = fx.render(&ctx, 2 * BEAT);
+    let length = BEAT / 2;
+    let expected = |frame: usize| {
+        if frame >= length {
+            return 0.0;
+        }
+        CENTRE * LEFT.at(frame as f64 / f64::from(RATE)) * envelope(frame, length, 0, BEAT / 4)
+    };
+    assert!(max_error(&out, 0, expected) < TOLERANCE);
+    assert!(out[length * 2..].iter().all(|s| *s == 0.0));
 }
