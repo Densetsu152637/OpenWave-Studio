@@ -202,13 +202,7 @@ impl IpcState {
             None
         };
 
-        control.command(
-            UiCommand::Begin {
-                label: "Import MIDI".into(),
-            },
-            target,
-        )?;
-        let result = import_tracks(
+        import_atomically(
             &mut control,
             &file,
             track,
@@ -216,11 +210,7 @@ impl IpcState {
             &stem,
             tempo_map,
             target,
-        );
-        let ended = control.command(UiCommand::End, target);
-        let reply = result?;
-        ended?;
-        Ok(reply)
+        )
     }
 
     /// Writes MIDI clips to `path` as a format 1 file. `clips` are clip ids, `tracks` are track
@@ -287,6 +277,10 @@ impl IpcState {
                 if !clips.is_empty() && !clips.contains(&clip.id.0) {
                     continue;
                 }
+                // A muted clip is silent, so it is exported only when asked for by id.
+                if clip.muted && !clips.contains(&clip.id.0) {
+                    continue;
+                }
                 let (n, c) = played(clip);
                 notes.extend(n);
                 controllers.extend(c);
@@ -319,6 +313,38 @@ impl IpcState {
                 .map(|(_, notes, _)| notes.len() as u32)
                 .sum(),
         })
+    }
+}
+
+/// Runs the import as one "Import MIDI" step; when anything fails the transaction is cancelled,
+/// so nothing of a partial import stays in the project.
+pub(super) fn import_atomically(
+    control: &mut Control,
+    file: &midi::ImportedMidi,
+    track: Option<u64>,
+    start_beat: f64,
+    stem: &str,
+    tempo_map: Option<TempoMap>,
+    target: &dyn PlanTarget,
+) -> Result<MidiImportReply, String> {
+    control.command(
+        UiCommand::Begin {
+            label: "Import MIDI".into(),
+        },
+        target,
+    )?;
+    match import_tracks(control, file, track, start_beat, stem, tempo_map, target) {
+        Ok(reply) => match control.command(UiCommand::End, target) {
+            Ok(_) => Ok(reply),
+            Err(error) => {
+                let _ = control.command(UiCommand::Cancel, target);
+                Err(error)
+            }
+        },
+        Err(error) => {
+            let _ = control.command(UiCommand::Cancel, target);
+            Err(error)
+        }
     }
 }
 

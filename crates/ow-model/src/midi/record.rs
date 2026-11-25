@@ -175,11 +175,16 @@ pub fn plan_recording<E>(
                 controllers.sort_by(|a, b| a.beat.total_cmp(&b.beat));
                 vec![(first, last - first, notes, controllers)]
             } else {
-                contents.clone()
+                // One clip per lap that has content; an empty lap is not worth a clip.
+                contents
+                    .iter()
+                    .filter(|c| !c.2.is_empty() || !c.3.is_empty())
+                    .cloned()
+                    .collect()
             };
             // Everything under the recorded range goes (once for the union of the passes).
-            let cut_start = groups.iter().map(|g| g.0).fold(f64::INFINITY, f64::min);
-            let cut_end = groups.iter().map(|g| g.0 + g.1).fold(0.0_f64, f64::max);
+            let cut_start = contents.iter().map(|g| g.0).fold(f64::INFINITY, f64::min);
+            let cut_end = contents.iter().map(|g| g.0 + g.1).fold(0.0_f64, f64::max);
             for clip in &existing {
                 let ClipContent::Midi { notes, controllers } = &clip.content else {
                     continue;
@@ -223,7 +228,13 @@ pub fn plan_recording<E>(
                 }
             }
             let laps = looped && !merge && groups.len() > 1;
-            let count = groups.len();
+            // The lap that plays: the last one with content, preferring the last complete one
+            // (a final lap more than 2 % shorter than the loop was cut short by Stop).
+            let loop_length = contents.iter().map(|c| c.1).fold(0.0_f64, f64::max);
+            let active = groups
+                .iter()
+                .rposition(|g| g.1 >= loop_length * 0.98)
+                .unwrap_or(groups.len().saturating_sub(1));
             for (index, (start, length, notes, controllers)) in groups.into_iter().enumerate() {
                 let id = alloc()?;
                 let label = if laps {
@@ -233,7 +244,7 @@ pub fn plan_recording<E>(
                 };
                 let mut clip = new_clip(id, track, &label, start, length, notes, controllers);
                 // Every lap is kept; only the last one plays until the user chooses another.
-                clip.muted = laps && index + 1 < count;
+                clip.muted = laps && index != active;
                 out.add.push(clip);
             }
         }
@@ -451,6 +462,40 @@ mod midi_record_tests {
         );
         assert!(out.add.iter().all(|c| (c.start, c.length) == (4.0, 4.0)));
         assert_eq!(out.add[2].name, "Take take 3");
+    }
+
+    #[test]
+    fn an_empty_or_cut_short_last_lap_does_not_take_over() {
+        let empty_last = [
+            pass(4.0, 8.0, &[(0.0, 1.0, 60)]),
+            pass(4.0, 8.0, &[(1.0, 1.0, 62)]),
+            pass(4.0, 8.0, &[]),
+        ];
+        let out = plan(&[], &empty_last, MidiRecordMode::Replace, true);
+        assert_eq!(out.add.len(), 2, "the empty lap makes no clip");
+        assert_eq!(
+            out.add.iter().map(|c| c.muted).collect::<Vec<_>>(),
+            [true, false]
+        );
+        assert_eq!(notes_of(&out.add[1])[0].key, 62);
+
+        // The final lap stopped after a beat of four and holds a note: the last complete lap
+        // plays instead.
+        let short_last = [
+            pass(4.0, 8.0, &[(0.0, 1.0, 60)]),
+            pass(4.0, 8.0, &[(1.0, 1.0, 62)]),
+            pass(4.0, 5.0, &[(0.0, 0.5, 64)]),
+        ];
+        let out = plan(&[], &short_last, MidiRecordMode::Replace, true);
+        assert_eq!(out.add.len(), 3);
+        assert_eq!(
+            out.add.iter().map(|c| c.muted).collect::<Vec<_>>(),
+            [true, false, true]
+        );
+        // The range cut under the recording still covers the whole loop.
+        let existing = [clip(1, 0.0, 12.0, vec![])];
+        let out = plan(&existing, &empty_last, MidiRecordMode::Replace, true);
+        assert_eq!(out.replace[0].length, 4.0);
     }
 
     #[test]

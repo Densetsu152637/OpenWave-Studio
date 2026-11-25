@@ -424,6 +424,77 @@ fn add_midi_track_compiled(state: &IpcState, target: &CompilingTarget) -> TrackI
 }
 
 #[test]
+fn a_failed_import_leaves_nothing_behind() {
+    let state = IpcState::new();
+    let target = CompilingTarget::default();
+    let file = ow_model::midi::ImportedMidi {
+        tracks: vec![ow_model::midi::ImportedTrack {
+            name: "x".into(),
+            notes: vec![note(0.0, 1.0, 60)],
+            controllers: vec![],
+            end: 1.0,
+        }],
+        tempo: vec![],
+        time_signature: None,
+    };
+    let before = lock(&state.control).snapshot().project;
+    let tempo = ow_model::time::TempoMap::constant(90.0).unwrap();
+    // The tempo map is replaced first, then the clip is refused (its track does not exist).
+    let result = super::midi::import_atomically(
+        &mut lock(&state.control),
+        &file,
+        Some(9_999),
+        0.0,
+        "x",
+        Some(tempo),
+        &target,
+    );
+    assert!(result.is_err());
+    let after = lock(&state.control).snapshot();
+    // Reserved ids are never given back; everything else is as it was.
+    let mut restored = after.project.clone();
+    restored.next_id = before.next_id;
+    assert_eq!(restored, before, "the tempo change was rolled back");
+    assert!(!after.history.in_transaction);
+    assert!(!after.history.can_undo);
+}
+
+#[test]
+fn a_muted_lap_is_not_exported_unless_named() {
+    let state = IpcState::new();
+    let target = CompilingTarget::default();
+    let track = add_midi_track_compiled(&state, &target);
+    let mut laps = Vec::new();
+    for key in [60_u8, 62] {
+        let mut clip = midi_clip(4.0, 4.0, vec![note(0.0, 1.0, key)]);
+        clip.id = command(&state, &target, UiCommand::AllocIds { count: 1 })[0].into();
+        clip.track = track;
+        clip.muted = key == 60;
+        laps.push(clip.clone());
+        edit(
+            &state,
+            &target,
+            EditCommand::AddClip {
+                clip: Box::new(clip),
+            },
+        );
+    }
+    let work = tempfile::tempdir().unwrap();
+    let all = work.path().join("all.mid");
+    // The track's own clip has two notes, the unmuted lap one, the muted lap none.
+    assert_eq!(state.midi_export(&all, &[], &[], false).unwrap().notes, 3);
+    let named = work.path().join("named.mid");
+    let muted = laps[0].id.0;
+    assert_eq!(
+        state
+            .midi_export(&named, &[muted], &[], false)
+            .unwrap()
+            .notes,
+        1
+    );
+}
+
+#[test]
 fn midi_files_round_trip_through_export_and_import_with_path_guards() {
     let work = tempfile::tempdir().unwrap();
     let state = IpcState::new();

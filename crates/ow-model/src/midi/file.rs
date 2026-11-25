@@ -132,12 +132,7 @@ pub fn import(bytes: &[u8]) -> Result<ImportedMidi, MidiFileError> {
                 }
                 TrackEventKind::Meta(MetaMessage::Tempo(us)) if us.as_int() > 0 => {
                     let bpm = 60_000_000.0 / f64::from(us.as_int());
-                    if tempo
-                        .last()
-                        .is_none_or(|(_, last)| (*last - bpm).abs() > 1e-9)
-                    {
-                        tempo.push((beat, bpm));
-                    }
+                    tempo.push((beat, bpm));
                 }
                 TrackEventKind::Meta(MetaMessage::TimeSignature(num, den_pow, ..))
                     if time_signature.is_none() && num > 0 && den_pow <= 6 =>
@@ -188,6 +183,25 @@ pub fn import(bytes: &[u8]) -> Result<ImportedMidi, MidiFileError> {
             controllers,
             end: tick as f64 / ppq,
         });
+    }
+    // Tempo events may sit in any track: order them by position (a later event at the same
+    // beat wins) and drop the ones that change nothing.
+    tempo.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut ordered: Vec<(f64, f64)> = Vec::with_capacity(tempo.len());
+    for (beat, bpm) in tempo {
+        match ordered.last_mut() {
+            Some(last) if last.0 == beat => last.1 = bpm,
+            _ => ordered.push((beat, bpm)),
+        }
+    }
+    let mut tempo: Vec<(f64, f64)> = Vec::with_capacity(ordered.len());
+    for (beat, bpm) in ordered {
+        if tempo
+            .last()
+            .is_none_or(|(_, last)| (last - bpm).abs() > 1e-9)
+        {
+            tempo.push((beat, bpm));
+        }
     }
     Ok(ImportedMidi {
         tracks,
@@ -460,6 +474,53 @@ mod midi_file_tests {
             (60, 0.0, 1.0)
         );
         assert_eq!((notes[1].key, notes[1].length), (62, 2.0));
+    }
+
+    #[test]
+    fn tempo_events_from_several_tracks_are_ordered_by_position() {
+        let tempo_at = |delta: u32, micros: u32| TrackEvent {
+            delta: u28::new(delta),
+            kind: TrackEventKind::Meta(MetaMessage::Tempo(u24::new(micros))),
+        };
+        let end = || TrackEvent {
+            delta: u28::new(0),
+            kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
+        };
+        let note = |on: bool| TrackEvent {
+            delta: u28::new(if on { 0 } else { 96 }),
+            kind: TrackEventKind::Midi {
+                channel: u4::new(0),
+                message: if on {
+                    MidiMessage::NoteOn {
+                        key: u7::new(60),
+                        vel: u7::new(90),
+                    }
+                } else {
+                    MidiMessage::NoteOff {
+                        key: u7::new(60),
+                        vel: u7::new(0),
+                    }
+                },
+            },
+        };
+        let mut smf = Smf::new(Header::new(
+            Format::Parallel,
+            Timing::Metrical(u15::new(96)),
+        ));
+        // The first track changes the tempo at beat 4, the second at beat 2 and at beat 0.
+        smf.tracks
+            .push(vec![tempo_at(384, 400_000), note(true), note(false), end()]);
+        smf.tracks
+            .push(vec![tempo_at(0, 500_000), tempo_at(192, 600_000), end()]);
+        let mut bytes = Vec::new();
+        smf.write_std(&mut bytes).unwrap();
+        let tempo = import(&bytes).unwrap().tempo;
+        assert_eq!(tempo.len(), 3);
+        assert_eq!(
+            tempo.iter().map(|t| t.0).collect::<Vec<_>>(),
+            [0.0, 2.0, 4.0]
+        );
+        assert!((tempo[0].1 - 120.0).abs() < 1e-9 && (tempo[2].1 - 150.0).abs() < 1e-9);
     }
 
     #[test]

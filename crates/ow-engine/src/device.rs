@@ -29,7 +29,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ow_dsp::{Device, DeviceInfo, Event};
+use ow_dsp::{Device, DeviceInfo, Event, EventKind};
 
 use crate::clips::midi::MidiClipPlayer;
 use crate::graph::{MidiMessage, Node, ProcessContext};
@@ -216,8 +216,13 @@ impl Node for DeviceNode {
                     self.events.push(event);
                 }
             }
-            // Clip and live events interleave by frame; an unstable sort never allocates.
-            self.events.sort_unstable_by_key(|event| event.offset);
+            // Clip and live events interleave by frame. At one frame a note-off comes before a
+            // note-on (so a key retriggers), and the rest is fixed by key and velocity so the
+            // order never depends on the sort; an unstable sort never allocates.
+            self.events.sort_unstable_by_key(|event| match event.kind {
+                EventKind::NoteOff { key } => (event.offset, false, key, 0),
+                EventKind::NoteOn { key, velocity } => (event.offset, true, key, velocity),
+            });
         }
         if self.inputs == 2 {
             // A NaN or infinity would stay in an effect's feedback state for good, so a

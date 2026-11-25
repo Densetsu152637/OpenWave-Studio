@@ -530,3 +530,76 @@ fn midi_export_renders_the_notes_and_their_release_inside_the_tail() {
     // The 10 ms release is long over a quarter-second after the clip's end.
     assert!(left[2 * RATE as usize + 12_000..].iter().all(|s| *s == 0.0));
 }
+
+/// An instrument that logs the events it is given.
+struct Logger(std::sync::Arc<std::sync::Mutex<Vec<Event>>>);
+
+impl Device for Logger {
+    fn prepare(&mut self, _rate: f32, _max_block: usize) {}
+    fn set_param(&mut self, _id: u32, _value: f64) {}
+    fn reset(&mut self) {}
+    fn process(&mut self, _audio: &mut [&mut [f32]; 2], events: &[Event]) {
+        self.0.lock().unwrap().extend_from_slice(events);
+    }
+}
+
+/// A live note-off and a clip note-off and note-on of one key on the same frame reach the
+/// device with both note-offs first, in frame order, whatever the sort does with ties.
+#[test]
+fn same_frame_live_and_clip_events_keep_note_offs_before_note_ons() {
+    use ow_engine::{CoreBuilder, LiveGate, MidiClock, MidiMessage};
+    static INFO: DeviceInfo =
+        DeviceInfo::new("test.logger", "Logger", true, &[], || Box::new(Skew));
+    let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events = vec![on(40, 60), off(100, 60), on(100, 60)];
+    let mut graph = Graph::new();
+    let node = DeviceNode::instrument(
+        &INFO,
+        Box::new(Logger(std::sync::Arc::clone(&log))),
+        MidiClipPlayer::new(events),
+    )
+    .with_live_input(ow_engine::LiveGate::Always);
+    let _ = LiveGate::Always;
+    let node = graph.add_node(Box::new(node));
+    let master = graph.add_node(Box::new(ow_engine::MasterNode::new()));
+    graph.connect(node, 0, master, 0).unwrap();
+    graph.connect(node, 1, master, 1).unwrap();
+    graph.set_master(master).unwrap();
+    let mut builder = CoreBuilder::new().midi_clock(MidiClock::StreamFrames);
+    let mut midi = builder.producer_ring(16);
+    let (mut link, mut core) = builder.build();
+    link.swap_plan(graph.compile(RATE, MAX_BLOCK).unwrap())
+        .unwrap();
+    let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(RATE)).round() as u64;
+    for (frame, status, key) in [(5, 0x90, 60), (100, 0x80, 60), (100, 0x90, 61)] {
+        midi.push(Message::MidiIn {
+            message: MidiMessage {
+                status,
+                data1: key,
+                data2: 90,
+            },
+            timestamp_us: stamp(frame),
+        });
+    }
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+    let mut buffer = vec![0.0_f32; 256];
+    core.process(&mut buffer, 2, None);
+    let log = log.lock().unwrap();
+    let at_100: Vec<EventKind> = log
+        .iter()
+        .filter(|e| e.offset == 100)
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(at_100.len(), 4, "{log:?}");
+    let first_on = at_100
+        .iter()
+        .position(|k| matches!(k, EventKind::NoteOn { .. }))
+        .unwrap();
+    assert!(
+        at_100[first_on..]
+            .iter()
+            .all(|k| matches!(k, EventKind::NoteOn { .. })),
+        "note-offs first: {at_100:?}"
+    );
+    assert!(log.windows(2).all(|w| w[0].offset <= w[1].offset));
+}
