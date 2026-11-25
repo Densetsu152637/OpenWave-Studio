@@ -31,8 +31,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
 
 use ow_dsp::analysis::{detect_key, detect_tempo, mono_mixdown};
@@ -197,6 +197,45 @@ fn tempo_matches(entry: &LibraryEntry, query: &Query) -> bool {
     inside(bpm) || (query.include_half_double && (inside(bpm * 2.0) || inside(bpm / 2.0)))
 }
 
+/// Shared handles to follow and stop a running [`scan`]: the caller keeps a clone, the scan
+/// updates it. Counts are in files; they are valid once the scan has listed the folders
+/// (`total` is 0 until then).
+#[derive(Debug, Clone, Default)]
+pub struct ScanControl {
+    /// Set to true to stop the scan: files being analysed finish, no new ones start and the
+    /// report comes back with [`ScanReport::cancelled`] set.
+    pub cancel: Arc<AtomicBool>,
+    /// Files handled so far (answered from the cache or analysed).
+    pub done: Arc<AtomicUsize>,
+    /// Files the scan found.
+    pub total: Arc<AtomicUsize>,
+}
+
+impl ScanControl {
+    /// A fresh control with nothing cancelled and nothing counted.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Asks the scan to stop.
+    pub fn cancel(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether [`cancel`](Self::cancel) was called.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
+
+    /// `(done, total)` files.
+    pub fn progress(&self) -> (usize, usize) {
+        (
+            self.done.load(Ordering::Relaxed),
+            self.total.load(Ordering::Relaxed),
+        )
+    }
+}
+
 /// How [`scan`] works.
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -209,6 +248,8 @@ pub struct ScanOptions {
     /// Worker threads for decoding and analysis; 0 picks the machine's parallelism, and any
     /// value is capped at [`MAX_WORKERS`] to bound memory.
     pub threads: usize,
+    /// Handles to follow and cancel the scan; `None` runs it to the end unobserved.
+    pub control: Option<ScanControl>,
 }
 
 impl Default for ScanOptions {
@@ -218,6 +259,7 @@ impl Default for ScanOptions {
             max_file_bytes: 128 << 20,
             force: false,
             threads: 0,
+            control: None,
         }
     }
 }
@@ -233,6 +275,9 @@ pub struct ScanReport {
     pub cached: usize,
     /// Files that could not be decoded or were too large (they are in the index with an error).
     pub failed: usize,
+    /// The scan was stopped through [`ScanControl::cancel`]: the index lists the files handled
+    /// before that (files not reached are left out, and the cache keeps them for the next scan).
+    pub cancelled: bool,
 }
 
 fn is_audio(path: &Path) -> bool {
@@ -269,6 +314,12 @@ fn fingerprint(path: &Path) -> Option<(u64, u64)> {
     let meta = fs::metadata(path).ok()?;
     let modified = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some((meta.len(), u64::try_from(modified.as_millis()).ok()?))
+}
+
+/// The index cached at `path` by an earlier [`scan`] (empty when there is none, or it is from
+/// another version or damaged); what a search can use before the first scan of a session.
+pub fn load_index(path: &Path) -> LibraryIndex {
+    load_cache(path)
 }
 
 fn load_cache(path: &Path) -> LibraryIndex {
@@ -375,6 +426,9 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
     }
     files.sort();
     files.dedup_by(|a, b| a.0 == b.0);
+    let control = options.control.clone().unwrap_or_default();
+    control.total.store(files.len(), Ordering::Relaxed);
+    control.done.store(0, Ordering::Relaxed);
 
     // Decide per file: cache hit, or analyse (in parallel below).
     let mut slots: Vec<Option<LibraryEntry>> = vec![None; files.len()];
@@ -391,6 +445,7 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
             let mut entry = blank(path, 0, 0, options);
             entry.error = Some("cannot read file metadata".into());
             slots[i] = Some(entry);
+            control.done.fetch_add(1, Ordering::Relaxed);
             continue;
         };
         let hit = known.get(path.as_path()).filter(|e| {
@@ -403,6 +458,7 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
             Some(entry) => {
                 slots[i] = Some((*entry).clone());
                 cached += 1;
+                control.done.fetch_add(1, Ordering::Relaxed);
             }
             None => todo.push((i, size, modified)),
         }
@@ -421,11 +477,15 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
         for _ in 0..threads {
             scope.spawn(|| {
                 loop {
+                    if control.is_cancelled() {
+                        return;
+                    }
                     let job = next.fetch_add(1, Ordering::Relaxed);
                     let Some(&(slot, size, modified)) = todo.get(job) else {
                         return;
                     };
                     let entry = analyse(&files[slot].0, size, modified, options);
+                    control.done.fetch_add(1, Ordering::Relaxed);
                     results
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -434,7 +494,11 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
             });
         }
     });
-    let analysed = todo.len();
+    let cancelled = control.is_cancelled();
+    let analysed = results
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .len();
     for (slot, entry) in results
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -477,6 +541,7 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
         analysed,
         cached,
         failed,
+        cancelled,
     }
 }
 

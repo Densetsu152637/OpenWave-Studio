@@ -598,3 +598,50 @@ mod preview {
         ));
     }
 }
+
+mod control {
+    use super::*;
+
+    /// A running scan reports its progress, and a scan cancelled before it starts analysing
+    /// returns at once with the files it did not reach left out (and not cached as analysed).
+    #[test]
+    fn progress_counts_files_and_cancel_stops_the_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        make_library(dir.path());
+        let cache = dir.path().join("index.json");
+
+        let watch = ScanControl::new();
+        let full = scan(
+            &[dir.path().to_path_buf()],
+            &ScanOptions {
+                control: Some(watch.clone()),
+                ..options(Some(cache.clone()))
+            },
+        );
+        assert!(!full.cancelled);
+        let files = full.index.entries.len();
+        assert_eq!(watch.progress(), (files, files), "every file counted once");
+        assert_eq!(full.analysed, files);
+
+        let stop = ScanControl::new();
+        stop.cancel();
+        let stopped = scan(
+            &[dir.path().to_path_buf()],
+            &ScanOptions {
+                control: Some(stop.clone()),
+                force: true,
+                ..options(None)
+            },
+        );
+        assert!(stopped.cancelled);
+        assert_eq!(stopped.analysed, 0);
+        assert!(stopped.index.entries.is_empty());
+        assert_eq!(stop.progress().1, files);
+
+        // The cache of the first scan still serves a later one, and `load_index` reads it.
+        let cached = load_index(&cache);
+        assert_eq!(cached.entries.len(), files);
+        let again = scan(&[dir.path().to_path_buf()], &options(Some(cache)));
+        assert_eq!((again.analysed, again.cached), (0, files));
+    }
+}
