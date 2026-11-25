@@ -72,6 +72,8 @@ export interface ShortcutAction {
   id: string;
   label: string;
   default: string;
+  /** Not remappable: the feature reads this key directly. */
+  fixed?: boolean;
 }
 
 /** Actions that exist today (the arrangement ones are handled by the arrangement view). */
@@ -88,6 +90,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     id,
     label,
     default: accelerator,
+    fixed: true,
   })),
 ];
 

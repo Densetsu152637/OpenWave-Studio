@@ -106,12 +106,14 @@
       M
     </button>
     {#if !master && onMoveUp && onMoveDown}
-      <button type="button" class="move" title="Move bus up" aria-label="Move bus up" disabled={!canMoveUp} onclick={onMoveUp}>
-        &#9650;
-      </button>
-      <button type="button" class="move" title="Move bus down" aria-label="Move bus down" disabled={!canMoveDown} onclick={onMoveDown}>
-        &#9660;
-      </button>
+      <span class="move-col">
+        <button type="button" class="move" title="Move bus up" aria-label="Move bus up" disabled={!canMoveUp} onclick={onMoveUp}>
+          &#9650;
+        </button>
+        <button type="button" class="move" title="Move bus down" aria-label="Move bus down" disabled={!canMoveDown} onclick={onMoveDown}>
+          &#9660;
+        </button>
+      </span>
     {/if}
     {#if !master}
       <button type="button" class="delete" title="Delete bus" aria-label="Delete bus" onclick={onDelete}>
@@ -173,8 +175,14 @@
     background: var(--accent);
     color: var(--bg);
   }
+  .move-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
   .move {
-    padding: 1px 3px;
-    font-size: 9px;
+    padding: 0 3px;
+    font-size: 7px;
+    line-height: 9px;
   }
 </style>

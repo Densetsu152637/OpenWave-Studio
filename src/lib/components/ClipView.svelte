@@ -44,9 +44,12 @@
   let canvas = $state<HTMLCanvasElement>();
   let peaks = $state.raw<PeakBins | null>(null);
 
+  // Plain numbers, so scrolling (a new `view` object each frame) only re-runs what really changed.
+  const pxPerBeat = $derived(view.pxPerBeat);
   const left = $derived(beatToX(view, displayStart));
-  const boxWidth = $derived(clip.length * view.pxPerBeat);
+  const boxWidth = $derived(clip.length * pxPerBeat);
   const span = $derived(clipVisibleSpan(view, clip, width));
+  const spanLeft = $derived(span ? span.left : 0);
   const drawWidth = $derived(span ? Math.ceil(span.right - span.left) : 0);
   const request = $derived(
     media && span && !missing
@@ -102,8 +105,8 @@
       // A MIDI clip shows its notes as plain bars; the part of the clip left of the window is
       // not drawn, so bars shift by the window's left edge.
       context.fillStyle = getComputedStyle(target).color;
-      const left = span?.left ?? 0;
-      for (const bar of noteBars(clip.content.notes, view.pxPerBeat, height)) {
+      const left = spanLeft;
+      for (const bar of noteBars(clip.content.notes, pxPerBeat, height)) {
         context.fillRect(
           (bar.x - left) * ratio,
           bar.y * ratio,
@@ -143,7 +146,7 @@
   {#if span}
     <canvas
       bind:this={canvas}
-      style:left="{span.left}px"
+      style:left="{spanLeft}px"
       style:width="{drawWidth}px"
       style:height="{height}px"
     ></canvas>

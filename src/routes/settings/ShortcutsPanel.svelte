@@ -44,7 +44,9 @@
         <tr>
           <td>{action.label}</td>
           <td>
-            {#if capturing === action.id}
+            {#if action.fixed}
+              <kbd>{accelerator}</kbd> <span class="hint">fixed</span>
+            {:else if capturing === action.id}
               <!-- svelte-ignore a11y_autofocus -->
               <button
                 type="button"
@@ -65,10 +67,12 @@
             {/if}
           </td>
           <td class="actions">
-            <button type="button" onclick={() => set(action, "")} disabled={accelerator === ""}>Clear</button>
-            <button type="button" onclick={() => set(action, action.default)} disabled={accelerator === action.default}>
-              Reset
-            </button>
+            {#if !action.fixed}
+              <button type="button" onclick={() => set(action, "")} disabled={accelerator === ""}>Clear</button>
+              <button type="button" onclick={() => set(action, action.default)} disabled={accelerator === action.default}>
+                Reset
+              </button>
+            {/if}
           </td>
         </tr>
       {/each}

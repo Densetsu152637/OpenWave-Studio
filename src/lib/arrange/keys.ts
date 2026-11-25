@@ -42,9 +42,12 @@ export const ARRANGE_SHORTCUTS: readonly {
 /**
  * The arrangement action for a key press, or null. Ctrl/Cmd+A is the only chord; the rest need no
  * Ctrl, Cmd or Alt, so they never shadow the app's own shortcuts. Callers ignore presses while
- * focus is in a text field.
+ * focus is in a text field. `rollOpen` (the piano roll is showing) turns Delete and Backspace off.
  */
-export function arrangeKeyAction(event: KeyLike): ArrangeKeyAction | null {
+export function arrangeKeyAction(
+  event: KeyLike,
+  context: { rollOpen?: boolean } = {},
+): ArrangeKeyAction | null {
   if (event.ctrlKey || event.metaKey) {
     return !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a"
       ? "select-all"
@@ -69,7 +72,8 @@ export function arrangeKeyAction(event: KeyLike): ArrangeKeyAction | null {
       return "deselect";
     case "Delete":
     case "Backspace":
-      return "delete-selection";
+      // With the piano roll open these keys belong to it: they must never delete its clip.
+      return context.rollOpen ? null : "delete-selection";
     default:
       return null;
   }

@@ -69,6 +69,45 @@ export function dragClipStart(
   return snapBeat(originStart + dx / view.pxPerBeat, resolution, signatures, bypass);
 }
 
+/** Rows beyond the viewport that stay rendered, so a fast scroll never shows a gap. */
+export const ROW_OVERSCAN = 3;
+
+/**
+ * The rows `[first, last)` that intersect a viewport showing `[scrollTop, scrollTop + viewport)`
+ * of a list of `count` rows each `rowHeight` tall, widened by `overscan` rows each way.
+ * `scrollTop` is measured from the top of the first row (negative while a header covers it).
+ */
+export function visibleRows(
+  scrollTop: number,
+  viewport: number,
+  rowHeight: number,
+  count: number,
+  overscan = ROW_OVERSCAN,
+): { first: number; last: number } {
+  const first = Math.min(count, Math.max(0, Math.floor(scrollTop / rowHeight) - overscan));
+  const last = Math.min(count, Math.max(first, Math.ceil((scrollTop + viewport) / rowHeight) + overscan));
+  return { first, last };
+}
+
+/**
+ * The clips that overlap the beats shown in a lane `width` pixels wide, plus any in `keep` (for
+ * example selected clips, which stay mounted while they are dragged). Keeps the input order and
+ * returns the input itself when nothing is left out.
+ */
+export function visibleClips<T extends Pick<Clip, "id" | "start" | "length">>(
+  clips: readonly T[],
+  view: View,
+  width: number,
+  keep?: ReadonlySet<number>,
+): readonly T[] {
+  const from = view.originBeat;
+  const to = xToBeat(view, width);
+  const shown = clips.filter(
+    (clip) => (clip.start < to && clip.start + clip.length > from) || keep?.has(clip.id),
+  );
+  return shown.length === clips.length ? clips : shown;
+}
+
 /** Where the last clip ends, in beats (0 for an empty project). */
 export function projectEndBeat(clips: Iterable<Pick<Clip, "start" | "length">>): number {
   let end = 0;

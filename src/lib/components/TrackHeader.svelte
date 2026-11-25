@@ -92,12 +92,14 @@
       onblur={commitName}
       onkeydown={onNameKey}
     />
-    <button type="button" class="move" title="Move track up" aria-label="Move track up" disabled={!canMoveUp} onclick={onMoveUp}>
-      &#9650;
-    </button>
-    <button type="button" class="move" title="Move track down" aria-label="Move track down" disabled={!canMoveDown} onclick={onMoveDown}>
-      &#9660;
-    </button>
+    <span class="move-col">
+      <button type="button" class="move" title="Move track up" aria-label="Move track up" disabled={!canMoveUp} onclick={onMoveUp}>
+        &#9650;
+      </button>
+      <button type="button" class="move" title="Move track down" aria-label="Move track down" disabled={!canMoveDown} onclick={onMoveDown}>
+        &#9660;
+      </button>
+    </span>
     {#if track.kind === "audio"}
       <button
         type="button"
@@ -181,9 +183,21 @@
   .delete {
     padding: 1px 6px;
   }
+  .move-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
   .move {
-    padding: 1px 3px;
-    font-size: 9px;
+    padding: 0 3px;
+    font-size: 7px;
+    line-height: 9px;
+  }
+  .mute,
+  .solo,
+  .arm,
+  .delete {
+    padding: 1px 4px;
   }
   .arm.on {
     background: var(--danger);

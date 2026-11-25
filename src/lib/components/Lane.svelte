@@ -15,7 +15,7 @@
     height,
     tempo,
     selection,
-    dragShift,
+    moving,
     onSelectTrack,
     onPress,
     onRelease,
@@ -32,8 +32,8 @@
     height: number;
     tempo: TempoMap;
     selection: ClipSelection;
-    /** Beats the selected clips are shown moved by while a drag is running. */
-    dragShift: number;
+    /** Where clips are shown while they are dragged (and until the move lands), by id. */
+    moving: ReadonlyMap<number, number> | null;
     onSelectTrack: () => void;
     /** Pointer down on a clip; `additive` is Shift or Ctrl/Cmd. */
     onPress: (clip: Clip, additive: boolean) => void;
@@ -101,7 +101,7 @@
       {tempo}
       selected={selection.has(clip.id)}
       missing={clip.content.type === "audio" && missing.has(clip.content.media)}
-      displayStart={selection.has(clip.id) ? clip.start + dragShift : clip.start}
+      displayStart={moving?.get(clip.id) ?? clip.start}
       onpointerdown={(event) => press(event, clip)}
       ondblclick={() => onOpenClip(clip)}
     />

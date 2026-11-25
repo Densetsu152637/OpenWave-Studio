@@ -86,6 +86,8 @@
     beatToX,
     projectEndBeat,
     rulerMarks,
+    visibleClips,
+    visibleRows,
     scrollBy,
     xToBeat,
     zoomAt,
@@ -136,7 +138,12 @@
   let selectedBus = $state<number | "master" | null>(null);
   let selection = $state.raw<ClipSelection>(NO_SELECTION);
   /** Beats the selected clips are shown moved by while they are dragged. */
-  let dragShift = $state(0);
+  let moving = $state.raw<ReadonlyMap<number, number> | null>(null);
+  /** The pointer travel's beat shift of the drag running now. */
+  let dragShift = 0;
+  /** Scroll position and height of the track area, for rendering only the tracks in view. */
+  let scrollTop = $state(0);
+  let scrollHeight = $state(600);
   let snap = $state<SnapResolution>(DEFAULT_SNAP);
   let rulerMode = $state<"bars" | "time">("bars");
   /** The marker being renamed, and the name typed so far. */
@@ -156,6 +163,14 @@
   const signatures = $derived(new SignatureMap(project?.time_signature_map ?? []));
   const trackIds = $derived(tracks.map((t) => t.id));
   const busIds = $derived(buses.map((b) => b.id));
+  // Only the tracks in (or near) the viewport are rendered; spacers keep the scroll height.
+  const firstRow = $derived(
+    visibleRows(scrollTop - RULER_PX - MARKER_PX - 2, scrollHeight, LANE_PX, tracks.length).first,
+  );
+  const lastRow = $derived(
+    visibleRows(scrollTop - RULER_PX - MARKER_PX - 2, scrollHeight, LANE_PX, tracks.length).last,
+  );
+  const visibleTracks = $derived(tracks.slice(firstRow, lastRow));
   const marks = $derived(rulerMarks(view, width, signatures));
   const clockMarks = $derived(rulerMode === "time" ? timeMarks(view, width, tempo) : []);
   const markers = $derived(
@@ -255,7 +270,7 @@
   function onKey(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
     if (target?.closest("input, textarea, select, [contenteditable]")) return;
-    const action = arrangeKeyAction(event);
+    const action = arrangeKeyAction(event, { rollOpen: rollClip !== undefined });
     if (!action || !project) return;
     switch (action) {
       case "locate-start":
@@ -347,12 +362,18 @@
   function onDragClip(clip: Clip, dx: number, alt: boolean) {
     const minStart = Math.min(...selectedClips.map((c) => c.start));
     dragShift = dragDelta(clip.start, minStart, dx, view, signatures, snap, alt);
+    moving = new Map(selectedClips.map((c) => [c.id, c.start + dragShift]));
   }
 
   function onDragEnd(commit: boolean) {
     const delta = dragShift;
     dragShift = 0;
-    if (commit && delta !== 0) void run(() => moveClips(commandsApi, selectedClips, delta));
+    if (!commit || delta === 0) {
+      moving = null;
+      return;
+    }
+    // The clips stay where they were dropped until the move has landed, so they never jump back.
+    void run(() => moveClips(commandsApi, selectedClips, delta)).finally(() => (moving = null));
   }
 
   const addAudioTrack = () =>
@@ -562,7 +583,13 @@
     <p class="empty">No project loaded.</p>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="scroller" bind:this={scroller} onwheel={onWheel}>
+    <div
+      class="scroller"
+      bind:this={scroller}
+      bind:clientHeight={scrollHeight}
+      onwheel={onWheel}
+      onscroll={() => (scrollTop = scroller?.scrollTop ?? 0)}
+    >
       <div class="content">
         <div class="ruler-block">
           <div class="row ruler-row" style:height="{RULER_PX}px">
@@ -625,7 +652,10 @@
           </div>
         </div>
 
-        {#each tracks as track (track.id)}
+        {#if firstRow > 0}
+          <div style:height="{firstRow * LANE_PX}px" aria-hidden="true"></div>
+        {/if}
+        {#each visibleTracks as track (track.id)}
           <div class="row">
             <div class="head" style:width="{HEADER_PX}px">
               <TrackHeader
@@ -654,7 +684,7 @@
             <div class="lane-cell">
               <Lane
                 {track}
-                clips={clipsByTrack.get(track.id) ?? []}
+                clips={visibleClips(clipsByTrack.get(track.id) ?? [], view, width, liveSelection)}
                 media={project.media_pool}
                 {missing}
                 {view}
@@ -662,7 +692,7 @@
                 height={LANE_PX}
                 {tempo}
                 selection={liveSelection}
-                {dragShift}
+                {moving}
                 onSelectTrack={() => selectTrack(track.id)}
                 onPress={(clip, additive) => onPressClip(track, clip, additive)}
                 onRelease={onReleaseClip}
@@ -673,6 +703,9 @@
             </div>
           </div>
         {/each}
+        {#if tracks.length > lastRow}
+          <div style:height="{(tracks.length - lastRow) * LANE_PX}px" aria-hidden="true"></div>
+        {/if}
 
         {#each buses as bus (bus.id)}
           <div class="row">

@@ -29,7 +29,7 @@
   }
 </script>
 
-<svelte:window onpointerdown={outside} onkeydown={keydown} />
+<svelte:window onpointerdown={outside} onkeydowncapture={keydown} />
 
 <span class="picker" bind:this={root}>
   <button

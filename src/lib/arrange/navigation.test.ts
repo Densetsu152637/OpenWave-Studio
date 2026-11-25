@@ -27,7 +27,16 @@ import {
 } from "./selection";
 import { dragDelta, snapBeat } from "./snap";
 import { SignatureMap, TempoMap } from "./time";
-import { MAX_PX_PER_BEAT, MIN_PX_PER_BEAT, dragClipStart, projectEndBeat, zoomAt } from "./view";
+import {
+  MAX_PX_PER_BEAT,
+  MIN_PX_PER_BEAT,
+  dragClipStart,
+  projectEndBeat,
+  visibleClips,
+  visibleRows,
+  zoomAt,
+} from "./view";
+import { SHORTCUT_ACTIONS } from "../prefs";
 import { percentile, pingPong, runScrollBenchmark, summarizeFrames } from "../perf/scroll";
 
 const common = new SignatureMap([{ bar: 0, numerator: 4, denominator: 4 }]);
@@ -333,5 +342,54 @@ describe("scroll benchmark", () => {
     expect(pingPong(0, 100, 1000)).toBe(0);
     expect(pingPong(500, 100, 1000)).toBe(100);
     expect(pingPong(1000, 100, 1000)).toBe(0);
+  });
+});
+
+describe("virtualization", () => {
+  it("renders only the rows in the viewport plus the overscan", () => {
+    expect(visibleRows(0, 600, 88, 100, 0)).toEqual({ first: 0, last: 7 });
+    expect(visibleRows(0, 600, 88, 100)).toEqual({ first: 0, last: 10 });
+    expect(visibleRows(8800 - 300, 600, 88, 100, 2)).toEqual({ first: 94, last: 100 });
+    expect(visibleRows(880, 600, 88, 100, 1)).toEqual({ first: 9, last: 18 });
+  });
+
+  it("copes with short lists, negative offsets and empty lists", () => {
+    expect(visibleRows(-50, 600, 88, 3)).toEqual({ first: 0, last: 3 });
+    expect(visibleRows(0, 600, 88, 0)).toEqual({ first: 0, last: 0 });
+    expect(visibleRows(1e6, 600, 88, 5)).toEqual({ first: 5, last: 5 });
+  });
+
+  it("keeps clips that overlap the visible beats, and the ones asked for", () => {
+    const clips = [clipAt(1, 0), clipAt(2, 50), clipAt(3, 100), clipAt(4, 200)];
+    // 10 px per beat, 300 px wide, from beat 48: beats 48 to 78.
+    const shown = visibleClips(clips, { originBeat: 48, pxPerBeat: 10 }, 300);
+    expect(shown.map((c) => c.id)).toEqual([2]);
+    // Clip 1 ends at beat 4; clip 3 starts at 100.
+    expect(visibleClips(clips, { originBeat: 48, pxPerBeat: 10 }, 300, new Set([4])).map((c) => c.id)).toEqual([2, 4]);
+    expect(visibleClips(clips, { originBeat: 0, pxPerBeat: 10 }, 5000)).toBe(clips);
+  });
+
+  it("drops a clip that ends exactly at the left edge", () => {
+    expect(visibleClips([clipAt(1, 0)], { originBeat: 4, pxPerBeat: 10 }, 300)).toEqual([]);
+  });
+});
+
+describe("piano roll and fixed shortcuts", () => {
+  const press = (key: string) =>
+    arrangeKeyAction(
+      { key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false },
+      { rollOpen: true },
+    );
+
+  it("never deletes clips while the piano roll is open", () => {
+    expect(press("Delete")).toBeNull();
+    expect(press("Backspace")).toBeNull();
+    expect(press("Escape")).toBe("deselect");
+  });
+
+  it("lists the arrangement shortcuts as fixed in settings", () => {
+    const listed = SHORTCUT_ACTIONS.filter((a) => a.id.startsWith("arrange."));
+    expect(listed.length).toBe(8);
+    expect(listed.every((a) => a.fixed)).toBe(true);
   });
 });
