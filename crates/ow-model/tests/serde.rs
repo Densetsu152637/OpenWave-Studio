@@ -470,3 +470,152 @@ fn serde_current_version_has_a_golden_file() {
         from_json(&std::fs::read(golden_path(version)).unwrap()).unwrap();
     }
 }
+
+/// An arrangement edited the way stage 13 edits it (trims, a split, fades, clip gain and mute,
+/// a split MIDI clip) saves and reloads identically.
+#[test]
+fn serde_edited_arrangement_round_trips() {
+    let mut ed = Editor::new(Project::new("Edited"));
+    let media: MediaId = ed.alloc_id().unwrap();
+    ed.apply(EditCommand::AddMedia {
+        item: MediaItem {
+            id: media,
+            name: "Loop".into(),
+            path: "audio/loop.wav".into(),
+            hash: "abc123".into(),
+            sample_rate: 44_100,
+            channels: 2,
+            frames: 441_000,
+        },
+    })
+    .unwrap();
+    let track = |ed: &mut Editor, kind: TrackKind| -> TrackId {
+        let id: TrackId = ed.alloc_id().unwrap();
+        ed.apply(EditCommand::InsertTrack {
+            index: ed.project().tracks.len(),
+            bundle: Box::new(Owned::new(Track {
+                id,
+                name: "t".into(),
+                color: 0x4aa3ff,
+                kind,
+                strip: Strip::default(),
+                instrument: None,
+            })),
+        })
+        .unwrap();
+        id
+    };
+    let audio_track = track(&mut ed, TrackKind::Audio);
+    let midi_track = track(&mut ed, TrackKind::Midi);
+    let audio = |id: ClipId, start: f64, length: f64, offset: u64| Clip {
+        id,
+        track: audio_track,
+        name: "loop".into(),
+        start,
+        length,
+        muted: false,
+        content: ClipContent::Audio {
+            media,
+            source_offset: offset,
+            gain_db: 0.0,
+            fade_in: 0.0,
+            fade_out: 0.0,
+        },
+    };
+    let whole: ClipId = ed.alloc_id().unwrap();
+    ed.apply(EditCommand::AddClip {
+        clip: Box::new(audio(whole, 4.0, 16.0, 0)),
+    })
+    .unwrap();
+    // Left trim by 2 beats (1 s at 120 BPM = 44100 frames), right trim by 2 beats, fades,
+    // gain and mute, as ReplaceClip commands.
+    let mut trimmed = audio(whole, 6.0, 12.0, 44_100);
+    if let ClipContent::Audio {
+        gain_db,
+        fade_in,
+        fade_out,
+        ..
+    } = &mut trimmed.content
+    {
+        *gain_db = -6.5;
+        *fade_in = 1.25;
+        *fade_out = 0.5;
+    }
+    ed.apply(EditCommand::ReplaceClip {
+        clip: Box::new(trimmed.clone()),
+    })
+    .unwrap();
+    // Split at beat 12: the left part keeps the id, the right part gets a fresh one.
+    let right: ClipId = ed.alloc_id().unwrap();
+    let mut left = trimmed.clone();
+    left.length = 6.0;
+    if let ClipContent::Audio { fade_out, .. } = &mut left.content {
+        *fade_out = 0.0;
+    }
+    let mut second = audio(right, 12.0, 6.0, 44_100 + 6 * 22_050);
+    second.muted = true;
+    if let ClipContent::Audio {
+        gain_db, fade_out, ..
+    } = &mut second.content
+    {
+        *gain_db = -6.5;
+        *fade_out = 0.5;
+    }
+    ed.apply(EditCommand::ReplaceClip {
+        clip: Box::new(left),
+    })
+    .unwrap();
+    ed.apply(EditCommand::AddClip {
+        clip: Box::new(second),
+    })
+    .unwrap();
+    // A MIDI clip split at beat 2: notes after the split move to the right clip, rebased.
+    let note = |start, key| Note {
+        start,
+        length: 1.0,
+        key,
+        velocity: 100,
+    };
+    let midi = |id: ClipId, start: f64, length: f64, notes: Vec<Note>| Clip {
+        id,
+        track: midi_track,
+        name: "riff".into(),
+        start,
+        length,
+        muted: false,
+        content: ClipContent::Midi {
+            notes,
+            controllers: vec![],
+        },
+    };
+    let riff: ClipId = ed.alloc_id().unwrap();
+    ed.apply(EditCommand::AddClip {
+        clip: Box::new(midi(riff, 0.0, 4.0, vec![note(0.0, 60), note(2.5, 64)])),
+    })
+    .unwrap();
+    let riff_right: ClipId = ed.alloc_id().unwrap();
+    ed.apply(EditCommand::ReplaceClip {
+        clip: Box::new(midi(riff, 0.0, 2.0, vec![note(0.0, 60)])),
+    })
+    .unwrap();
+    ed.apply(EditCommand::AddClip {
+        clip: Box::new(midi(riff_right, 2.0, 2.0, vec![note(0.5, 64)])),
+    })
+    .unwrap();
+
+    let project = ed.project().clone();
+    let bytes = to_json(&project).unwrap();
+    let loaded = from_json(&bytes).unwrap();
+    assert_eq!(loaded, project);
+    // Writing the loaded project again is byte-identical.
+    assert_eq!(to_json(&loaded).unwrap(), bytes);
+    assert_eq!(loaded.clips.len(), 4);
+    let clip = &loaded.clips[&right];
+    assert!(clip.muted);
+    assert_eq!(clip.start, 12.0);
+    assert!(matches!(
+        clip.content,
+        ClipContent::Audio { source_offset: 176_400, gain_db, fade_out, .. }
+            if gain_db == -6.5 && fade_out == 0.5
+    ));
+}

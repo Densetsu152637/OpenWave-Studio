@@ -309,8 +309,8 @@ describe("keyboard shortcuts", () => {
   });
 
   it("lists every action once for the settings panel", () => {
-    expect(new Set(ARRANGE_SHORTCUTS.map((s) => s.action)).size).toBe(8);
-    expect(new Set(ARRANGE_SHORTCUTS.map((s) => s.id)).size).toBe(8);
+    expect(new Set(ARRANGE_SHORTCUTS.map((s) => s.action)).size).toBe(11);
+    expect(new Set(ARRANGE_SHORTCUTS.map((s) => s.id)).size).toBe(11);
   });
 });
 
@@ -389,7 +389,7 @@ describe("piano roll and fixed shortcuts", () => {
 
   it("lists the arrangement shortcuts as fixed in settings", () => {
     const listed = SHORTCUT_ACTIONS.filter((a) => a.id.startsWith("arrange."));
-    expect(listed.length).toBe(8);
+    expect(listed.length).toBe(11);
     expect(listed.every((a) => a.fixed)).toBe(true);
   });
 });

@@ -4,6 +4,7 @@
   import { beatToX, clipVisibleSpan, type View } from "../arrange/view";
   import type { TempoMap } from "../arrange/time";
   import { peaksRange, tauriTransport, type PeakBins } from "../ipc";
+  import type { AdjustMode } from "../arrange/clips/edit";
   import type { Clip, MediaItem } from "../ipc/types";
 
   let {
@@ -19,6 +20,7 @@
     displayStart,
     onpointerdown,
     ondblclick,
+    onhandle,
   }: {
     clip: Clip;
     media: MediaItem | undefined;
@@ -35,6 +37,8 @@
     onpointerdown: (event: PointerEvent) => void;
     /** Double-click: opens a MIDI clip in the piano roll. */
     ondblclick?: (event: MouseEvent) => void;
+    /** Pointer down on a trim edge or fade handle. */
+    onhandle: (event: PointerEvent, mode: AdjustMode) => void;
   } = $props();
 
   /** Pause between asking again for peaks that are still being built. */
@@ -48,6 +52,10 @@
   const pxPerBeat = $derived(view.pxPerBeat);
   const left = $derived(beatToX(view, displayStart));
   const boxWidth = $derived(clip.length * pxPerBeat);
+  // Fades (audio clips) in pixels; plain numbers, so a scroll changes nothing here.
+  const fadeInPx = $derived(clip.content.type === "audio" ? clip.content.fade_in * pxPerBeat : 0);
+  const fadeOutPx = $derived(clip.content.type === "audio" ? clip.content.fade_out * pxPerBeat : 0);
+  const gainDb = $derived(clip.content.type === "audio" ? clip.content.gain_db : 0);
   const span = $derived(clipVisibleSpan(view, clip, width));
   const spanLeft = $derived(span ? span.left : 0);
   const drawWidth = $derived(span ? Math.ceil(span.right - span.left) : 0);
@@ -151,7 +159,36 @@
       style:height="{height}px"
     ></canvas>
   {/if}
-  <span class="name">{clip.name}{missing ? " (media missing)" : ""}</span>
+  {#if clip.content.type === "audio"}
+    {#if fadeInPx > 0}
+      <svg class="ramp in" style:width="{fadeInPx}px" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+        <polygon points="0,0 1,0 0,1" />
+      </svg>
+    {/if}
+    {#if fadeOutPx > 0}
+      <svg class="ramp out" style:width="{fadeOutPx}px" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true">
+        <polygon points="0,0 1,0 1,1" />
+      </svg>
+    {/if}
+    <div
+      class="fade-handle"
+      style:left="{fadeInPx}px"
+      title="Fade in (drag)"
+      role="presentation"
+      onpointerdown={(event) => onhandle(event, "fade-in")}
+    ></div>
+    <div
+      class="fade-handle"
+      style:right="{fadeOutPx}px"
+      title="Fade out (drag)"
+      role="presentation"
+      onpointerdown={(event) => onhandle(event, "fade-out")}
+    ></div>
+  {/if}
+  <div class="edge left" title="Trim start (drag)" role="presentation" onpointerdown={(event) => onhandle(event, "trim-left")}></div>
+  <div class="edge right" title="Trim end (drag)" role="presentation" onpointerdown={(event) => onhandle(event, "trim-right")}></div>
+  <span class="name">{clip.name}{missing ? " (media missing)" : ""}{clip.muted ? " (muted)" : ""}</span>
+  {#if gainDb !== 0}<span class="gain">{gainDb > 0 ? "+" : ""}{gainDb.toFixed(1)} dB</span>{/if}
 </div>
 
 <style>
@@ -183,6 +220,64 @@
   canvas {
     position: absolute;
     top: 0;
+    pointer-events: none;
+  }
+  .edge {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: min(6px, 30%);
+    cursor: ew-resize;
+  }
+  .edge.left {
+    left: 0;
+  }
+  .edge.right {
+    right: 0;
+  }
+  .edge:hover {
+    background: color-mix(in srgb, var(--track) 55%, transparent);
+  }
+  .ramp {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    fill: color-mix(in srgb, var(--bg) 70%, transparent);
+    pointer-events: none;
+  }
+  .ramp.in {
+    left: 0;
+  }
+  .ramp.out {
+    right: 0;
+  }
+  .fade-handle {
+    position: absolute;
+    top: 0;
+    width: 8px;
+    height: 8px;
+    margin-left: -4px;
+    box-sizing: border-box;
+    background: var(--text);
+    border: 1px solid var(--track);
+    border-radius: 2px;
+    cursor: col-resize;
+    opacity: 0.75;
+    z-index: 1;
+  }
+  .fade-handle[style*="right"] {
+    margin-left: 0;
+    margin-right: -4px;
+  }
+  .fade-handle:hover {
+    opacity: 1;
+  }
+  .gain {
+    position: absolute;
+    bottom: 1px;
+    right: 8px;
+    font-size: 10px;
+    color: var(--text);
     pointer-events: none;
   }
   .name {

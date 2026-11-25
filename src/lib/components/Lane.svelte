@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import ClipView from "./ClipView.svelte";
+  import type { DragMode } from "../arrange/clips/edit";
   import type { ClipSelection } from "../arrange/selection";
   import type { TempoMap } from "../arrange/time";
   import { cssColor, type View } from "../arrange/view";
@@ -17,6 +18,7 @@
     tempo,
     selection,
     moving,
+    preview,
     onSelectTrack,
     onPress,
     onRelease,
@@ -35,13 +37,18 @@
     selection: ClipSelection;
     /** Where clips are shown while they are dragged (and until the move lands), by id. */
     moving: ReadonlyMap<number, number> | null;
+    /** A clip shown trimmed or faded while its handle is dragged (and until the edit lands). */
+    preview: Clip | null;
     onSelectTrack: () => void;
     /** Pointer down on a clip; `additive` is Shift or Ctrl/Cmd. */
     onPress: (clip: Clip, additive: boolean) => void;
     /** Pointer up after a press, whether or not it dragged. */
     onRelease: (clip: Clip, additive: boolean, moved: boolean) => void;
-    /** The pointer travelled `dx` pixels from the press; `alt` bypasses the snap grid. */
-    onDrag: (clip: Clip, dx: number, alt: boolean) => void;
+    /**
+     * The pointer travelled `dx` pixels from the press; `alt` bypasses the snap grid. `mode` is
+     * "move" for the clip body, else the trim edge or fade handle that was grabbed.
+     */
+    onDrag: (clip: Clip, dx: number, alt: boolean, mode: DragMode) => void;
     /** The drag ended; `commit` is false when it was cancelled. */
     onDragEnd: (commit: boolean) => void;
     /** Double-click on a clip. */
@@ -51,7 +58,13 @@
   /** Pointer travel below which a press is a click, not a drag. */
   const DRAG_THRESHOLD_PX = 3;
 
-  let drag: { id: number; startX: number; moved: boolean; additive: boolean } | null = null;
+  let drag: {
+    id: number;
+    startX: number;
+    moved: boolean;
+    additive: boolean;
+    mode: DragMode;
+  } | null = null;
 
   // A lane scrolled out of the rendered rows mid-drag loses its pointer capture: cancel the drag.
   onDestroy(() => {
@@ -59,13 +72,13 @@
     drag = null;
   });
 
-  function press(event: PointerEvent, clip: Clip) {
+  function press(event: PointerEvent, clip: Clip, mode: DragMode = "move") {
     if (event.button !== 0) return;
     event.stopPropagation();
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
     onPress(clip, additive);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    drag = { id: clip.id, startX: event.clientX, moved: false, additive };
+    drag = { id: clip.id, startX: event.clientX, moved: false, additive, mode };
   }
 
   function move(event: PointerEvent) {
@@ -75,7 +88,7 @@
     const clip = clips.find((c) => c.id === drag?.id);
     if (!clip) return;
     drag.moved = true;
-    onDrag(clip, dx, event.altKey);
+    onDrag(clip, dx, event.altKey, drag.mode);
   }
 
   function release(event: PointerEvent) {
@@ -97,7 +110,8 @@
   onpointerup={release}
   onpointercancel={release}
 >
-  {#each clips as clip (clip.id)}
+  {#each clips as stored (stored.id)}
+    {@const clip = preview?.id === stored.id ? preview : stored}
     <ClipView
       {clip}
       media={clip.content.type === "audio" ? media.get(clip.content.media) : undefined}
@@ -109,8 +123,9 @@
       selected={selection.has(clip.id)}
       missing={clip.content.type === "audio" && missing.has(clip.content.media)}
       displayStart={moving?.get(clip.id) ?? clip.start}
-      onpointerdown={(event) => press(event, clip)}
-      ondblclick={() => onOpenClip(clip)}
+      onpointerdown={(event) => press(event, stored)}
+      onhandle={(event, mode) => press(event, stored, mode)}
+      ondblclick={() => onOpenClip(stored)}
     />
   {/each}
 </div>

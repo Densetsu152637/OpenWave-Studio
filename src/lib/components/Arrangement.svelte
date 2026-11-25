@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import { tauriTransport } from "../ipc";
   import Lane from "./Lane.svelte";
   import PianoRoll from "./PianoRoll.svelte";
   import TrackHeader from "./TrackHeader.svelte";
@@ -56,6 +58,20 @@
     setTrackColor,
     setTrackStrip,
   } from "../arrange/edits";
+  import {
+    adjustClip,
+    commitAdjust,
+    dragTarget,
+    duplicateClips,
+    splittable,
+    setClipsGain,
+    splitClips,
+    toggleClipsMuted,
+    MAX_GAIN_DB,
+    MIN_GAIN_DB,
+    type DragMode,
+  } from "../arrange/clips/edit";
+  import { dropTarget, importAudioFiles } from "../arrange/clips/drop";
   import { arrangeKeyAction } from "../arrange/keys";
   import { addMarker, removeMarker, renameMarker } from "../arrange/markers";
   import { timeMarks } from "../arrange/ruler";
@@ -139,6 +155,10 @@
   let selection = $state.raw<ClipSelection>(NO_SELECTION);
   /** Beats the selected clips are shown moved by while they are dragged. */
   let moving = $state.raw<ReadonlyMap<number, number> | null>(null);
+  /** The clip shown trimmed or faded while a handle is dragged, and until the edit lands. */
+  let preview = $state.raw<Clip | null>(null);
+  /** The clip body or handle the drag running now grabbed. */
+  let dragMode: DragMode = "move";
   /** The pointer travel's beat shift of the drag running now. */
   let dragShift = 0;
   let dragging = false;
@@ -301,6 +321,18 @@
       case "deselect":
         if (liveSelection.size > 0) selection = NO_SELECTION;
         break;
+      case "split":
+        event.preventDefault();
+        splitAtPlayhead();
+        break;
+      case "duplicate":
+        event.preventDefault();
+        duplicateSelection();
+        break;
+      case "toggle-mute":
+        event.preventDefault();
+        void muteSelection();
+        break;
       case "delete-selection":
         if (selectedClips.length > 0) {
           event.preventDefault();
@@ -360,7 +392,14 @@
     selection = releaseClip(liveSelection, clip.id, additive, moved);
   }
 
-  function onDragClip(clip: Clip, dx: number, alt: boolean) {
+  function onDragClip(clip: Clip, dx: number, alt: boolean, mode: DragMode) {
+    dragMode = mode;
+    if (mode !== "move") {
+      dragging = true;
+      const target = dragTarget(clip, mode, dx, view, signatures, snap, alt);
+      preview = adjustClip(clip, mode, target, tempo, mediaOf(clip));
+      return;
+    }
     const minStart = Math.min(...selectedClips.map((c) => c.start));
     dragging = true;
     dragShift = dragDelta(clip.start, minStart, dx, view, signatures, snap, alt);
@@ -369,6 +408,20 @@
 
   function onDragEnd(commit: boolean) {
     dragging = false;
+    if (dragMode !== "move") {
+      const adjusted = preview;
+      const mode = dragMode;
+      dragMode = "move";
+      const original = adjusted ? project?.clips.get(adjusted.id) : undefined;
+      if (!commit || !adjusted || !original) {
+        preview = null;
+        return;
+      }
+      void run(() => commitAdjust(commandsApi, original, adjusted, mode)).finally(
+        () => (preview = null),
+      );
+      return;
+    }
     const delta = dragShift;
     dragShift = 0;
     if (!commit || delta === 0) {
@@ -378,6 +431,38 @@
     // The clips stay where they were dropped until the move has landed, so they never jump back.
     void run(() => moveClips(commandsApi, selectedClips, delta)).finally(() => (moving = null));
   }
+
+  const mediaOf = (clip: Clip) =>
+    clip.content.type === "audio" ? project?.media_pool.get(clip.content.media) : undefined;
+  const splitTargets = $derived(splittable(selectedClips, playheadBeat, tempo, mediaOf));
+  const selectedAudio = $derived(selectedClips.filter((c) => c.content.type === "audio"));
+  /** The gain every selected audio clip shares, or null when they differ (or none is selected). */
+  const sharedGain = $derived.by(() => {
+    const first = selectedAudio[0]?.content;
+    if (first?.type !== "audio") return null;
+    return selectedAudio.every(
+      (c) => c.content.type === "audio" && c.content.gain_db === first.gain_db,
+    )
+      ? first.gain_db
+      : null;
+  });
+
+  function splitAtPlayhead() {
+    if (splitTargets.length === 0) return;
+    void run(async () => {
+      const created = await splitClips(commandsApi, selectedClips, playheadBeat, tempo, mediaOf);
+      selection = new Set([...liveSelection, ...created]);
+    });
+  }
+
+  function duplicateSelection() {
+    if (selectedClips.length === 0) return;
+    void run(async () => {
+      selection = new Set(await duplicateClips(commandsApi, selectedClips));
+    });
+  }
+
+  const muteSelection = () => run(() => toggleClipsMuted(commandsApi, selectedClips));
 
   const addAudioTrack = () =>
     run(async () => {
@@ -491,9 +576,21 @@
         .catch(() => {});
     reload();
     const removePerfHook = installPerfHook(benchmarkStep);
+    // Audio files dropped from the OS: import them where they landed.
+    let stopDrop = () => {};
+    let gone = false;
+    if (tauriTransport.available) {
+      getCurrentWebview()
+        .onDragDropEvent((event) => {
+          if (event.payload.type === "drop") {
+            onFilesDropped(event.payload.paths, event.payload.position);
+          }
+        })
+        .then((unlisten) => (gone ? unlisten() : (stopDrop = unlisten)))
+        .catch(() => {});
+    }
     // A plugin scan finished (at startup, or from the settings or an agent): fetch again.
     let stop = () => {};
-    let gone = false;
     watchPlugins(() => {
       resetDescriptors();
       reload();
@@ -501,9 +598,48 @@
     return () => {
       gone = true;
       stop();
+      stopDrop();
       removePerfHook();
     };
   });
+
+  /** Imports dropped audio files at the track and beat under the drop (physical pixels). */
+  function onFilesDropped(paths: string[], position: { x: number; y: number }) {
+    if (!project || !scroller) return;
+    const ratio = window.devicePixelRatio || 1;
+    const rect = scroller.getBoundingClientRect();
+    const target = dropTarget(
+      position.x / ratio,
+      position.y / ratio,
+      {
+        left: rect.left,
+        top: rect.top,
+        scrollTop,
+        headerPx: HEADER_PX,
+        topPx: RULER_PX + MARKER_PX,
+        lanePx: LANE_PX,
+      },
+      view,
+      tracks,
+      signatures,
+      snap,
+    );
+    if (target === null) return;
+    if (target === "midi") {
+      onError("Audio files can only be dropped on audio tracks.");
+      return;
+    }
+    void run(async () => {
+      const result = await importAudioFiles(commandsApi, tempo, paths, {
+        trackId: target.trackId,
+        trackCount: tracks.length,
+        start: target.beat,
+      });
+      if (!result) return;
+      selectedTrack = result.trackId;
+      selection = new Set(result.clipIds);
+    });
+  }
 
   function selectTrack(id: number) {
     if (selectedTrack !== id || selectedBus !== null) selectedDevice = null;
@@ -557,6 +693,49 @@
     <button type="button" onclick={newMidiClip} disabled={!selectedMidiTrack}>New MIDI clip</button>
     <button type="button" onclick={addBusStrip} disabled={!project}>Add bus</button>
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>
+    <button
+      type="button"
+      title="Split the selected clips at the playhead (S)"
+      onclick={splitAtPlayhead}
+      disabled={splitTargets.length === 0}
+    >
+      Split
+    </button>
+    <button
+      type="button"
+      title="Copy the selected clips to just after them (Ctrl/Cmd+D)"
+      onclick={duplicateSelection}
+      disabled={selectedClips.length === 0}
+    >
+      Duplicate
+    </button>
+    <button
+      type="button"
+      title="Mute or unmute the selected clips (0)"
+      onclick={muteSelection}
+      disabled={selectedClips.length === 0}
+    >
+      Mute clip
+    </button>
+    <label class="snap">
+      Clip gain
+      <input
+        type="number"
+        aria-label="Clip gain in dB"
+        title="Gain of the selected audio clips in dB"
+        min={MIN_GAIN_DB}
+        max={MAX_GAIN_DB}
+        step="0.5"
+        value={sharedGain ?? ""}
+        placeholder={selectedAudio.length > 0 ? "mixed" : ""}
+        disabled={selectedAudio.length === 0}
+        onchange={(event) => {
+          const value = event.currentTarget.valueAsNumber;
+          if (Number.isNaN(value)) return;
+          void run(() => setClipsGain(commandsApi, selectedAudio, value));
+        }}
+      />
+    </label>
     <span class="spacer"></span>
     <button
       type="button"
@@ -707,6 +886,7 @@
                 {tempo}
                 selection={liveSelection}
                 {moving}
+                {preview}
                 onSelectTrack={() => selectTrack(track.id)}
                 onPress={(clip, additive) => onPressClip(track, clip, additive)}
                 onRelease={onReleaseClip}
