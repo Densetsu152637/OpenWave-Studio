@@ -46,7 +46,7 @@ The build job asserts `codesign -dv` reports `Signature=adhoc`, that the signatu
 
 Because the app is not notarized, Gatekeeper blocks the first launch of a downloaded copy. Either right-click `OpenWave Studio.app` and choose Open (on newer macOS: Open Anyway in System Settings > Privacy & Security), or run `xattr -dr com.apple.quarantine "/path/to/OpenWave Studio.app"`. Updates installed by the updater are not quarantined, so this is needed once per manual download.
 
-Ad-hoc signing binds the macOS privacy (TCC) microphone grant to the code-directory hash, so each new build may ask for microphone access again.
+Ad-hoc signing binds the macOS privacy (TCC) microphone grant to the code-directory hash, so each new build may ask for microphone access again. Unverified: whether an update installed over an allowed build really prompts again has not been observed on a Mac; the stage 14 manual check (first record press on a clean Mac, then a later update) records it.
 
 ## Verifying a download
 

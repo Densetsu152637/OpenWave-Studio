@@ -333,7 +333,7 @@ tools! {
     ImportAudio(ImportAudioArgs) = "import_audio",
         "Decode an audio file, convert it to the project's sample rate and add it to the media pool. Answers the media id; place it on the timeline by adding an audio clip that references the media id with the edit tool. The same content is not added twice.";
     Record(RecordArgs) = "record",
-        "Record audio: arm or disarm an audio track, start recording on the armed tracks from the current position, stop. The takes become clips when recording stops. Needs an audio input device (see audio_settings).";
+        "Record audio: arm or disarm an audio track, start recording on the armed tracks from the current position, stop. The takes become clips when recording stops. Needs an audio input device (see audio_settings). The project decides how: the settings' loop_range makes every loop pass a take (clips with `take` set; the last pass plays, choose another with the edit set_active_take), punch_enabled with punch_range records only inside the range, and count_in_bars counts in first. A track records the input channels of its `input` (edit set_track_input) and can be heard while it records (edit set_track_monitor).";
     Analyze(AnalyzeArgs) = "analyze",
         "Render the project offline (the master, or one strip after its fader; the whole project or a beat range) and measure it: integrated, short-term maximum and momentary maximum loudness (LUFS, ITU-R BS.1770-4), true peak (dBTP), sample peak, RMS, crest factor, stereo correlation and eight frequency-band energies. Use it to check a mix and to find how far to move the levels.";
     ExportWav(ExportWavArgs) = "export_wav",

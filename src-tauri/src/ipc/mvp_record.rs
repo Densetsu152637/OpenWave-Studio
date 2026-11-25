@@ -305,3 +305,150 @@ fn mvp_record_refuses_to_replace_the_project_and_stopping_keeps_the_take() {
     // Now the project can be replaced.
     state.project_new(&engine).unwrap();
 }
+
+fn set_settings(
+    state: &IpcState,
+    engine: &Engine,
+    change: impl FnOnce(&mut ow_model::ProjectSettings),
+) {
+    let mut settings = lock(&state.control).session().project().settings.clone();
+    change(&mut settings);
+    edit(state, engine, EditCommand::SetSettings { settings });
+}
+
+#[test]
+fn mvp_record_with_a_loop_adds_one_take_per_pass_and_the_last_one_plays() {
+    let work = tempfile::tempdir().unwrap();
+    let engine = engine(2);
+    let state = IpcState::new();
+    let mut ui = Ui::attach(&state);
+    let (_, armed) = project_with_impulse(&state, &engine, work.path());
+    // A loop of an eighth of a beat: 3000 frames, so a pass takes about 62 ms.
+    set_settings(&state, &engine, |settings| {
+        settings.loop_range = Some(ow_model::BeatRange {
+            start: 0.0,
+            end: 0.125,
+        });
+    });
+    state.record_set_arm(armed.0, true).unwrap();
+    state.record_start(&engine).unwrap();
+    // At least four 62 ms passes of real time.
+    std::thread::sleep(Duration::from_millis(400));
+    state.transport_stop(&engine).unwrap();
+
+    let snapshot = ui.sync(&state);
+    let mut takes: Vec<&Clip> = snapshot
+        .project
+        .clips
+        .values()
+        .filter(|clip| clip.track == armed)
+        .collect();
+    takes.sort_by_key(|clip| clip.take.map(|t| t.index));
+    assert!(takes.len() >= 4, "{} takes", takes.len());
+    let group = takes[0].take.expect("a take").group;
+    assert_eq!(
+        group, takes[0].id.0,
+        "the group is named after its first clip"
+    );
+    for (index, clip) in takes.iter().enumerate() {
+        let info = clip.take.expect("every clip is a take");
+        assert_eq!((info.group, info.index), (group, index as u32));
+        assert_eq!(
+            info.active,
+            index + 1 == takes.len(),
+            "only the last pass plays"
+        );
+    }
+    // The model holds that invariant (a second active take would be refused).
+    assert!(
+        edit_result(
+            &state,
+            &engine,
+            EditCommand::ReplaceClip {
+                clip: Box::new(Clip {
+                    take: Some(ow_model::TakeInfo {
+                        group,
+                        index: 0,
+                        active: true,
+                    }),
+                    ..takes[0].clone()
+                }),
+            }
+        )
+        .is_err()
+    );
+
+    // Choosing a take is one edit and one undo step.
+    edit(
+        &state,
+        &engine,
+        EditCommand::SetActiveTake {
+            track: armed,
+            group,
+            index: 1,
+        },
+    );
+    let snapshot = ui.sync(&state);
+    let active: Vec<u32> = snapshot
+        .project
+        .clips
+        .values()
+        .filter_map(|c| c.take.filter(|t| t.active).map(|t| t.index))
+        .collect();
+    assert_eq!(active, [1]);
+    command(&state, &engine, UiCommand::Undo);
+    let snapshot = ui.sync(&state);
+    let active: Vec<u32> = snapshot
+        .project
+        .clips
+        .values()
+        .filter_map(|c| c.take.filter(|t| t.active).map(|t| t.index))
+        .collect();
+    assert_eq!(active.len(), 1);
+    assert_ne!(active, [1]);
+}
+
+#[test]
+fn mvp_record_with_punch_places_the_take_at_punch_in_less_the_latency() {
+    let work = tempfile::tempdir().unwrap();
+    let engine = engine(2);
+    let state = IpcState::new();
+    let mut ui = Ui::attach(&state);
+    let (_, armed) = project_with_impulse(&state, &engine, work.path());
+    let punch_in = IMPULSE_POSITION + LATENCY - 500;
+    let punch_out = IMPULSE_POSITION + LATENCY + 1_500;
+    set_settings(&state, &engine, |settings| {
+        settings.punch_range = Some(ow_model::BeatRange {
+            start: punch_in as f64 / BEAT as f64,
+            end: punch_out as f64 / BEAT as f64,
+        });
+        settings.punch_enabled = true;
+    });
+    state.record_set_arm(armed.0, true).unwrap();
+    assert!(engine.send_transport(TransportCommand::LocateBeats(1.0)));
+    wait_until("the locate", || engine.telemetry_bank().position() == BEAT);
+    state.record_start(&engine).unwrap();
+    wait_until("the punch-out to pass", || {
+        engine.telemetry_bank().position() > punch_out + 2_000
+    });
+    state.transport_stop(&engine).unwrap();
+
+    let snapshot = ui.sync(&state);
+    let take = snapshot
+        .project
+        .clips
+        .values()
+        .find(|clip| clip.track == armed)
+        .expect("a clip on the armed track");
+    assert!(take.take.is_none(), "no loop: a plain take");
+    let start = (take.start * BEAT as f64).round() as u64;
+    assert_eq!(start, punch_in - LATENCY);
+    let length = (take.length * BEAT as f64).round() as u64;
+    assert_eq!(length, punch_out - punch_in);
+}
+
+fn edit_result(state: &IpcState, engine: &Engine, edit: EditCommand) -> Result<(), String> {
+    lock(&state.control)
+        .command(UiCommand::Edit { edit }, engine)
+        .map(|_| ())
+}

@@ -3,4 +3,4 @@
 /**
  * When a track's input is heard through its strip (before the inserts, so effects are heard).
  */
-export type MonitorMode = "Off" | "Auto" | "On";
+export type MonitorMode = "off" | "auto" | "on";

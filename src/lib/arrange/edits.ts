@@ -134,7 +134,7 @@ export function newAudioTrack(id: number, name: string, color: number): Owned<Tr
       },
       instrument: null,
       input: null,
-      monitor: "Off",
+      monitor: "off",
     },
     clips: [],
     devices: [],

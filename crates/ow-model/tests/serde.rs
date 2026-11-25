@@ -56,7 +56,7 @@ fn strip_recording_defaults(value: &mut Value) {
         Value::Object(map) => {
             for (key, default) in [
                 ("input", json!(null)),
-                ("monitor", json!("Off")),
+                ("monitor", json!("off")),
                 ("take", json!(null)),
                 ("punch_range", json!(null)),
                 ("punch_enabled", json!(false)),

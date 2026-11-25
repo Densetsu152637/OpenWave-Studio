@@ -57,6 +57,18 @@ Every tool returns structured content (JSON) and a short text summary. Argument 
 
 The schema of every tool, including the full shape of each edit command, comes with `tools/list`.
 
+### Recording
+
+`record` records audio from the open input device (`audio_settings` lists devices and chooses one). A track must be an audio track and armed (`record` `arm`); `start` records on every armed track from the current position and `stop` ends it, after which each take is a clip on its track (one undo step, "Record"). How a recording runs comes from the project, which `get_project` shows and `edit` changes:
+
+- **Input.** `set_track_input` with `track` and `input` sets the channels a track records: `{"channels": {"mono": 2}}` records input channel 2 (a mono take), `{"channels": {"stereo": 0}}` records the pair 0 and 1; `null` is the default (channel 0 on a one-channel input, channels 0 and 1 on a wider one). Channels count from 0 on the open device; starting a recording with a track routed to channels the device does not have is an error that names the track.
+- **Monitoring.** `set_track_monitor` with `track` and `monitor`: `off`, `auto` (the input is heard while the track is armed) or `on`. The input is played through the track's strip before its inserts, so effects, fader and pan apply. It needs an open input device; changing the mode recompiles the audio graph, arming does not.
+- **Punch.** `set_settings` with `punch_range` (`{"start": 8, "end": 16}`, in beats) and `punch_enabled: true`: only the part of the take inside the range is recorded, and the take starts at punch-in.
+- **Count-in.** `count_in_bars` (0 to 16) in the same settings: the metronome counts in, the transport reports `counting_in`, and nothing is recorded until the start position.
+- **Loop takes.** With `loop_range` set, the transport loops while recording and every pass of the loop is a take of its own (up to 16 per recording; later passes are not recorded and `stop` reports it). The takes of one recording on a track are clips that share `take.group`, with `take.index` counting the passes from 0. Exactly one take of a group is active and plays: the last pass at first. `set_active_take` with `track`, `group` and `index` plays another one and silences the rest (one undo step). Takes are whole clips, so a take is a recording of the loop region and can be moved, trimmed, split or deleted like any clip (a split or duplicate is no longer a take).
+
+The timeline placement already compensates the device's round-trip latency, so a take lines up with what was played. Arming, like transport state, is session state: it is not saved and has no undo step.
+
 ### Third-party plugins
 
 A scanned plugin is a device like any other (see [plugins.md](plugins.md)): `insert_device` with `kind` set to the plugin's `kind` (`clap:com.vendor.plugin`, or `vst3:` and the class id for VST3) adds it as an insert, or as a MIDI track's instrument when the plugin is an instrument; `set_device_param` sets a parameter by the plugin's own parameter id (the ids and ranges come with `get_device_types`). A parameter edit reaches the running plugin without rebuilding the audio graph. The plugin's state is saved in the project file with `project` `save` and restored when it is opened.

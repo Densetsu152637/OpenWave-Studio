@@ -11,15 +11,25 @@
 //! starts at the recording start minus the stream's round-trip latency (see
 //! `ow_engine::record`), converted to beats with the project's tempo map.
 //!
+//! The project decides how a recording runs: each track records the input channels its
+//! `input` names (default: channel 0, or the pair 0 and 1 on a wider device); an enabled punch
+//! range records only inside it; `count_in_bars` counts in (clicks sound, nothing is recorded);
+//! and with a loop range set every pass of the loop becomes a take (at most
+//! `ow_engine::MAX_LOOP_TAKES`; later passes are reported as a problem). The takes of one
+//! track's loop recording are added as clips that share a take group (`Clip::take`); the last
+//! pass is the active take and the others are silent until `SetActiveTake` chooses one.
+//!
 //! Plain methods on [`IpcState`] (testable with a mock backend and no window); the commands at
 //! the end only run them on the blocking pool.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
 
-use ow_engine::{Engine, FinishedTake, Recording, TransportCommand};
+use ow_engine::{
+    Engine, FinishedTake, MAX_LOOP_TAKES, RecordPlan, Recording, TrackTakes, TransportCommand,
+};
 use ow_ipc::{EditCommand, UiCommand};
 use ow_media::import::Imported;
-use ow_model::{Clip, ClipContent, ClipId, TrackId};
+use ow_model::{Clip, ClipContent, ClipId, InputChannels, TakeInfo, TrackId};
 use tauri::{AppHandle, Manager};
 
 use super::control::Control;
@@ -33,6 +43,16 @@ pub(super) struct ActiveRecording {
     recording: Recording,
     dir: tempfile::TempDir,
     epoch: u64,
+    /// The recording loops, so its takes are one take group per track.
+    looped: bool,
+}
+
+/// Where a take sits in its group when it becomes a clip.
+struct TakeSeed {
+    /// The group's id, once the group's first clip has one (that clip's id).
+    group: Option<u64>,
+    index: u32,
+    active: bool,
 }
 
 impl IpcState {
@@ -60,9 +80,26 @@ impl IpcState {
         if slot.is_some() {
             return Err("already recording".into());
         }
-        let (tracks, epoch) = {
+        let (tracks, settings, epoch) = {
             let control = lock(&self.control);
-            (control.armed_audio_tracks(), control.epoch())
+            let project = control.session().project();
+            let armed = control.armed_audio_tracks();
+            let tracks: Vec<(TrackId, Option<(u16, u16)>)> = armed
+                .into_iter()
+                .map(|id| {
+                    let input = project
+                        .tracks
+                        .iter()
+                        .find(|t| t.id == id)
+                        .and_then(|t| t.input)
+                        .map(|input| match input.channels {
+                            InputChannels::Mono(first) => (first, 1),
+                            InputChannels::Stereo(first) => (first, 2),
+                        });
+                    (id, input)
+                })
+                .collect();
+            (tracks, project.settings.clone(), control.epoch())
         };
         if tracks.is_empty() {
             return Err("arm an audio track to record on first".into());
@@ -71,17 +108,34 @@ impl IpcState {
             .prefix("openwave-take-")
             .tempdir()
             .map_err(|error| format!("could not create a folder for the recording: {error}"))?;
-        let takes: Vec<(TrackId, PathBuf)> = tracks
-            .into_iter()
-            .map(|track| (track, dir.path().join(format!("take-{}.wav", track.0))))
-            .collect();
+        let looped = settings.loop_range.is_some();
+        let passes = if looped { MAX_LOOP_TAKES } else { 1 };
+        let plan = RecordPlan {
+            tracks: tracks
+                .into_iter()
+                .map(|(track, input)| TrackTakes {
+                    track,
+                    input,
+                    paths: (0..passes)
+                        .map(|pass| dir.path().join(format!("take-{}-{pass}.wav", track.0)))
+                        .collect(),
+                })
+                .collect(),
+            loop_beats: settings.loop_range.map(|range| (range.start, range.end)),
+            punch_beats: settings
+                .punch_range
+                .filter(|_| settings.punch_enabled)
+                .map(|range| (range.start, range.end)),
+            count_in_bars: u32::from(settings.count_in_bars),
+        };
         let recording = engine
-            .start_recording(&takes)
+            .start_recording_plan(&plan)
             .map_err(|error| error.to_string())?;
         *slot = Some(ActiveRecording {
             recording,
             dir,
             epoch,
+            looped,
         });
         Ok(())
     }
@@ -103,6 +157,7 @@ impl IpcState {
             recording,
             dir,
             epoch,
+            looped,
         } = active;
         let mut problems = Vec::new();
         match engine.stop_recording(recording) {
@@ -122,6 +177,13 @@ impl IpcState {
                         failure.error
                     ));
                 }
+                if stopped.dropped_passes > 0 {
+                    problems.push(format!(
+                        "{} loop pass(es) beyond the {MAX_LOOP_TAKES} takes a recording keeps \
+                         were not recorded",
+                        stopped.dropped_passes
+                    ));
+                }
                 let takes: Vec<FinishedTake> =
                     stopped.takes.into_iter().filter(|t| t.frames > 0).collect();
                 if takes.iter().any(|take| take.dropped_frames > 0) {
@@ -129,7 +191,7 @@ impl IpcState {
                         "the disk could not keep up and part of the recording is missing".into(),
                     );
                 }
-                self.add_takes(takes, epoch, engine, &mut problems);
+                self.add_takes(takes, epoch, looped, engine, &mut problems);
             }
             Err(error) => problems.push(error.to_string()),
         }
@@ -151,6 +213,7 @@ impl IpcState {
         &self,
         takes: Vec<FinishedTake>,
         epoch: u64,
+        looped: bool,
         engine: &Engine,
         problems: &mut Vec<String>,
     ) {
@@ -187,9 +250,30 @@ impl IpcState {
             problems.push(error);
             return;
         }
+        // A loop recording's takes are a group per track: the last pass plays, the others wait.
+        let mut per_track: BTreeMap<TrackId, u32> = BTreeMap::new();
+        for (take, _) in &imported {
+            *per_track.entry(take.track).or_default() += 1;
+        }
+        let mut groups: BTreeMap<TrackId, (Option<u64>, u32)> = BTreeMap::new();
         for (take, file) in &imported {
-            if let Err(error) = self.place_take(&mut control, &root, take, file, engine) {
-                problems.push(error);
+            let seed = looped.then(|| {
+                let (group, index) = groups.entry(take.track).or_insert((None, 0));
+                TakeSeed {
+                    group: *group,
+                    index: *index,
+                    active: *index + 1 == per_track[&take.track],
+                }
+            });
+            match self.place_take(&mut control, &root, take, file, seed, engine) {
+                Ok(clip) => {
+                    if looped {
+                        let (group, index) = groups.entry(take.track).or_insert((None, 0));
+                        group.get_or_insert(clip.0);
+                        *index += 1;
+                    }
+                }
+                Err(error) => problems.push(error),
             }
         }
         // Commit what was added, even when a take failed on the way.
@@ -205,8 +289,9 @@ impl IpcState {
         root: &std::path::Path,
         take: &FinishedTake,
         file: &Imported,
+        seed: Option<TakeSeed>,
         engine: &Engine,
-    ) -> Result<(), String> {
+    ) -> Result<ClipId, String> {
         let Some(track) = control
             .session()
             .project()
@@ -224,13 +309,17 @@ impl IpcState {
         let media = self.register_media(control, root, file, engine)?;
         let reply = control.command(UiCommand::AllocIds { count: 1 }, engine)?;
         let id = *reply.ids.first().ok_or("no clip id was reserved")?;
+        let name = match &seed {
+            Some(seed) => format!("{} take {}", track.name, seed.index + 1),
+            None => format!("{} take", track.name),
+        };
         control.command(
             UiCommand::Edit {
                 edit: EditCommand::AddClip {
                     clip: Box::new(Clip {
                         id: ClipId::from(id),
                         track: track.id,
-                        name: display_name(&format!("{} take", track.name)),
+                        name: display_name(&name),
                         start,
                         length: end - start,
                         muted: false,
@@ -241,13 +330,17 @@ impl IpcState {
                             fade_in: 0.0,
                             fade_out: 0.0,
                         },
-                        take: None,
+                        take: seed.map(|seed| TakeInfo {
+                            group: seed.group.unwrap_or(id),
+                            index: seed.index,
+                            active: seed.active,
+                        }),
                     }),
                 },
             },
             engine,
         )?;
-        Ok(())
+        Ok(ClipId::from(id))
     }
 }
 

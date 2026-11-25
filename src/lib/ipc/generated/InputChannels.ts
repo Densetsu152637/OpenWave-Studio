@@ -3,4 +3,4 @@
 /**
  * One input channel or an adjacent pair.
  */
-export type InputChannels = { "Mono": number } | { "Stereo": number };
+export type InputChannels = { "mono": number } | { "stereo": number };

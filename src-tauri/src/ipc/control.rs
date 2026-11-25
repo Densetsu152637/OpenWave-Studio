@@ -204,7 +204,20 @@ impl Control {
         if let Some(patch) = self.session.set_armed_tracks(next) {
             self.deliver(&patch);
         }
+        self.sync_armed();
         Ok(())
+    }
+
+    /// Mirrors the armed set into the flags the engine's automatic input monitors read, so
+    /// arming starts or stops monitoring at once, without a recompile.
+    fn sync_armed(&self) {
+        let armed: Vec<TrackId> = self
+            .session
+            .armed_tracks()
+            .iter()
+            .map(|id| TrackId(*id))
+            .collect();
+        self.ctx.armed.replace(&armed);
     }
 
     /// The armed tracks that still exist as audio tracks, in project order.
@@ -239,6 +252,7 @@ impl Control {
         if let Some(patch) = self.session.set_armed_tracks(kept) {
             self.deliver(&patch);
         }
+        self.sync_armed();
     }
 
     /// The folder media paths are relative to (empty until the first import of an unsaved
@@ -394,6 +408,7 @@ impl Control {
         target: &dyn PlanTarget,
     ) {
         let patch = self.session.replace_project(project, project_path);
+        self.sync_armed();
         self.epoch += 1;
         self.deliver(&patch);
         self.apply_to_engine(target);
