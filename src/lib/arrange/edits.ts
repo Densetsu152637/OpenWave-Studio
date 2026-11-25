@@ -74,8 +74,39 @@ export async function moveClip(api: ArrangeApi, clip: Clip, start: number): Prom
   return true;
 }
 
+/**
+ * Moves clips by the same `delta` beats: one `ReplaceClip` each, all inside one transaction (one
+ * undo step). A clip never starts before beat 0. Resolves false when nothing moved.
+ */
+export async function moveClips(
+  api: ArrangeApi,
+  clips: readonly Clip[],
+  delta: number,
+): Promise<boolean> {
+  const moves = clips
+    .map((clip) => ({ clip, start: Math.max(0, clip.start + delta) }))
+    .filter(({ clip, start }) => start !== clip.start);
+  if (moves.length === 0) return false;
+  await inTransaction(api, moves.length === 1 ? "Move clip" : "Move clips", async () => {
+    for (const { clip, start } of moves) await api.edit(moveClipCommand(clip, start));
+  });
+  return true;
+}
+
 export const deleteClip = (api: ArrangeApi, clip: Pick<Clip, "id">) =>
   api.edit({ command: "remove_clip", id: clip.id });
+
+/** Deletes clips: one `RemoveClip` each inside one transaction (one undo step). */
+export async function deleteClips(api: ArrangeApi, clips: readonly Pick<Clip, "id">[]): Promise<void> {
+  if (clips.length === 0) return;
+  if (clips.length === 1) {
+    await inTransaction(api, "Delete clip", () => deleteClip(api, clips[0]!));
+    return;
+  }
+  await inTransaction(api, "Delete clips", async () => {
+    for (const clip of clips) await deleteClip(api, clip);
+  });
+}
 
 /** Colors new tracks cycle through (0xRRGGBB). */
 export const TRACK_COLORS = [0x4aa3ff, 0xff9f43, 0x5fd38d, 0xe56bd1, 0xf2cf4b, 0x8f7bff];
@@ -136,6 +167,27 @@ export async function renameTrack(api: ArrangeApi, track: Track, name: string): 
   });
   return true;
 }
+
+/** Recolors a track (`0xRRGGBB`); false (and nothing sent) when it already has that color. */
+export async function setTrackColor(api: ArrangeApi, track: Track, color: number): Promise<boolean> {
+  if (color === track.color) return false;
+  await api.edit({ command: "set_info", target: { track: track.id }, name: track.name, color });
+  return true;
+}
+
+/**
+ * The index an item `by` places up (negative) or down (positive) the list moves to, or null at
+ * the ends of the list or when it is not in it.
+ */
+export function reorderTarget(ids: readonly number[], id: number, by: number): number | null {
+  const from = ids.indexOf(id);
+  const to = from + by;
+  return from < 0 || to < 0 || to >= ids.length ? null : to;
+}
+
+/** Moves a track to index `to` (one `MoveTrack`, one undo step). */
+export const moveTrack = (api: ArrangeApi, id: number, to: number) =>
+  api.edit({ command: "move_track", id, to });
 
 /** Changes a track's mute, solo, pan or fader gain (dB); the rest of its strip settings stay. */
 export async function setTrackStrip(

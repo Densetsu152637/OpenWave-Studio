@@ -1,4 +1,5 @@
 import type { Clip } from "../ipc/types";
+import { snapBeat, type SnapResolution } from "./snap";
 import type { SignatureMap } from "./time";
 
 /** The horizontal window onto the timeline. */
@@ -54,16 +55,25 @@ export function clipVisibleSpan(
 }
 
 /**
- * The start a dragged clip takes: its start plus the pointer travel of `dx` pixels, snapped to the
- * nearest bar and never before the timeline's start.
+ * The start a dragged clip takes: its start plus the pointer travel of `dx` pixels, snapped to
+ * the grid (the nearest bar unless told otherwise) and never before the timeline's start.
  */
 export function dragClipStart(
   originStart: number,
   dx: number,
   view: View,
   signatures: SignatureMap,
+  resolution: SnapResolution = "bar",
+  bypass = false,
 ): number {
-  return Math.max(0, signatures.nearestBarStart(originStart + dx / view.pxPerBeat));
+  return snapBeat(originStart + dx / view.pxPerBeat, resolution, signatures, bypass);
+}
+
+/** Where the last clip ends, in beats (0 for an empty project). */
+export function projectEndBeat(clips: Iterable<Pick<Clip, "start" | "length">>): number {
+  let end = 0;
+  for (const clip of clips) end = Math.max(end, clip.start + clip.length);
+  return end;
 }
 
 export interface RulerMark {

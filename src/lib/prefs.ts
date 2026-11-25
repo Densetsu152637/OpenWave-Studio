@@ -1,4 +1,5 @@
 import type { DeviceInfo, DeviceLists, MidiInputPref, Preferences, Theme } from "./ipc";
+import { ARRANGE_SHORTCUTS } from "./arrange/keys";
 
 /** Limits mirrored from src-tauri/src/prefs.rs and ow-io. */
 export const MIN_BUFFER_FRAMES = 16;
@@ -73,7 +74,7 @@ export interface ShortcutAction {
   default: string;
 }
 
-/** Actions that exist today; later stages append theirs. */
+/** Actions that exist today (the arrangement ones are handled by the arrangement view). */
 export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "transport.play", label: "Play / pause", default: "Space" },
   { id: "transport.stop", label: "Stop", default: "Enter" },
@@ -83,6 +84,11 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "file.save", label: "Save project", default: "Ctrl+S" },
   { id: "file.open", label: "Open project", default: "Ctrl+O" },
   { id: "app.settings", label: "Open settings", default: "Ctrl+," },
+  ...ARRANGE_SHORTCUTS.map(({ id, label, default: accelerator }) => ({
+    id,
+    label,
+    default: accelerator,
+  })),
 ];
 
 /** The accelerator in effect for an action: the override (possibly empty) or the default. */

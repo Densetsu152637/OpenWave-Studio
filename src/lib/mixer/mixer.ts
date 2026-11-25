@@ -194,6 +194,17 @@ export async function renameBus(api: ArrangeApi, bus: Bus, name: string): Promis
   return true;
 }
 
+/** Recolors a bus (`0xRRGGBB`); false (and nothing sent) when it already has that color. */
+export async function setBusColor(api: ArrangeApi, bus: Bus, color: number): Promise<boolean> {
+  if (color === bus.color) return false;
+  await api.edit({ command: "set_info", target: { bus: bus.id }, name: bus.name, color });
+  return true;
+}
+
+/** Moves a bus to index `to` (one `MoveBus`, one undo step). */
+export const moveBus = (api: ArrangeApi, id: number, to: number) =>
+  api.edit({ command: "move_bus", id, to });
+
 /** Everything that still routes to bus `id`: the strips whose output or sends name it. */
 export function busUsers(
   project: Pick<MirrorProject, "tracks" | "buses">,

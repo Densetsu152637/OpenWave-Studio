@@ -1,7 +1,8 @@
 <script lang="ts">
   import ClipView from "./ClipView.svelte";
-  import type { SignatureMap, TempoMap } from "../arrange/time";
-  import { cssColor, dragClipStart, type View } from "../arrange/view";
+  import type { ClipSelection } from "../arrange/selection";
+  import type { TempoMap } from "../arrange/time";
+  import { cssColor, type View } from "../arrange/view";
   import type { Clip, MediaItem, Track } from "../ipc/types";
 
   let {
@@ -13,11 +14,13 @@
     width,
     height,
     tempo,
-    signatures,
-    selectedClip,
+    selection,
+    dragShift,
     onSelectTrack,
-    onSelectClip,
-    onMoveClip,
+    onPress,
+    onRelease,
+    onDrag,
+    onDragEnd,
     onOpenClip,
   }: {
     track: Track;
@@ -28,11 +31,18 @@
     width: number;
     height: number;
     tempo: TempoMap;
-    signatures: SignatureMap;
-    selectedClip: number | null;
+    selection: ClipSelection;
+    /** Beats the selected clips are shown moved by while a drag is running. */
+    dragShift: number;
     onSelectTrack: () => void;
-    onSelectClip: (id: number) => void;
-    onMoveClip: (clip: Clip, start: number) => void;
+    /** Pointer down on a clip; `additive` is Shift or Ctrl/Cmd. */
+    onPress: (clip: Clip, additive: boolean) => void;
+    /** Pointer up after a press, whether or not it dragged. */
+    onRelease: (clip: Clip, additive: boolean, moved: boolean) => void;
+    /** The pointer travelled `dx` pixels from the press; `alt` bypasses the snap grid. */
+    onDrag: (clip: Clip, dx: number, alt: boolean) => void;
+    /** The drag ended; `commit` is false when it was cancelled. */
+    onDragEnd: (commit: boolean) => void;
     /** Double-click on a clip. */
     onOpenClip: (clip: Clip) => void;
   } = $props();
@@ -40,24 +50,25 @@
   /** Pointer travel below which a press is a click, not a drag. */
   const DRAG_THRESHOLD_PX = 3;
 
-  let drag = $state<{ id: number; startX: number; start: number; moved: boolean } | null>(null);
-  let dragTo = $state(0);
+  let drag: { id: number; startX: number; moved: boolean; additive: boolean } | null = null;
 
   function press(event: PointerEvent, clip: Clip) {
     if (event.button !== 0) return;
     event.stopPropagation();
-    onSelectClip(clip.id);
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    onPress(clip, additive);
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    drag = { id: clip.id, startX: event.clientX, start: clip.start, moved: false };
-    dragTo = clip.start;
+    drag = { id: clip.id, startX: event.clientX, moved: false, additive };
   }
 
   function move(event: PointerEvent) {
     if (!drag) return;
     const dx = event.clientX - drag.startX;
     if (!drag.moved && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
+    const clip = clips.find((c) => c.id === drag?.id);
+    if (!clip) return;
     drag.moved = true;
-    dragTo = dragClipStart(drag.start, dx, view, signatures);
+    onDrag(clip, dx, event.altKey);
   }
 
   function release(event: PointerEvent) {
@@ -65,7 +76,8 @@
     const done = drag;
     drag = null;
     const clip = clips.find((c) => c.id === done.id);
-    if (done.moved && clip && event.type === "pointerup") onMoveClip(clip, dragTo);
+    if (clip) onRelease(clip, done.additive, done.moved);
+    if (done.moved) onDragEnd(event.type === "pointerup");
   }
 </script>
 
@@ -87,9 +99,9 @@
       {width}
       {height}
       {tempo}
-      selected={selectedClip === clip.id}
+      selected={selection.has(clip.id)}
       missing={clip.content.type === "audio" && missing.has(clip.content.media)}
-      displayStart={drag?.moved && drag.id === clip.id ? dragTo : clip.start}
+      displayStart={selection.has(clip.id) ? clip.start + dragShift : clip.start}
       onpointerdown={(event) => press(event, clip)}
       ondblclick={() => onOpenClip(clip)}
     />

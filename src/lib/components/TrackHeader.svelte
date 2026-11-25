@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cssColor } from "../arrange/view";
   import type { Bus, Output, Track } from "../ipc/types";
+  import ColorPicker from "./ColorPicker.svelte";
   import StripMixer from "./StripMixer.svelte";
 
   let {
@@ -19,6 +20,11 @@
     onOutput,
     destinations,
     onDelete,
+    onColor,
+    canMoveUp,
+    canMoveDown,
+    onMoveUp,
+    onMoveDown,
   }: {
     track: Track;
     selected: boolean;
@@ -40,6 +46,12 @@
     /** The buses the output may be set to. */
     destinations: readonly Bus[];
     onDelete: () => void;
+    onColor: (color: number) => void;
+    /** The track is not first / last, so it can move up / down. */
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+    onMoveUp: () => void;
+    onMoveDown: () => void;
   } = $props();
 
   let draft = $state<string | null>(null);
@@ -69,6 +81,7 @@
   onpointerdown={onSelect}
 >
   <div class="row">
+    <ColorPicker color={track.color} label="Track color" onPick={onColor} />
     <input
       class="name"
       type="text"
@@ -79,6 +92,12 @@
       onblur={commitName}
       onkeydown={onNameKey}
     />
+    <button type="button" class="move" title="Move track up" aria-label="Move track up" disabled={!canMoveUp} onclick={onMoveUp}>
+      &#9650;
+    </button>
+    <button type="button" class="move" title="Move track down" aria-label="Move track down" disabled={!canMoveDown} onclick={onMoveDown}>
+      &#9660;
+    </button>
     {#if track.kind === "audio"}
       <button
         type="button"
@@ -161,6 +180,10 @@
   .arm,
   .delete {
     padding: 1px 6px;
+  }
+  .move {
+    padding: 1px 3px;
+    font-size: 9px;
   }
   .arm.on {
     background: var(--danger);

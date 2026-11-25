@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cssColor } from "../arrange/view";
   import type { Bus, Output, StripSettings } from "../ipc/types";
+  import ColorPicker from "./ColorPicker.svelte";
   import StripMixer from "./StripMixer.svelte";
 
   /**
@@ -23,6 +24,11 @@
     onPan,
     onOutput,
     onDelete,
+    onColor,
+    canMoveUp = false,
+    canMoveDown = false,
+    onMoveUp,
+    onMoveDown,
   }: {
     name: string;
     color: number;
@@ -39,6 +45,12 @@
     onPan: (pan: number) => void;
     onOutput: (output: Output) => void;
     onDelete: () => void;
+    /** Recolor and reorder: buses only (the master has none of these). */
+    onColor?: (color: number) => void;
+    canMoveUp?: boolean;
+    canMoveDown?: boolean;
+    onMoveUp?: () => void;
+    onMoveDown?: () => void;
   } = $props();
 
   let draft = $state<string | null>(null);
@@ -71,6 +83,7 @@
     {#if master}
       <span class="name fixed">Master</span>
     {:else}
+      {#if onColor}<ColorPicker {color} label="Bus color" onPick={onColor} />{/if}
       <input
         class="name"
         type="text"
@@ -92,6 +105,14 @@
     >
       M
     </button>
+    {#if !master && onMoveUp && onMoveDown}
+      <button type="button" class="move" title="Move bus up" aria-label="Move bus up" disabled={!canMoveUp} onclick={onMoveUp}>
+        &#9650;
+      </button>
+      <button type="button" class="move" title="Move bus down" aria-label="Move bus down" disabled={!canMoveDown} onclick={onMoveDown}>
+        &#9660;
+      </button>
+    {/if}
     {#if !master}
       <button type="button" class="delete" title="Delete bus" aria-label="Delete bus" onclick={onDelete}>
         &times;
@@ -151,5 +172,9 @@
   .mute.on {
     background: var(--accent);
     color: var(--bg);
+  }
+  .move {
+    padding: 1px 3px;
+    font-size: 9px;
   }
 </style>

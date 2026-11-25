@@ -19,9 +19,11 @@
   import {
     addBus,
     changeSend,
+    moveBus,
     removeBus,
     renameBus,
     routeTargets,
+    setBusColor,
     sameStrip,
     setSendsCommand,
     setStripCommand,
@@ -44,19 +46,45 @@
   import {
     addTrack,
     commandsApi,
-    deleteClip,
+    deleteClips,
     importAudio,
-    moveClip,
+    moveClips,
+    moveTrack,
     removeTrack,
     renameTrack,
+    reorderTarget,
+    setTrackColor,
     setTrackStrip,
   } from "../arrange/edits";
+  import { arrangeKeyAction } from "../arrange/keys";
+  import { addMarker, removeMarker, renameMarker } from "../arrange/markers";
+  import { timeMarks } from "../arrange/ruler";
+  import {
+    NO_SELECTION,
+    pressClip,
+    pruneSelection,
+    releaseClip,
+    selectAll,
+    type ClipSelection,
+  } from "../arrange/selection";
+  import {
+    DEFAULT_SNAP,
+    SNAP_OPTIONS,
+    dragDelta,
+    isSnapResolution,
+    snapBeat,
+    type SnapResolution,
+  } from "../arrange/snap";
+  import { installPerfHook } from "../perf";
+  import { pingPong } from "../perf/scroll";
   import { addMidiTrack, createMidiClip } from "../arrange/midi";
   import { armedSet, recordApi, toggleArm } from "../arrange/record";
   import { SignatureMap, TempoMap } from "../arrange/time";
   import {
     DEFAULT_VIEW,
+    cssColor,
     beatToX,
+    projectEndBeat,
     rulerMarks,
     scrollBy,
     xToBeat,
@@ -70,6 +98,7 @@
     Clip,
     Device,
     DeviceDescriptor,
+    Marker,
     MixerRef,
     Note,
     StripSettings,
@@ -96,6 +125,7 @@
   const HEADER_PX = 200;
   const LANE_PX = 88;
   const RULER_PX = 24;
+  const MARKER_PX = 20;
   const ZOOM_STEP = 1.25;
   const WHEEL_ZOOM = 0.002;
 
@@ -104,7 +134,15 @@
   let selectedTrack = $state<number | null>(null);
   /** A bus (its id) or the master selected instead of a track; its FX and sends fill the dock. */
   let selectedBus = $state<number | "master" | null>(null);
-  let selectedClip = $state<number | null>(null);
+  let selection = $state.raw<ClipSelection>(NO_SELECTION);
+  /** Beats the selected clips are shown moved by while they are dragged. */
+  let dragShift = $state(0);
+  let snap = $state<SnapResolution>(DEFAULT_SNAP);
+  let rulerMode = $state<"bars" | "time">("bars");
+  /** The marker being renamed, and the name typed so far. */
+  let editingMarker = $state<number | null>(null);
+  let markerDraft = $state("");
+  let scroller = $state<HTMLElement>();
   /** The MIDI clip open in the piano roll. */
   let openClip = $state<number | null>(null);
   /** The chain device whose panel is shown; the first one is shown when it is gone. */
@@ -116,7 +154,19 @@
   const buses = $derived(project?.buses ?? []);
   const tempo = $derived(new TempoMap(project?.tempo_map ?? []));
   const signatures = $derived(new SignatureMap(project?.time_signature_map ?? []));
+  const trackIds = $derived(tracks.map((t) => t.id));
+  const busIds = $derived(buses.map((b) => b.id));
   const marks = $derived(rulerMarks(view, width, signatures));
+  const clockMarks = $derived(rulerMode === "time" ? timeMarks(view, width, tempo) : []);
+  const markers = $derived(
+    [...(project?.markers.values() ?? [])].sort((a, b) => a.beat - b.beat || a.id - b.id),
+  );
+  const shownMarkers = $derived(
+    markers.filter((m) => {
+      const x = beatToX(view, m.beat);
+      return x >= -1 && x <= width;
+    }),
+  );
   const missing = $derived(new Set(mirror.history?.missingMedia ?? []));
   const armed = $derived(armedSet(mirror.history));
   const clipsByTrack = $derived.by(() => {
@@ -131,8 +181,14 @@
   const playheadX = $derived(beatToX(view, playheadBeat));
   // The selection follows the project: a track or clip that is gone (undo, open) is not selected.
   const trackSelected = (id: number) => selectedTrack === id && tracks.some((t) => t.id === id);
-  const clipSelected = $derived(
-    selectedClip !== null && (project?.clips.has(selectedClip) ?? false) ? selectedClip : null,
+  const liveSelection = $derived(
+    pruneSelection(selection, (id) => project?.clips.has(id) ?? false),
+  );
+  const selectedClips = $derived(
+    [...liveSelection].flatMap((id) => {
+      const clip = project?.clips.get(id);
+      return clip ? [clip] : [];
+    }),
   );
   // The piano roll follows the project too: it closes when its clip is gone (undo, delete, open).
   const rollClip = $derived.by(() => {
@@ -199,13 +255,104 @@
   function onKey(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
     if (target?.closest("input, textarea, select, [contenteditable]")) return;
-    if ((event.key === "Delete" || event.key === "Backspace") && clipSelected !== null) {
-      const clip = project?.clips.get(clipSelected);
-      if (clip) {
+    const action = arrangeKeyAction(event);
+    if (!action || !project) return;
+    switch (action) {
+      case "locate-start":
         event.preventDefault();
-        void run(() => deleteClip(commandsApi, clip));
-      }
+        onLocate(0);
+        break;
+      case "locate-end":
+        event.preventDefault();
+        onLocate(projectEndBeat(project.clips.values()));
+        break;
+      case "zoom-in":
+        event.preventDefault();
+        zoomBy(ZOOM_STEP);
+        break;
+      case "zoom-out":
+        event.preventDefault();
+        zoomBy(1 / ZOOM_STEP);
+        break;
+      case "add-marker":
+        event.preventDefault();
+        void addMarkerAtPlayhead(false);
+        break;
+      case "select-all":
+        event.preventDefault();
+        selection = selectAll(project.clips.keys());
+        break;
+      case "deselect":
+        if (liveSelection.size > 0) selection = NO_SELECTION;
+        break;
+      case "delete-selection":
+        if (selectedClips.length > 0) {
+          event.preventDefault();
+          const doomed = selectedClips;
+          selection = NO_SELECTION;
+          void run(() => deleteClips(commandsApi, doomed));
+        }
+        break;
     }
+  }
+
+  /** Adds a marker at the playhead, on the snap grid unless `bypass` (Alt) is held. */
+  const addMarkerAtPlayhead = (bypass: boolean) =>
+    run(() => addMarker(commandsApi, snapBeat(playheadBeat, snap, signatures, bypass), markers));
+
+  function startMarkerRename(marker: Marker) {
+    editingMarker = marker.id;
+    markerDraft = marker.name;
+  }
+
+  function finishMarkerRename(marker: Marker, commit: boolean) {
+    if (editingMarker !== marker.id) return;
+    editingMarker = null;
+    if (commit) void run(() => renameMarker(commandsApi, marker, markerDraft));
+  }
+
+  function markerKey(event: KeyboardEvent, marker: Marker) {
+    if (event.key === "Enter") finishMarkerRename(marker, true);
+    else if (event.key === "Escape") finishMarkerRename(marker, false);
+  }
+
+  function focusOnMount(node: HTMLInputElement) {
+    node.focus();
+    node.select();
+  }
+
+  /** Moves a track or bus one place up (-1) or down (1) its list: one undo step. */
+  const moveBy = (
+    ids: readonly number[],
+    id: number,
+    by: number,
+    move: (api: typeof commandsApi, id: number, to: number) => Promise<unknown>,
+  ) =>
+    run(async () => {
+      const to = reorderTarget(ids, id, by);
+      if (to !== null) await move(commandsApi, id, to);
+    });
+
+  function onPressClip(track: Track, clip: Clip, additive: boolean) {
+    if (selectedTrack !== track.id) selectedDevice = null;
+    selectedTrack = track.id;
+    selectedBus = null;
+    selection = pressClip(liveSelection, clip.id, additive);
+  }
+
+  function onReleaseClip(clip: Clip, additive: boolean, moved: boolean) {
+    selection = releaseClip(liveSelection, clip.id, additive, moved);
+  }
+
+  function onDragClip(clip: Clip, dx: number, alt: boolean) {
+    const minStart = Math.min(...selectedClips.map((c) => c.start));
+    dragShift = dragDelta(clip.start, minStart, dx, view, signatures, snap, alt);
+  }
+
+  function onDragEnd(commit: boolean) {
+    const delta = dragShift;
+    dragShift = 0;
+    if (commit && delta !== 0) void run(() => moveClips(commandsApi, selectedClips, delta));
   }
 
   const addAudioTrack = () =>
@@ -224,7 +371,7 @@
         start: playheadBeat,
       });
       selectedTrack = result.trackId;
-      selectedClip = result.clipId;
+      selection = new Set([result.clipId]);
     });
 
   /** Plugin instruments, which the instrument picker offers next to the built-in synth. */
@@ -233,7 +380,7 @@
   const addInstrumentTrack = (instrument?: DeviceDescriptor) =>
     run(async () => {
       selectedTrack = await addMidiTrack(commandsApi, tracks.length, descriptors, instrument);
-      selectedClip = null;
+      selection = NO_SELECTION;
     });
 
   const newMidiClip = () =>
@@ -241,7 +388,9 @@
       const track = selectedMidiTrack;
       if (!track) return;
       const count = clipsByTrack.get(track.id)?.length ?? 0;
-      selectedClip = await createMidiClip(commandsApi, signatures, track, playheadBeat, count);
+      selection = new Set([
+        await createMidiClip(commandsApi, signatures, track, playheadBeat, count),
+      ]);
     });
 
   const editNotes = (clip: Clip, notes: Note[]) =>
@@ -290,8 +439,20 @@
     if (clip.content.type !== "midi") return;
     if (selectedTrack !== clip.track) selectedDevice = null;
     selectedTrack = clip.track;
-    selectedClip = clip.id;
+    selection = new Set([clip.id]);
     openClip = clip.id;
+  }
+
+  /** Dev benchmark: sweeps the timeline sideways and the track list up and down. */
+  function benchmarkStep(elapsedMs: number) {
+    const range = Math.max(
+      0,
+      projectEndBeat(project?.clips.values() ?? []) - width / view.pxPerBeat,
+    );
+    view = { ...view, originBeat: pingPong(elapsedMs, range, 4000) };
+    if (scroller) {
+      scroller.scrollTop = pingPong(elapsedMs, scroller.scrollHeight - scroller.clientHeight, 5000);
+    }
   }
 
   onMount(() => {
@@ -300,6 +461,7 @@
         .then((loaded) => (descriptors = loaded))
         .catch(() => {});
     reload();
+    const removePerfHook = installPerfHook(benchmarkStep);
     // A plugin scan finished (at startup, or from the settings or an agent): fetch again.
     let stop = () => {};
     let gone = false;
@@ -310,20 +472,15 @@
     return () => {
       gone = true;
       stop();
+      removePerfHook();
     };
   });
-
-  function selectClip(track: Track, id: number) {
-    if (selectedTrack !== track.id) selectedDevice = null;
-    selectedTrack = track.id;
-    selectedClip = id;
-  }
 
   function selectTrack(id: number) {
     if (selectedTrack !== id || selectedBus !== null) selectedDevice = null;
     selectedTrack = id;
     selectedBus = null;
-    selectedClip = null;
+    selection = NO_SELECTION;
   }
 
   /** Selects a bus or the master: the dock shows its FX chain (and the sends of a bus). */
@@ -331,7 +488,7 @@
     if (selectedBus !== id) selectedDevice = null;
     selectedBus = id;
     selectedTrack = null;
-    selectedClip = null;
+    selection = NO_SELECTION;
     openClip = null;
   }
 </script>
@@ -366,6 +523,37 @@
     <button type="button" onclick={addBusStrip} disabled={!project}>Add bus</button>
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>
     <span class="spacer"></span>
+    <button
+      type="button"
+      title="Add a marker at the playhead (M; hold Alt to skip the snap grid)"
+      onclick={(event) => addMarkerAtPlayhead(event.altKey)}
+      disabled={!project}
+    >
+      Add marker
+    </button>
+    <button
+      type="button"
+      aria-pressed={rulerMode === "time"}
+      title="Show the ruler as bars and beats or as minutes and seconds"
+      onclick={() => (rulerMode = rulerMode === "bars" ? "time" : "bars")}
+    >
+      {rulerMode === "bars" ? "Ruler: bars" : "Ruler: time"}
+    </button>
+    <label class="snap">
+      Snap
+      <select
+        aria-label="Snap grid"
+        value={snap}
+        onchange={(event) => {
+          const value = event.currentTarget.value;
+          if (isSnapResolution(value)) snap = value;
+        }}
+      >
+        {#each SNAP_OPTIONS as option (option.id)}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
     <button type="button" aria-label="Zoom out" title="Zoom out" onclick={() => zoomBy(1 / ZOOM_STEP)}>&minus;</button>
     <button type="button" aria-label="Zoom in" title="Zoom in" onclick={() => zoomBy(ZOOM_STEP)}>+</button>
   </div>
@@ -374,17 +562,66 @@
     <p class="empty">No project loaded.</p>
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="scroller" onwheel={onWheel}>
+    <div class="scroller" bind:this={scroller} onwheel={onWheel}>
       <div class="content">
-        <div class="row ruler-row" style:height="{RULER_PX}px">
-          <div class="corner" style:width="{HEADER_PX}px"></div>
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="ruler" bind:clientWidth={width} onpointerdown={onRulerDown}>
-            {#each marks as mark (mark.kind + mark.beat)}
-              <div class="mark {mark.kind}" style:left="{mark.x}px">
-                {#if mark.label}<span>{mark.label}</span>{/if}
-              </div>
-            {/each}
+        <div class="ruler-block">
+          <div class="row ruler-row" style:height="{RULER_PX}px">
+            <div class="corner" style:width="{HEADER_PX}px"></div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="ruler" bind:clientWidth={width} onpointerdown={onRulerDown}>
+              {#if rulerMode === "bars"}
+                {#each marks as mark (mark.kind + mark.beat)}
+                  <div class="mark {mark.kind}" style:left="{mark.x}px">
+                    {#if mark.label}<span>{mark.label}</span>{/if}
+                  </div>
+                {/each}
+              {:else}
+                {#each clockMarks as mark (mark.seconds)}
+                  <div class="mark {mark.major ? 'bar' : 'beat'}" style:left="{mark.x}px">
+                    {#if mark.label}<span>{mark.label}</span>{/if}
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+          <div class="row marker-row" style:height="{MARKER_PX}px">
+            <div class="corner marker-corner" style:width="{HEADER_PX}px">Markers</div>
+            <div class="markers">
+              {#each shownMarkers as marker (marker.id)}
+                <div class="marker" style:left="{beatToX(view, marker.beat)}px" style:--marker={cssColor(marker.color)}>
+                  {#if editingMarker === marker.id}
+                    <input
+                      class="marker-name"
+                      aria-label="Marker name"
+                      maxlength="256"
+                      bind:value={markerDraft}
+                      use:focusOnMount
+                      onkeydown={(event) => markerKey(event, marker)}
+                      onblur={() => finishMarkerRename(marker, true)}
+                    />
+                  {:else}
+                    <button
+                      type="button"
+                      class="flag"
+                      title="{marker.name} (click to go there, double-click to rename)"
+                      onclick={() => onLocate(marker.beat)}
+                      ondblclick={() => startMarkerRename(marker)}
+                    >
+                      {marker.name}
+                    </button>
+                    <button
+                      type="button"
+                      class="flag-delete"
+                      title="Delete marker"
+                      aria-label="Delete marker {marker.name}"
+                      onclick={() => run(() => removeMarker(commandsApi, marker.id))}
+                    >
+                      &times;
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -407,6 +644,11 @@
                 onPan={(pan) => run(() => setTrackStrip(commandsApi, track, { pan }))}
                 onOutput={(output) => run(() => setTrackStrip(commandsApi, track, { output }))}
                 onDelete={() => run(() => removeTrack(commandsApi, track.id))}
+                onColor={(color) => run(() => setTrackColor(commandsApi, track, color))}
+                canMoveUp={reorderTarget(trackIds, track.id, -1) !== null}
+                canMoveDown={reorderTarget(trackIds, track.id, 1) !== null}
+                onMoveUp={() => moveBy(trackIds, track.id, -1, moveTrack)}
+                onMoveDown={() => moveBy(trackIds, track.id, 1, moveTrack)}
               />
             </div>
             <div class="lane-cell">
@@ -419,11 +661,13 @@
                 {width}
                 height={LANE_PX}
                 {tempo}
-                {signatures}
-                selectedClip={clipSelected}
+                selection={liveSelection}
+                {dragShift}
                 onSelectTrack={() => selectTrack(track.id)}
-                onSelectClip={(id) => selectClip(track, id)}
-                onMoveClip={(clip, start) => run(() => moveClip(commandsApi, clip, start))}
+                onPress={(clip, additive) => onPressClip(track, clip, additive)}
+                onRelease={onReleaseClip}
+                onDrag={onDragClip}
+                {onDragEnd}
                 onOpenClip={openRoll}
               />
             </div>
@@ -448,6 +692,11 @@
                 onPan={(pan) => setStrip({ bus: bus.id }, { pan })}
                 onOutput={(output) => setStrip({ bus: bus.id }, { output })}
                 onDelete={() => deleteBus(bus)}
+                onColor={(color) => run(() => setBusColor(commandsApi, bus, color))}
+                canMoveUp={reorderTarget(busIds, bus.id, -1) !== null}
+                canMoveDown={reorderTarget(busIds, bus.id, 1) !== null}
+                onMoveUp={() => moveBy(busIds, bus.id, -1, moveBus)}
+                onMoveDown={() => moveBy(busIds, bus.id, 1, moveBus)}
               />
             </div>
             <div class="lane-cell bus-lane" style:height="{LANE_PX}px"></div>
@@ -579,12 +828,58 @@
     flex: 1;
     min-width: 0;
   }
-  .ruler-row {
+  .ruler-block {
     position: sticky;
     top: 0;
     z-index: 2;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
+  }
+  .marker-row {
+    border-top: 1px solid var(--border);
+  }
+  .marker-corner {
+    box-sizing: border-box;
+    padding: 2px 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .markers {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    border-left: 2px solid var(--marker);
+    white-space: nowrap;
+  }
+  .flag,
+  .flag-delete {
+    padding: 0 4px;
+    font-size: 11px;
+    line-height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+  }
+  .flag-delete {
+    color: var(--muted);
+  }
+  .marker-name {
+    width: 110px;
+    font: inherit;
+    font-size: 11px;
+  }
+  .snap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
   .corner {
     flex: none;
