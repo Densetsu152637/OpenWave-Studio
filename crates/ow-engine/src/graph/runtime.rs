@@ -12,6 +12,7 @@ use assert_no_alloc::assert_no_alloc;
 
 use super::NodeId;
 use crate::plan::RenderPlan;
+use crate::preview::Preview;
 use crate::record::RecordSet;
 use crate::rings::{ProducerRing, RingSender, producer_ring};
 use crate::sched::AbortOnPanic;
@@ -28,6 +29,10 @@ const TIMELINE_QUEUE: usize = 4;
 /// Capacity of the record-set ring (and, plus two, of its retire ring): at most one recording is
 /// live, so a few slots are plenty.
 const RECORD_QUEUE: usize = 2;
+
+/// Capacity of the preview ring (and, plus two, of its retire ring): one preview plays at a
+/// time and a new one replaces it.
+const PREVIEW_QUEUE: usize = 2;
 
 /// Sample rate assumed for the block timing of a cycle that has no plan (only the frame
 /// positions matter to the record tap, not the rate).
@@ -316,6 +321,9 @@ impl CoreBuilder {
         let (record_tx, record_rx) = producer_ring::<Box<RecordSet>>(RECORD_QUEUE);
         let (record_retire_tx, record_retire_rx) =
             producer_ring::<Box<RecordSet>>(RECORD_QUEUE + 2);
+        let (preview_tx, preview_rx) = producer_ring::<Box<Preview>>(PREVIEW_QUEUE);
+        let (preview_retire_tx, preview_retire_rx) =
+            producer_ring::<Box<Preview>>(PREVIEW_QUEUE + 2);
         let telemetry = Arc::new(Telemetry::new(self.pool.workers + 1));
         let pool = Pool::spawn(&self.pool, &telemetry);
         let mut rings = Vec::with_capacity(self.rings.len() + 1);
@@ -330,6 +338,8 @@ impl CoreBuilder {
                 retired_timelines: timeline_retire_rx,
                 records: record_tx,
                 retired_records: record_retire_rx,
+                previews: preview_tx,
+                retired_previews: preview_retire_rx,
                 telemetry: Arc::clone(&telemetry),
                 sched: Arc::clone(pool.shared()),
             },
@@ -347,6 +357,10 @@ impl CoreBuilder {
                 retire_records: record_retire_tx,
                 record: None,
                 pending_retire_record: None,
+                previews: preview_rx,
+                retire_previews: preview_retire_tx,
+                preview: None,
+                pending_retire_preview: None,
                 transport: TransportState::new(),
                 telemetry,
                 pool,
@@ -370,9 +384,28 @@ pub struct ControlLink {
     retired_timelines: ProducerRing<Box<Timeline>>,
     records: RingSender<Box<RecordSet>>,
     retired_records: ProducerRing<Box<RecordSet>>,
+    previews: RingSender<Box<Preview>>,
+    retired_previews: ProducerRing<Box<Preview>>,
     telemetry: Arc<Telemetry>,
     sched: Arc<Shared>,
 }
+
+/// The preview ring was full; the preview is handed back so the caller can retry.
+pub struct PreviewSwapError(pub Box<Preview>);
+
+impl std::fmt::Debug for PreviewSwapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PreviewSwapError(preview ring full)")
+    }
+}
+
+impl std::fmt::Display for PreviewSwapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the preview ring is full")
+    }
+}
+
+impl std::error::Error for PreviewSwapError {}
 
 /// The record ring was full; the set is handed back so the caller can retry.
 pub struct RecordSwapError(pub Box<RecordSet>);
@@ -420,6 +453,15 @@ impl ControlLink {
             .map_err(RecordSwapError)
     }
 
+    /// Queues a preview for the audio thread to mix into the output from its next cycle on; it
+    /// replaces a preview that is still playing. Returns the preview if the ring is full.
+    pub fn swap_preview(&mut self, preview: Preview) -> Result<(), PreviewSwapError> {
+        self.collect_retired();
+        self.previews
+            .try_push(Box::new(preview))
+            .map_err(PreviewSwapError)
+    }
+
     /// Drops timelines, recordings and plans the audio thread has retired (this is where their
     /// memory is freed) and returns how many plans. A DSP worker may still be leaving a just-retired plan; this waits
     /// (yielding) until none is, which takes at most a few instructions of the worker's time.
@@ -429,6 +471,9 @@ impl ControlLink {
         }
         while let Some(set) = self.retired_records.pop() {
             drop(set);
+        }
+        while let Some(preview) = self.retired_previews.pop() {
+            drop(preview);
         }
         let mut dropped = 0;
         while let Some(plan) = self.retired.pop() {
@@ -487,6 +532,12 @@ pub struct AudioCore {
     record: Option<Box<RecordSet>>,
     /// A recording that ended and waits for room in the retire ring.
     pending_retire_record: Option<Box<RecordSet>>,
+    previews: ProducerRing<Box<Preview>>,
+    retire_previews: RingSender<Box<Preview>>,
+    /// The preview being mixed into the output, until it ends.
+    preview: Option<Box<Preview>>,
+    /// A preview that ended and waits for room in the retire ring.
+    pending_retire_preview: Option<Box<Preview>>,
     transport: TransportState,
     telemetry: Arc<Telemetry>,
     pool: Pool,
@@ -538,6 +589,7 @@ impl AudioCore {
         self.swap_pending_plan();
         self.swap_pending_timeline();
         self.swap_pending_record();
+        self.swap_pending_preview();
         self.drain_rings();
         self.flush_record();
         out.fill(0.0);
@@ -614,6 +666,10 @@ impl AudioCore {
             done += frames;
             self.transport.end_block(&block, &self.timeline);
         }
+        if let Some(preview) = self.preview.as_deref_mut() {
+            preview.mix(out, channels);
+        }
+        self.flush_preview();
         self.telemetry
             .position
             .store(self.transport.position(), Ordering::Relaxed);
@@ -703,6 +759,35 @@ impl AudioCore {
             && let Err(set) = self.retire_records.try_push(set)
         {
             self.pending_retire_record = Some(set);
+        }
+    }
+
+    /// Installs a queued preview; one that is playing is ended and retired.
+    fn swap_pending_preview(&mut self) {
+        if self.pending_retire_preview.is_some() {
+            return;
+        }
+        if let Some(new) = self.previews.pop() {
+            if let Some(mut old) = self.preview.replace(new) {
+                old.end();
+                self.pending_retire_preview = Some(old);
+            }
+            self.flush_preview();
+        }
+    }
+
+    /// Hands an ended preview back to the control thread; keeps it for the next cycle when the
+    /// retire ring is full, so the audio thread never frees it.
+    fn flush_preview(&mut self) {
+        if self.pending_retire_preview.is_none()
+            && self.preview.as_deref().is_some_and(Preview::is_ended)
+        {
+            self.pending_retire_preview = self.preview.take();
+        }
+        if let Some(preview) = self.pending_retire_preview.take()
+            && let Err(preview) = self.retire_previews.try_push(preview)
+        {
+            self.pending_retire_preview = Some(preview);
         }
     }
 

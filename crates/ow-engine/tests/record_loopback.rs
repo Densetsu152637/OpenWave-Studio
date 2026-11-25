@@ -99,6 +99,8 @@ fn project(root: &Path) -> (Project, TrackId) {
                 sample_rate: RATE,
                 channels: 2,
                 frames: 1000,
+                tempo: None,
+                key: None,
             },
         })
         .unwrap();
@@ -120,6 +122,7 @@ fn project(root: &Path) -> (Project, TrackId) {
                     gain_db: 0.0,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    warp: None,
                 },
                 take: None,
             }),

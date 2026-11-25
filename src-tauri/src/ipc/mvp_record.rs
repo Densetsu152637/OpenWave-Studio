@@ -120,6 +120,7 @@ fn project_with_impulse(state: &IpcState, engine: &Engine, work: &Path) -> (Trac
                     gain_db: 0.0,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    warp: None,
                 },
                 take: None,
             }),
@@ -507,6 +508,7 @@ fn mvp_record_a_loop_group_whose_last_take_failed_still_has_an_active_take() {
                         gain_db: 0.0,
                         fade_in: 0.0,
                         fade_out: 0.0,
+                        warp: None,
                     },
                     take: Some(ow_model::TakeInfo {
                         group: ids[0].0,

@@ -175,6 +175,7 @@ fn midi_schedule_orders_clips_and_drops_what_cannot_sound() {
             gain_db: 0.0,
             fade_in: 0.0,
             fade_out: 0.0,
+            warp: None,
         },
         ..midi_clip(3, 1, 0.0, 4.0, vec![])
     };

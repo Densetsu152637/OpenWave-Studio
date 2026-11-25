@@ -19,13 +19,24 @@ pub const FIRST_VERSION: u32 = 1;
 
 /// The steps from [`FIRST_VERSION`] up to [`FORMAT_VERSION`]: entry `i` migrates version
 /// `FIRST_VERSION + i`.
-pub const CHAIN: &[Migration] = &[v1_to_v2];
+pub const CHAIN: &[Migration] = &[v1_to_v2, v2_to_v3];
 
 /// Version 2 adds the recording fields: a track's `input` and `monitor`, a clip's `take` and
 /// the settings' `punch_range` and `punch_enabled`. All have serde defaults that mean what a
 /// version 1 file implies (default input, no monitoring, no take, no punch), so nothing is
 /// rewritten; the step exists so the chain is complete and the version moves on.
 fn v1_to_v2(doc: &mut Value) -> Result<(), String> {
+    if doc.is_object() {
+        Ok(())
+    } else {
+        Err("not an object".into())
+    }
+}
+
+/// Version 3 adds the smart-tempo fields: a media item's detected `tempo` and `key` and an audio
+/// clip's `warp`. Absent means what version 2 implies (nothing detected, the clip plays as it
+/// is), and the serializer leaves them out when unset, so nothing is rewritten here either.
+fn v2_to_v3(doc: &mut Value) -> Result<(), String> {
     if doc.is_object() {
         Ok(())
     } else {

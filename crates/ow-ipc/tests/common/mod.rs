@@ -586,6 +586,7 @@ fn build(
                         gain_db: -3.0,
                         fade_in: 0.25,
                         fade_out: 0.5,
+                        warp: None,
                     },
                     take: None,
                 }),
@@ -762,6 +763,8 @@ fn media_of(id: u64, rate: u32) -> MediaItem {
         sample_rate: rate,
         channels: 2,
         frames: 1000 + id,
+        tempo: None,
+        key: None,
     }
 }
 

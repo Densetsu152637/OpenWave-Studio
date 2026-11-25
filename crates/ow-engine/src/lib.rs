@@ -18,6 +18,7 @@ pub mod midi_hub;
 pub mod offline;
 pub mod pdc;
 pub mod plan;
+pub mod preview;
 pub mod record;
 pub mod rings;
 pub mod sched;
@@ -51,8 +52,8 @@ pub use graph::input::{ArmedTracks, InputBus, InputMonitorNode};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, PanNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
-    Message, MidiMessage, Node, NodeId, Outputs, ProcessContext, RecordSwapError, SwapError,
-    Telemetry, default_worker_count,
+    Message, MidiMessage, Node, NodeId, Outputs, PreviewSwapError, ProcessContext, RecordSwapError,
+    SwapError, Telemetry, default_worker_count,
 };
 pub use midi_hub::{
     MIDI_RING_CAPACITY, MIDI_RINGS, MidiHub, MidiInputSelection, MidiPortState, MidiStatus,
@@ -60,6 +61,7 @@ pub use midi_hub::{
 pub use offline::OfflineRenderer;
 pub use pdc::DelayNode;
 pub use plan::RenderPlan;
+pub use preview::{Preview, PreviewHandle};
 pub use record::{
     FinishedTake, MAX_LOOP_TAKES, RecordError, RecordPlan, RecordSet, RecordShared, RecordTrack,
     Recording, Stopped, TakeFailure, TrackTakes,
@@ -236,6 +238,9 @@ fn smoke_plan(sample_rate: u32) -> Result<(RenderPlan, NodeId), GraphError> {
     Ok((graph.compile(sample_rate, MAX_BLOCK)?, tone))
 }
 
+/// The longest preview, in frames per channel (two minutes at 48 kHz).
+pub const MAX_PREVIEW_FRAMES: usize = 6_000_000;
+
 /// Handle to the running engine. `Send + Sync`; dropping it stops audio.
 ///
 /// The device callback runs an [`AudioCore`] whose graph is the test tone feeding a stereo
@@ -256,6 +261,8 @@ pub struct Engine {
     supervisor: Supervisor,
     project: ProjectSlot,
     bank: Arc<TelemetryBank>,
+    /// The loop browser's audition that was started last.
+    preview: Mutex<Option<Arc<PreviewHandle>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -357,6 +364,7 @@ impl Engine {
             supervisor,
             project,
             bank,
+            preview: Mutex::new(None),
         }
     }
 
@@ -489,6 +497,63 @@ impl Engine {
             return false;
         };
         send_message(live, Message::Transport(command))
+    }
+
+    /// Plays `pcm` once, through the output, on top of whatever the project plays (the loop
+    /// browser's audition); a preview that is still playing is replaced. The audio is converted
+    /// to the stream's sample rate here, on the calling (control) thread, and at most
+    /// [`MAX_PREVIEW_FRAMES`] frames are used. Fails when no stream is open. Returns the handle
+    /// that tells how far it is and ends it.
+    pub fn start_preview(&self, pcm: ow_media::Pcm) -> Result<Arc<PreviewHandle>, String> {
+        let rate = lock(&self.live)
+            .as_ref()
+            .map(|live| live.sample_rate)
+            .ok_or("no audio output is open")?;
+        let mut pcm = if pcm.sample_rate == rate {
+            pcm
+        } else {
+            ow_media::import::resample(pcm, rate, MAX_PREVIEW_FRAMES as u64 * 2)
+                .map_err(|error| format!("could not convert the preview: {error}"))?
+        };
+        for channel in &mut pcm.channels {
+            channel.truncate(MAX_PREVIEW_FRAMES);
+        }
+        let (mut preview, handle) = Preview::new(pcm);
+        for attempt in 0..SEND_ATTEMPTS {
+            let mut guard = lock(&self.live);
+            let live = guard.as_mut().ok_or("no audio output is open")?;
+            match live.control.swap_preview(preview) {
+                Ok(()) => {
+                    drop(guard);
+                    if let Some(old) = lock(&self.preview).replace(Arc::clone(&handle)) {
+                        old.stop();
+                    }
+                    return Ok(handle);
+                }
+                Err(PreviewSwapError(returned)) => {
+                    preview = *returned;
+                    drop(guard);
+                    if attempt + 1 < SEND_ATTEMPTS {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                }
+            }
+        }
+        Err("the audio engine is busy; try again".into())
+    }
+
+    /// Fades out and ends the preview that is playing, if any.
+    pub fn stop_preview(&self) {
+        if let Some(handle) = lock(&self.preview).take() {
+            handle.stop();
+        }
+    }
+
+    /// Whether a preview is playing.
+    pub fn preview_playing(&self) -> bool {
+        lock(&self.preview)
+            .as_ref()
+            .is_some_and(|handle| !handle.finished())
     }
 
     /// Starts recording one take per `(track, wav path)` on the default input with no loop,

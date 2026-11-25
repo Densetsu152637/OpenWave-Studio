@@ -357,6 +357,7 @@ impl IpcState {
                             gain_db: 0.0,
                             fade_in: 0.0,
                             fade_out: 0.0,
+                            warp: None,
                         },
                         take: seed.map(|seed| TakeInfo {
                             group: seed.group.unwrap_or(id),

@@ -10,7 +10,7 @@ use crate::ids::DeviceId;
 use crate::model::{
     AutomationLane, AutomationTarget, AuxSend, Bus, Clip, ClipContent, Device, InputChannels,
     Marker, MediaItem, MixerRef, Note, Output, Pattern, Project, ProjectSettings, Strip, Track,
-    TrackKind,
+    TrackKind, Warp, WarpMarker,
 };
 
 /// Longest name, in characters.
@@ -21,6 +21,14 @@ pub const MAX_BEAT: f64 = 1.0e9;
 pub const MIN_GAIN_DB: f64 = -144.0;
 /// Highest gain accepted, in dB.
 pub const MAX_GAIN_DB: f64 = 48.0;
+/// Slowest and fastest source tempo a warp or a detected tempo may state, in beats per minute.
+pub const MIN_WARP_BPM: f64 = 20.0;
+/// See [`MIN_WARP_BPM`].
+pub const MAX_WARP_BPM: f64 = 999.0;
+/// Largest pitch shift of a warped clip, in semitones either way.
+pub const MAX_TRANSPOSE_SEMITONES: f64 = 24.0;
+/// Most warp markers one clip may carry.
+pub const MAX_WARP_MARKERS: usize = 256;
 /// Longest device kind, format tag or media path, in bytes.
 const MAX_TAG_BYTES: usize = 512;
 
@@ -213,6 +221,50 @@ pub(crate) fn check_media(item: &MediaItem) -> Result {
     }
     if !(1..=256).contains(&item.channels) {
         return bad("media.channels", "must be 1 to 256");
+    }
+    if let Some(tempo) = item.tempo {
+        ranged("media.tempo", tempo, MIN_WARP_BPM, MAX_WARP_BPM)?;
+    }
+    if let Some(key) = item.key {
+        if key.tonic > 11 {
+            return bad("media.key.tonic", "must be 0 to 11");
+        }
+        ranged("media.key.confidence", key.confidence, 0.0, 1.0)?;
+    }
+    Ok(())
+}
+
+/// Checks the stretch settings of an audio clip.
+fn check_warp(warp: &Warp) -> Result {
+    ranged(
+        "content.warp.source_bpm",
+        warp.source_bpm,
+        MIN_WARP_BPM,
+        MAX_WARP_BPM,
+    )?;
+    ranged(
+        "content.warp.transpose_semitones",
+        warp.transpose_semitones,
+        -MAX_TRANSPOSE_SEMITONES,
+        MAX_TRANSPOSE_SEMITONES,
+    )?;
+    if warp.markers.len() > MAX_WARP_MARKERS {
+        return bad(
+            "content.warp.markers",
+            format!("at most {MAX_WARP_MARKERS} markers"),
+        );
+    }
+    let mut previous: Option<&WarpMarker> = None;
+    for (index, marker) in warp.markers.iter().enumerate() {
+        position(&format!("content.warp.markers[{index}].beat"), marker.beat)?;
+        if previous.is_some_and(|p| marker.source_frame <= p.source_frame || marker.beat <= p.beat)
+        {
+            return bad(
+                format!("content.warp.markers[{index}]"),
+                "markers must rise in both source frame and beat",
+            );
+        }
+        previous = Some(marker);
     }
     Ok(())
 }
@@ -413,8 +465,12 @@ impl Project {
                 gain_db,
                 fade_in,
                 fade_out,
+                warp,
                 ..
             } => {
+                if let Some(warp) = warp {
+                    check_warp(warp)?;
+                }
                 if track.kind != TrackKind::Audio {
                     return bad("content", "audio clips belong on audio tracks");
                 }

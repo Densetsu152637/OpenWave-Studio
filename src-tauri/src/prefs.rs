@@ -27,6 +27,7 @@ const MAX_ID_LEN: usize = 512;
 const MAX_PATH_LEN: usize = 4_096;
 const MAX_MIDI_INPUTS: usize = 64;
 const MAX_PLUGIN_DIRS: usize = 32;
+const MAX_LIBRARY_DIRS: usize = 32;
 const MAX_SHORTCUTS: usize = 512;
 const MAX_ACTION_LEN: usize = 64;
 const MAX_ACCELERATOR_LEN: usize = 64;
@@ -88,6 +89,8 @@ pub struct PathPrefs {
     pub projects_dir: Option<String>,
     /// Extra folders scanned for plugins.
     pub plugin_dirs: Vec<String>,
+    /// Folders of loops and samples the loop browser scans (stage 22).
+    pub library_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -207,6 +210,12 @@ impl Preferences {
         }
         for dir in &self.paths.plugin_dirs {
             check_path("plugin folder", dir)?;
+        }
+        if self.paths.library_dirs.len() > MAX_LIBRARY_DIRS {
+            return Err(format!("at most {MAX_LIBRARY_DIRS} library folders"));
+        }
+        for dir in &self.paths.library_dirs {
+            check_path("library folder", dir)?;
         }
         if self.shortcuts.len() > MAX_SHORTCUTS {
             return Err(format!("at most {MAX_SHORTCUTS} shortcuts"));
@@ -364,6 +373,7 @@ mod tests {
             paths: PathPrefs {
                 projects_dir: Some(ABS.into()),
                 plugin_dirs: Vec::new(),
+                library_dirs: vec![ABS.into()],
             },
             appearance: AppearancePrefs {
                 theme: Theme::Light,
@@ -516,6 +526,10 @@ mod tests {
         reject(
             &|p| p.paths.plugin_dirs = vec!["rel".into()],
             "plugin folder",
+        );
+        reject(
+            &|p| p.paths.library_dirs = vec!["rel".into()],
+            "library folder",
         );
         reject(&|p| p.midi.inputs[0].port = String::new(), "MIDI port");
         reject(

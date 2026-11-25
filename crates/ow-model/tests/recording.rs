@@ -35,6 +35,8 @@ fn editor() -> (Editor, TrackId) {
                 sample_rate: 48_000,
                 channels: 1,
                 frames: 48_000,
+                tempo: None,
+                key: None,
             },
         })
         .unwrap();
@@ -60,6 +62,7 @@ fn add_takes(editor: &mut Editor, track: TrackId) -> Vec<Clip> {
                 gain_db: 0.0,
                 fade_in: 0.0,
                 fade_out: 0.0,
+                warp: None,
             },
             take: Some(TakeInfo {
                 group: 7,

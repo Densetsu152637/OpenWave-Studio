@@ -266,6 +266,8 @@ fn hardening_windows_reserved_names_are_rejected() {
         sample_rate: 48_000,
         channels: 1,
         frames: 1,
+        tempo: None,
+        key: None,
     };
     assert!(
         ed.apply(EditCommand::AddMedia {
@@ -340,4 +342,26 @@ fn hardening_a_v1_file_is_backed_up_before_the_first_v2_save() {
             .starts_with("pre-migration-v1-")
     );
     assert_eq!(fs::read(copy).unwrap(), v1);
+}
+
+/// Saving over a v2 file keeps it byte for byte as `pre-migration-v2-*.json` first.
+#[test]
+fn hardening_a_v2_file_is_backed_up_before_the_first_v3_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let v2 = fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v2/project.json"),
+    )
+    .unwrap();
+    fs::write(dir.path().join("project.json"), &v2).unwrap();
+    let copy = bundle::preserve_old_version(dir.path(), FORMAT_VERSION)
+        .unwrap()
+        .expect("a v2 file is older than this build");
+    assert!(
+        copy.file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pre-migration-v2-")
+    );
+    assert_eq!(fs::read(copy).unwrap(), v2);
 }

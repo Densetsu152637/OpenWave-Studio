@@ -1,0 +1,325 @@
+{
+  "format_version": 3,
+  "name": "Reference song",
+  "settings": {
+    "sample_rate": 48000,
+    "loop_range": {
+      "start": 4.0,
+      "end": 12.0
+    },
+    "count_in_bars": 1,
+    "punch_range": null,
+    "punch_enabled": false
+  },
+  "tempo_map": [
+    {
+      "beat": 0.0,
+      "bpm": 120.0,
+      "ramp": false
+    },
+    {
+      "beat": 16.0,
+      "bpm": 120.0,
+      "ramp": true
+    },
+    {
+      "beat": 32.0,
+      "bpm": 90.0,
+      "ramp": false
+    }
+  ],
+  "time_signature_map": [
+    {
+      "bar": 0,
+      "numerator": 4,
+      "denominator": 4
+    },
+    {
+      "bar": 8,
+      "numerator": 6,
+      "denominator": 8
+    }
+  ],
+  "tracks": [
+    {
+      "id": 4,
+      "name": "Vocals",
+      "color": 3368703,
+      "kind": "audio",
+      "strip": {
+        "settings": {
+          "gain_db": -3.5,
+          "pan": -0.25,
+          "mute": false,
+          "solo": false,
+          "solo_safe": false,
+          "invert_phase": false,
+          "output": "master"
+        },
+        "sends": [
+          {
+            "target": 1,
+            "level_db": -12.0,
+            "pre_fader": false
+          }
+        ],
+        "inserts": []
+      },
+      "instrument": null,
+      "input": null,
+      "monitor": "off"
+    },
+    {
+      "id": 6,
+      "name": "Keys",
+      "color": 52326,
+      "kind": "midi",
+      "strip": {
+        "settings": {
+          "gain_db": 0.0,
+          "pan": 0.0,
+          "mute": false,
+          "solo": false,
+          "solo_safe": false,
+          "invert_phase": false,
+          "output": {
+            "bus": 1
+          }
+        },
+        "sends": [],
+        "inserts": []
+      },
+      "instrument": 7,
+      "input": null,
+      "monitor": "off"
+    }
+  ],
+  "buses": [
+    {
+      "id": 1,
+      "name": "Drums",
+      "color": 16746496,
+      "strip": {
+        "settings": {
+          "gain_db": 0.0,
+          "pan": 0.0,
+          "mute": false,
+          "solo": false,
+          "solo_safe": false,
+          "invert_phase": false,
+          "output": "master"
+        },
+        "sends": [],
+        "inserts": [
+          2
+        ]
+      }
+    }
+  ],
+  "master": {
+    "settings": {
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "solo_safe": false,
+      "invert_phase": false,
+      "output": "master"
+    },
+    "sends": [],
+    "inserts": []
+  },
+  "clips": [
+    {
+      "id": 5,
+      "track": 4,
+      "name": "Verse",
+      "start": 4.0,
+      "length": 8.0,
+      "muted": false,
+      "content": {
+        "type": "audio",
+        "media": 3,
+        "source_offset": 1000,
+        "gain_db": -1.5,
+        "fade_in": 0.25,
+        "fade_out": 0.5,
+        "warp": {
+          "mode": "follow_tempo",
+          "source_bpm": 98.5,
+          "markers": [
+            {
+              "source_frame": 48000,
+              "beat": 2.0
+            },
+            {
+              "source_frame": 192000,
+              "beat": 7.5
+            }
+          ],
+          "transpose_semitones": -2.0
+        }
+      },
+      "take": null
+    },
+    {
+      "id": 10,
+      "track": 6,
+      "name": "Chords",
+      "start": 0.0,
+      "length": 16.0,
+      "muted": false,
+      "content": {
+        "type": "pattern",
+        "pattern": 9
+      },
+      "take": null
+    },
+    {
+      "id": 11,
+      "track": 6,
+      "name": "Lead",
+      "start": 16.0,
+      "length": 4.0,
+      "muted": true,
+      "content": {
+        "type": "midi",
+        "notes": [
+          {
+            "start": 0.5,
+            "length": 0.25,
+            "key": 72,
+            "velocity": 127
+          }
+        ],
+        "controllers": [
+          {
+            "beat": 1.0,
+            "controller": 1,
+            "value": 64
+          }
+        ]
+      },
+      "take": null
+    }
+  ],
+  "patterns": [
+    {
+      "id": 9,
+      "name": "Chords",
+      "color": 11141375,
+      "length": 4.0,
+      "notes": [
+        {
+          "start": 0.0,
+          "length": 1.0,
+          "key": 60,
+          "velocity": 100
+        },
+        {
+          "start": 1.0,
+          "length": 0.5,
+          "key": 64,
+          "velocity": 90
+        }
+      ]
+    }
+  ],
+  "media_pool": [
+    {
+      "id": 3,
+      "name": "Vocal take",
+      "path": "audio/3fa9c0de.wav",
+      "hash": "3fa9c0de",
+      "sample_rate": 48000,
+      "channels": 2,
+      "frames": 480000,
+      "tempo": 98.5,
+      "key": {
+        "tonic": 9,
+        "minor": true,
+        "confidence": 0.75
+      }
+    }
+  ],
+  "devices": [
+    {
+      "id": 2,
+      "kind": "builtin.compressor",
+      "name": "Compressor",
+      "enabled": true,
+      "params": {
+        "0": -18.0,
+        "1": 4.0
+      },
+      "state": [],
+      "sidechain": "master"
+    },
+    {
+      "id": 7,
+      "kind": "builtin.subtractive",
+      "name": "Synth",
+      "enabled": true,
+      "params": {
+        "2": 0.5
+      },
+      "state": [
+        {
+          "format": "builtin",
+          "data": "AAEC"
+        }
+      ],
+      "sidechain": null
+    }
+  ],
+  "automation": [
+    {
+      "id": 8,
+      "target": {
+        "type": "device",
+        "device": 7,
+        "param": 2
+      },
+      "points": [
+        {
+          "beat": 0.0,
+          "value": 0.1,
+          "curve": 0.0
+        },
+        {
+          "beat": 8.0,
+          "value": 0.9,
+          "curve": -0.5
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "id": 12,
+      "target": {
+        "type": "strip",
+        "strip": {
+          "track": 4
+        },
+        "param": "gain"
+      },
+      "points": [
+        {
+          "beat": 4.0,
+          "value": -6.0,
+          "curve": 0.0
+        }
+      ],
+      "enabled": false
+    }
+  ],
+  "markers": [
+    {
+      "id": 13,
+      "name": "Chorus",
+      "beat": 32.0,
+      "color": 16711680
+    }
+  ],
+  "next_id": 14
+}

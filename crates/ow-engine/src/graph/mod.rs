@@ -17,8 +17,8 @@ pub use builder::{Graph, GraphError};
 use crate::plan::Buffers;
 pub use crate::transport::{BlockTiming, Transport, TransportCommand};
 pub use runtime::{
-    AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiMessage, RecordSwapError,
-    SwapError, Telemetry, default_worker_count,
+    AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiMessage, PreviewSwapError,
+    RecordSwapError, SwapError, Telemetry, default_worker_count,
 };
 
 /// Largest block, in frames, a plan processes at once. Longer device buffers are split.

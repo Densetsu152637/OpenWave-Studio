@@ -97,6 +97,8 @@ impl Mix {
                     sample_rate: RATE,
                     channels,
                     frames: u64::from(RATE),
+                    tempo: None,
+                    key: None,
                 },
             })
             .unwrap();
@@ -138,6 +140,7 @@ impl Mix {
                             gain_db: 0.0,
                             fade_in: 0.0,
                             fade_out: 0.0,
+                            warp: None,
                         },
                         take: None,
                     }],

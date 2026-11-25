@@ -103,6 +103,8 @@ fn media_item(ed: &mut Editor, seed: u16) -> MediaItem {
         sample_rate: 48_000,
         channels: 1 + (seed % 2),
         frames: u64::from(seed) * 100,
+        tempo: None,
+        key: None,
     }
 }
 
@@ -117,6 +119,7 @@ fn clip_for(ed: &mut Editor, track: &Track, op: Op) -> Option<Clip> {
                 gain_db: -f64::from(op.c % 12),
                 fade_in: 0.0,
                 fade_out: f64::from(op.c % 4) * 0.25,
+                warp: None,
             }
         }
         TrackKind::Midi => {
@@ -596,6 +599,40 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
     })
 }
 
+/// The reference project with the version 3 fields set: a detected tempo and key on the media
+/// item and a warp with markers and a transposition on the audio clip (the v3 golden file).
+pub fn reference_project_v3() -> Project {
+    let mut project = reference_project();
+    for item in project.media_pool.values_mut() {
+        item.tempo = Some(98.5);
+        item.key = Some(KeyInfo {
+            tonic: 9,
+            minor: true,
+            confidence: 0.75,
+        });
+    }
+    for clip in project.clips.values_mut() {
+        if let ClipContent::Audio { warp, .. } = &mut clip.content {
+            *warp = Some(Warp {
+                mode: WarpMode::FollowTempo,
+                source_bpm: 98.5,
+                markers: vec![
+                    WarpMarker {
+                        source_frame: 48_000,
+                        beat: 2.0,
+                    },
+                    WarpMarker {
+                        source_frame: 192_000,
+                        beat: 7.5,
+                    },
+                ],
+                transpose_semitones: -2.0,
+            });
+        }
+    }
+    project
+}
+
 /// A project that uses every entity kind, with fixed ids (the committed golden file).
 pub fn reference_project() -> Project {
     let mut ed = Editor::new(Project::new("Reference song"));
@@ -680,6 +717,8 @@ pub fn reference_project() -> Project {
                 sample_rate: 48_000,
                 channels: 2,
                 frames: 480_000,
+                tempo: None,
+                key: None,
             },
         },
     );
@@ -729,6 +768,7 @@ pub fn reference_project() -> Project {
                     gain_db: -1.5,
                     fade_in: 0.25,
                     fade_out: 0.5,
+                    warp: None,
                 },
                 take: None,
             }),
