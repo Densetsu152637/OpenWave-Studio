@@ -20,7 +20,7 @@ use crate::validate::ValidationError;
 /// `tests/fixtures/vN+1/project.json`. A build refuses a file with a higher version
 /// ([`FormatError::TooNew`]) rather than reading it and silently dropping fields it does not
 /// know on the next save.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Largest `project.json` accepted, in bytes.
 pub const MAX_PROJECT_BYTES: usize = 64 * 1024 * 1024;

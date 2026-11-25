@@ -139,7 +139,7 @@ fn hardening_pre_migration_copy_is_kept_outside_the_rotation() {
         .expect("older file is preserved");
     let name = copy.file_name().unwrap().to_str().unwrap().to_owned();
     assert!(
-        name.starts_with("pre-migration-v1-") && name.ends_with(".json"),
+        name.starts_with(&format!("pre-migration-v{FORMAT_VERSION}-")) && name.ends_with(".json"),
         "{name}"
     );
     assert_eq!(fs::read(&copy).unwrap(), original);
@@ -163,7 +163,7 @@ fn hardening_pre_migration_copy_is_kept_outside_the_rotation() {
 fn hardening_older_builds_refuse_newer_files() {
     let mut text = String::from_utf8(to_json(&reference_project()).unwrap()).unwrap();
     text = text.replace(
-        "\"format_version\": 1",
+        &format!("\"format_version\": {FORMAT_VERSION}"),
         &format!("\"format_version\": {}", FORMAT_VERSION + 1),
     );
     assert!(matches!(
@@ -318,4 +318,26 @@ fn hardening_sidechain_cycles_are_refused() {
     looped.devices.get_mut(&synth).unwrap().sidechain = Some(MixerRef::Track(keys.id));
     assert!(looped.validate().is_err());
     assert!(to_json(&looped).is_err());
+}
+
+/// Saving over a v1 file keeps it byte for byte as `pre-migration-v1-*.json` first.
+#[test]
+fn hardening_a_v1_file_is_backed_up_before_the_first_v2_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let v1 = fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v1/project.json"),
+    )
+    .unwrap();
+    fs::write(dir.path().join("project.json"), &v1).unwrap();
+    let copy = bundle::preserve_old_version(dir.path(), FORMAT_VERSION)
+        .unwrap()
+        .expect("a v1 file is older than this build");
+    assert!(
+        copy.file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pre-migration-v1-")
+    );
+    assert_eq!(fs::read(copy).unwrap(), v1);
 }

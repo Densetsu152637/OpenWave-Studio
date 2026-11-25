@@ -18,8 +18,20 @@ pub type Migration = fn(&mut Value) -> Result<(), String>;
 pub const FIRST_VERSION: u32 = 1;
 
 /// The steps from [`FIRST_VERSION`] up to [`FORMAT_VERSION`]: entry `i` migrates version
-/// `FIRST_VERSION + i`. Empty while version 1 is current.
-pub const CHAIN: &[Migration] = &[];
+/// `FIRST_VERSION + i`.
+pub const CHAIN: &[Migration] = &[v1_to_v2];
+
+/// Version 2 adds the recording fields: a track's `input` and `monitor`, a clip's `take` and
+/// the settings' `punch_range` and `punch_enabled`. All have serde defaults that mean what a
+/// version 1 file implies (default input, no monitoring, no take, no punch), so nothing is
+/// rewritten; the step exists so the chain is complete and the version moves on.
+fn v1_to_v2(doc: &mut Value) -> Result<(), String> {
+    if doc.is_object() {
+        Ok(())
+    } else {
+        Err("not an object".into())
+    }
+}
 
 /// Migrates `value` from `from` to the current version using the built-in chain.
 pub fn migrate(value: &mut Value, from: u32) -> Result<(), FormatError> {

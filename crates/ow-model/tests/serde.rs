@@ -27,49 +27,48 @@ fn golden_v1() -> Vec<u8> {
     normalised.into_bytes()
 }
 
-/// `OW_UPDATE_GOLDEN=1 cargo test -p ow-model serde_golden_v1` rewrites the fixture. Never do
-/// that for a version that has shipped: the file is what old projects look like.
+/// The committed file of `version` with line endings normalised.
+fn golden(version: u32) -> Vec<u8> {
+    let text = std::fs::read_to_string(golden_path(version)).expect("golden file");
+    let mut normalised = text.lines().collect::<Vec<_>>().join("\n");
+    normalised.push('\n');
+    normalised.into_bytes()
+}
+
+/// The v1 file is what projects looked like before stage 14: it loads through the v1 to v2
+/// migration and equals the reference project. Never rewrite it.
 #[test]
-fn serde_golden_v1_loads() {
-    if std::env::var_os("OW_UPDATE_GOLDEN").is_some() {
-        let path = golden_path(1);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, to_json(&reference_project()).unwrap()).unwrap();
-    }
+fn serde_golden_v1_loads_through_migration() {
     let loaded = from_json(&golden_v1()).expect("the committed v1 file loads");
     assert_eq!(loaded, reference_project());
     assert_eq!(loaded.tracks.len(), 2);
     assert_eq!(loaded.devices.len(), 2);
     assert_eq!(loaded.clips.len(), 3);
-    // Reading the golden file and writing it again is stable once the fields added since the
-    // file was written (all with serde defaults, so the file still loads) are set aside.
-    let mut rewritten: Value = serde_json::from_slice(&to_json(&loaded).unwrap()).unwrap();
-    strip_recording_defaults(&mut rewritten);
-    let golden: Value = serde_json::from_slice(&golden_v1()).unwrap();
-    assert_eq!(rewritten, golden);
 }
 
-/// Removes the stage 14 fields (recording input, monitoring, takes, punch) when they hold
-/// their defaults, leaving what a file written before stage 14 contains.
-fn strip_recording_defaults(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            for (key, default) in [
-                ("input", json!(null)),
-                ("monitor", json!("off")),
-                ("take", json!(null)),
-                ("punch_range", json!(null)),
-                ("punch_enabled", json!(false)),
-            ] {
-                if map.get(key) == Some(&default) {
-                    map.remove(key);
-                }
-            }
-            map.values_mut().for_each(strip_recording_defaults);
-        }
-        Value::Array(items) => items.iter_mut().for_each(strip_recording_defaults),
-        _ => {}
+/// `OW_UPDATE_GOLDEN=1 cargo test -p ow-model serde_golden_v2` rewrites the fixture. Never do
+/// that for a version that has shipped: the file is what old projects look like.
+#[test]
+fn serde_golden_v2_loads_and_rewrites_identically() {
+    if std::env::var_os("OW_UPDATE_GOLDEN").is_some() {
+        let path = golden_path(2);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, to_json(&reference_project()).unwrap()).unwrap();
     }
+    let bytes = golden(2);
+    let loaded = from_json(&bytes).expect("the committed v2 file loads");
+    assert_eq!(loaded, reference_project());
+    assert_eq!(to_json(&loaded).unwrap(), bytes);
+    // A file the next version wrote is refused, not read with fields dropped.
+    let mut doc: Value = serde_json::from_slice(&bytes).unwrap();
+    doc["format_version"] = json!(3);
+    assert!(matches!(
+        from_json(doc.to_string().as_bytes()),
+        Err(FormatError::TooNew {
+            found: 3,
+            supported: 2
+        })
+    ));
 }
 
 /// A file written before stage 14 has none of its fields; it loads with the defaults and the
