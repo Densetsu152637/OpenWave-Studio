@@ -14,13 +14,24 @@
     transportPlay,
     transportStop,
   } from "./lib/arrange/playback";
+  import { commandsApi } from "./lib/arrange/edits";
   import { armedSet, canRecord, recordApi, startRecording } from "./lib/arrange/record";
+  import {
+    commitRange,
+    defaultLoop,
+    setSettings,
+    stopNotice,
+    withCountIn,
+    withPunchEnabled,
+  } from "./lib/record";
+  import type { BeatRange } from "./lib/ipc/types";
   import { SignatureMap, TempoMap } from "./lib/arrange/time";
   import {
     engineStatus,
     exportMix,
     exportWav,
     offlineStatus,
+    audioDevices,
     prefsGet,
     projectNew,
     projectOpen,
@@ -31,6 +42,7 @@
     type EngineStatus,
   } from "./lib/ipc";
   import { applyTheme } from "./lib/prefs";
+  import { inputChannelCount } from "./lib/record";
   import { modelMirror, telemetryStore, type MirrorState } from "./lib/stores";
 
   const POLL_MS = 500;
@@ -109,12 +121,61 @@
     }
   }
 
+  /** The loop range as it was before looping was turned off, so turning it on restores it. */
+  /** Channels of the input device, for the tracks' input selectors; null without one. */
+  let inputChannels = $state<number | null>(null);
+
+  async function refreshInputChannels() {
+    try {
+      const [snapshot, devices] = await Promise.all([prefsGet(), audioDevices()]);
+      inputChannels = inputChannelCount(devices, snapshot.prefs.audio);
+    } catch {
+      inputChannels = null;
+    }
+  }
+
+  let lastLoop: BeatRange | null = null;
+  const settings = $derived(mirror.project?.settings);
+
+  /** Runs a settings change as one undo step, reporting a failure. */
+  async function editSettings(change: () => Promise<unknown>) {
+    try {
+      await change();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  const setCountIn = (bars: number) =>
+    settings &&
+    editSettings(() => setSettings(commandsApi, "Set count-in", withCountIn(settings, bars)));
+
+  const togglePunch = () =>
+    settings &&
+    editSettings(() =>
+      setSettings(
+        commandsApi,
+        settings.punch_enabled ? "Punch off" : "Punch on",
+        withPunchEnabled(settings, !settings.punch_enabled),
+      ),
+    );
+
+  function toggleLoop() {
+    if (!settings) return;
+    const current = settings;
+    if (current.loop_range) lastLoop = current.loop_range;
+    const next = current.loop_range ? null : (lastLoop ?? defaultLoop(playheadBeat, signatures));
+    void editSettings(() => commitRange(commandsApi, current, "loop", next));
+  }
+
   async function stop() {
+    const wasRecording = recording;
     try {
       // While recording this also finishes the takes and adds them to the project.
       await transportStop();
     } catch (error) {
-      fail(error);
+      // After a recording this lists what went wrong; the takes that could be added were.
+      notice = stopNotice(error, wasRecording);
     } finally {
       // Whatever the engine is doing, Play must stay usable.
       acted();
@@ -174,6 +235,7 @@
 
   onMount(() => {
     void refresh();
+    void refreshInputChannels();
     // The project mirror: patches (including engine swap failures) arrive on its channel.
     const stopMirror = modelMirror.subscribe((state) => (mirror = state));
     void modelMirror.attach();
@@ -220,8 +282,15 @@
     onPlay={play}
     onRecord={record}
     onStop={stop}
+    countIn={settings?.count_in_bars ?? 0}
+    punchOn={settings?.punch_enabled ?? false}
+    punchSet={settings?.punch_range != null}
+    loopOn={settings?.loop_range != null}
+    onCountIn={setCountIn}
+    onPunch={togglePunch}
+    onLoop={toggleLoop}
   />
-  <Arrangement {mirror} {playheadBeat} {recording} onLocate={locate} onError={fail} />
+  <Arrangement {mirror} {playheadBeat} {recording} {inputChannels} onLocate={locate} onError={fail} />
   <StatusBar {status} engineError={mirror.history?.engineError ?? null} />
 </div>
 
@@ -233,7 +302,10 @@
 {/if}
 
 {#if settingsOpen}
-  <SettingsDialog initialTab={settingsTab} {status} onStatus={(next) => (status = next)} onClose={() => (settingsOpen = false)} />
+  <SettingsDialog initialTab={settingsTab} {status} onStatus={(next) => (status = next)} onClose={() => {
+      settingsOpen = false;
+      void refreshInputChannels();
+    }} />
 {/if}
 
 <style>
