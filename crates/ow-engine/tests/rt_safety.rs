@@ -540,7 +540,10 @@ fn the_record_tap_is_allocation_free() {
         SAMPLE_RATE as usize,
     )
     .unwrap();
-    let (set, shared) = ow_engine::RecordSet::new(vec![producer], 2, LATENCY);
+    let (set, shared) = ow_engine::RecordSet::new(
+        vec![ow_engine::RecordTrack::new(0, 2, vec![producer])],
+        LATENCY,
+    );
     let (mut link, mut core) = builder().build();
     link.swap_plan(plan(0).0).unwrap();
     link.swap_record(set).unwrap();
@@ -567,6 +570,114 @@ fn the_record_tap_is_allocation_free() {
     let stats = writer.finish().unwrap();
     assert_eq!(stats.frames, shared.captured());
     assert_eq!(stats.dropped_frames, 0);
+}
+
+/// Loop-take switching and input monitoring run under the allocation guard: a short loop wraps
+/// every few cycles while recording (each wrap moves the tap to the next take's producer, the
+/// ones past the prepared takes are dropped and counted), a monitoring track plays two of the
+/// input's channels through its strip, and the count-in is audible through the metronome.
+#[test]
+fn loop_take_switching_and_input_monitoring_are_allocation_free() {
+    use ow_engine::{RecordSet, RecordTrack};
+    use ow_model::{InputChannels, MonitorMode, TrackInput};
+
+    const FRAMES: usize = 64;
+    const PASSES: usize = 3;
+    let mut editor = Editor::new(Project::new("monitor"));
+    let track = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::InsertTrack {
+            index: 0,
+            bundle: Box::new(Owned::new(Track {
+                id: track,
+                name: "vox".into(),
+                color: 0,
+                kind: TrackKind::Audio,
+                strip: Strip::default(),
+                instrument: None,
+                input: Some(TrackInput {
+                    channels: InputChannels::Stereo(1),
+                }),
+                monitor: MonitorMode::On,
+            })),
+        })
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    // Four input channels; the loop is a quarter of a beat (6000 frames at 120 BPM), so the
+    // tap wraps every 93 cycles or so.
+    let ctx = CompileContext::new(dir.path()).for_live(4);
+    let compiled =
+        compile_project_metered(editor.project(), &ctx, SAMPLE_RATE, MAX_BLOCK, None).unwrap();
+    assert!(compiled.nodes.get(NodeKey::Monitor(track)).is_some());
+    assert!(compiled.nodes.get(NodeKey::Metronome).is_some());
+
+    let mut writers = Vec::new();
+    let mut producers = Vec::new();
+    for pass in 0..PASSES {
+        let (writer, producer) = ow_media::RecordWriter::start(
+            &dir.path().join(format!("take-{pass}.wav")),
+            2,
+            SAMPLE_RATE,
+            SAMPLE_RATE as usize,
+        )
+        .unwrap();
+        writers.push(writer);
+        producers.push(producer);
+    }
+    let (set, shared) = RecordSet::new(vec![RecordTrack::new(1, 2, producers)], 0);
+    let (mut link, mut core) = builder().build();
+    link.swap_timeline(compiled.timeline).unwrap();
+    link.swap_plan(compiled.plan).unwrap();
+    link.swap_record(set).unwrap();
+    for command in [
+        TransportCommand::SetLoop {
+            enabled: true,
+            start_beats: 0.0,
+            end_beats: 0.25,
+        },
+        TransportCommand::SetMetronome {
+            enabled: false,
+            count_in_bars: 1,
+        },
+        TransportCommand::SetRecordArm(true),
+        TransportCommand::Play,
+    ] {
+        assert!(link.send(Message::Transport(command)));
+    }
+
+    let mut output = vec![0.0_f32; FRAMES * 2];
+    let input = vec![0.25_f32; FRAMES * 4];
+    let mut peak = 0.0_f32;
+    // A bar of count-in at 120 BPM is 96000 frames, then five loop passes of 6000 frames.
+    let cycles = (96_000 + 5 * 6_000) / FRAMES + 8;
+    for cycle in 0..cycles {
+        core.process(&mut output, 2, Some(&input));
+        if cycle > 4 {
+            peak = peak.max(output.iter().fold(0.0, |m, s| m.max(s.abs())));
+        }
+        if cycle == 10 {
+            assert!(!shared.started(), "nothing is recorded during the count-in");
+        }
+    }
+    assert!(
+        peak > 0.2,
+        "the monitored input and the clicks are audible: {peak}"
+    );
+    assert!(shared.started());
+    assert_eq!(shared.passes(), PASSES);
+    // Six passes began (the last one partly); three had no take to go to.
+    assert_eq!(shared.dropped_passes(), 3);
+    for pass in 0..PASSES {
+        assert_eq!(shared.pass_captured(pass), 6_000, "pass {pass}");
+    }
+    assert!(link.send(Message::EndRecording));
+    core.process(&mut output, 2, Some(&input));
+    link.collect_retired();
+    for (pass, writer) in writers.into_iter().enumerate() {
+        let stats = writer.finish().unwrap();
+        assert_eq!(stats.frames, shared.pass_captured(pass));
+        assert_eq!(stats.dropped_frames, 0);
+    }
 }
 
 /// The MIDI-clip player, the synth and the three built-in effects as inserts run under the

@@ -8,8 +8,10 @@
 use std::cell::UnsafeCell;
 use std::ptr::NonNull;
 use std::slice;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::graph::input::InputBus;
 use crate::graph::{Inputs, MidiMessage, Node, NodeId, Outputs, ProcessContext};
 use crate::sched::dag::{Dag, Pop};
 use crate::transport::{BlockCore, BlockTiming, Timeline};
@@ -130,6 +132,8 @@ pub(crate) struct PlanData {
     /// Latency from the sources to the master output after delay compensation.
     pub(crate) output_latency: u32,
     pub(crate) dag: Dag,
+    /// The device input the plan's monitor nodes read; `None` when no node monitors.
+    pub(crate) input: Option<Arc<InputBus>>,
     /// Block parameters of the current cycle, published by `Dag::begin`.
     frames: AtomicUsize,
     block: BlockSlot,
@@ -160,6 +164,7 @@ impl PlanData {
             master,
             output_latency,
             dag,
+            input: None,
             frames: AtomicUsize::new(0),
             block: BlockSlot(UnsafeCell::new(None)),
         }
@@ -257,6 +262,26 @@ impl PlanData {
         planned.node.process(&mut ctx);
     }
 
+    /// Hands the plan this chunk's device input (`frames` frames, `in_channels` interleaved
+    /// channels; `None` for silence) for its monitor nodes. Does nothing when no node monitors.
+    ///
+    /// # Safety
+    ///
+    /// Audio thread only, between cycles (no node is running).
+    pub(crate) unsafe fn feed_input(&self, input: Option<(&[f32], usize)>, frames: usize) {
+        let Some(bus) = &self.input else {
+            return;
+        };
+        match input {
+            // SAFETY: forwarded from this function's contract.
+            Some((interleaved, in_channels)) if in_channels > 0 => unsafe {
+                bus.write(interleaved, in_channels, frames);
+            },
+            // SAFETY: as above.
+            _ => unsafe { bus.clear(frames) },
+        }
+    }
+
     /// Routes a parameter change to a node; false when the node is not in this plan.
     ///
     /// # Safety
@@ -336,6 +361,13 @@ impl RenderPlan {
         Self {
             data: NonNull::from(Box::leak(Box::new(data))),
         }
+    }
+
+    /// Gives the plan the bus its monitor nodes read (called once, before the plan is sent).
+    pub(crate) fn set_input_bus(&mut self, bus: Arc<InputBus>) {
+        // SAFETY: the plan has not been shared yet (the caller owns it exclusively), and `data`
+        // came from `Box::leak` in `new`.
+        unsafe { self.data.as_mut() }.input = Some(bus);
     }
 
     /// Shared view of the plan's data.

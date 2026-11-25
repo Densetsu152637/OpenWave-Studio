@@ -8,6 +8,7 @@
 
 mod builder;
 pub mod clip;
+pub mod input;
 pub mod nodes;
 mod runtime;
 

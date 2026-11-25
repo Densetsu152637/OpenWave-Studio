@@ -17,7 +17,9 @@ use crate::rings::{ProducerRing, RingSender, producer_ring};
 use crate::sched::AbortOnPanic;
 use crate::sched::denormal::DenormalGuard;
 use crate::sched::pool::{Pool, PoolConfig, Shared};
-use crate::transport::{Timeline, TimelineSwapError, Transport, TransportCommand, TransportState};
+use crate::transport::{
+    BlockTiming, Timeline, TimelineSwapError, Transport, TransportCommand, TransportState,
+};
 use crate::workgroup::AudioWorkgroup;
 
 /// Capacity of the timeline ring (and, plus two, of its retire ring).
@@ -26,6 +28,10 @@ const TIMELINE_QUEUE: usize = 4;
 /// Capacity of the record-set ring (and, plus two, of its retire ring): at most one recording is
 /// live, so a few slots are plenty.
 const RECORD_QUEUE: usize = 2;
+
+/// Sample rate assumed for the block timing of a cycle that has no plan (only the frame
+/// positions matter to the record tap, not the rate).
+const NO_PLAN_RATE: u32 = 48_000;
 
 /// Largest worker count [`CoreBuilder::workers`] accepts.
 pub const MAX_WORKERS: usize = 64;
@@ -514,8 +520,8 @@ impl AudioCore {
     ///
     /// `input` is the device's interleaved input audio for this cycle (same frame count as
     /// `out`), or `None` when there is none. While the transport is recording and a
-    /// [`RecordSet`] is installed, the input is pushed into its takes (see [`crate::record`]);
-    /// otherwise it is ignored.
+    /// [`RecordSet`] is installed, the input is pushed into its takes (see [`crate::record`]),
+    /// and the plan's input monitors play the channels they route; otherwise it is ignored.
     pub fn process(&mut self, out: &mut [f32], channels: usize, input: Option<&[f32]>) {
         // A panicking node aborts the process rather than leaving workers and the device
         // callback in an inconsistent cycle.
@@ -537,21 +543,56 @@ impl AudioCore {
         out.fill(0.0);
         let channels = channels.max(1);
         let total = out.len() / channels;
-        self.capture_input(total, input);
+        // The input with its channels per frame; 0 channels marks a buffer that is not a whole
+        // number of frames (counted as skipped when recording, not monitored).
+        let input = input.map(|buffer| {
+            let per_frame = if total > 0 && buffer.len() % total == 0 {
+                buffer.len() / total
+            } else {
+                0
+            };
+            (buffer, per_frame)
+        });
+        let chunk_of = |done: usize, frames: usize| {
+            input.map(|(buffer, per_frame)| {
+                if per_frame == 0 {
+                    (buffer, 0)
+                } else {
+                    (
+                        &buffer[done * per_frame..(done + frames) * per_frame],
+                        per_frame,
+                    )
+                }
+            })
+        };
         let mut done = 0;
         while done < total {
             let Some(plan) = self.current.as_deref() else {
-                // No plan: silence, but keep the transport moving.
-                let block = self.transport.begin_block(total - done);
+                // No plan: silence, but keep the transport moving (and the recording running).
+                let frames = total - done;
+                let block = self.transport.begin_block(frames);
+                if let Some(set) = self.record.as_deref_mut() {
+                    let timing = BlockTiming::new(block, &self.timeline, NO_PLAN_RATE);
+                    set.tap(timing, chunk_of(done, frames));
+                }
                 self.transport.end_block(&block, &self.timeline);
                 break;
             };
             let data = plan.data();
             let frames = (total - done).min(data.max_block);
             let block = self.transport.begin_block(frames);
-            // SAFETY: this is the audio thread and the previous cycle of this plan finished;
-            // `self.timeline` is replaced only between cycles, so it outlives this one.
-            unsafe { data.begin_cycle(frames, block, &self.timeline) };
+            let chunk = chunk_of(done, frames);
+            if let Some(set) = self.record.as_deref_mut() {
+                let timing = BlockTiming::new(block, &self.timeline, data.sample_rate);
+                set.tap(timing, chunk);
+            }
+            // SAFETY: this is the audio thread and the previous cycle of this plan finished
+            // (no node runs); `self.timeline` is replaced only between cycles, so it outlives
+            // this one.
+            unsafe {
+                data.feed_input(chunk, frames);
+                data.begin_cycle(frames, block, &self.timeline);
+            }
             self.pool.wake();
             let ran = data.work(|| false);
             data.finish();
@@ -663,24 +704,6 @@ impl AudioCore {
         {
             self.pending_retire_record = Some(set);
         }
-    }
-
-    /// The input tap: while the transport is recording, pushes this cycle's input into the
-    /// recording's takes. Allocation free.
-    fn capture_input(&mut self, frames: usize, input: Option<&[f32]>) {
-        let (Some(set), Some(input)) = (self.record.as_deref_mut(), input) else {
-            return;
-        };
-        let transport = self.transport.summary();
-        if frames == 0 || !transport.recording || set.is_ended() {
-            return;
-        }
-        if input.len() % frames != 0 {
-            // Counted, so the stop reports the loss instead of a silently short take.
-            set.skip_frames(frames);
-            return;
-        }
-        set.capture(transport.position, input, input.len() / frames);
     }
 
     fn drain_rings(&mut self) {

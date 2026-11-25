@@ -118,6 +118,12 @@ jobs:
       - name: Telemetry budget (release)
         timeout-minutes: 10
         run: cargo test -p ow-ipc --locked --release telemetry_budget
+      # Recording stage 14: 16 input tracks for ten simulated minutes with every writer thread
+      # running; no ring may overrun. It writes about 1.8 GB of WAV, so Linux only.
+      - name: Sustained recording (release)
+        if: runner.os == 'Linux'
+        timeout-minutes: 15
+        run: cargo test -p ow-engine --locked --release --test record_loopback sustained
       # Track-count benchmark: tracked for trends, timings are not gated.
       - name: Track-count benchmark
         if: runner.os == 'Linux'

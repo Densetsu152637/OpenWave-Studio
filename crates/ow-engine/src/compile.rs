@@ -65,8 +65,8 @@ use std::sync::Arc;
 use ow_dsp::DeviceInfo;
 use ow_media::MemorySource;
 use ow_model::{
-    AuxSend, BusId, Clip, ClipContent, ClipId, Device, DeviceId, MediaId, MixerRef, Output,
-    Project, Strip, Track, TrackId, ValidationError,
+    AuxSend, BusId, Clip, ClipContent, ClipId, Device, DeviceId, InputChannels, MediaId, MixerRef,
+    MonitorMode, Output, Project, Strip, Track, TrackId, TrackKind, ValidationError,
 };
 use ow_plugin_host::{PluginCache, PluginDevice, decode_state, is_plugin_kind};
 
@@ -76,8 +76,9 @@ use crate::clips::SourceCache;
 use crate::clips::midi::{MidiClipPlayer, schedule};
 use crate::device::DeviceNode;
 use crate::graph::clip::{ClipPlacement, ClipSourceNode};
+use crate::graph::input::{ArmedTracks, InputBus, InputMonitorNode};
 use crate::graph::nodes::{GainNode, PanNode};
-use crate::{Graph, GraphError, NodeId, RenderPlan, Timeline};
+use crate::{Graph, GraphError, MetronomeNode, NodeId, RenderPlan, Timeline};
 
 /// What the compiler needs besides the project to play its audio clips.
 #[derive(Debug, Clone, Default)]
@@ -91,6 +92,15 @@ pub struct CompileContext {
     /// The hosted plugin instances, by device id, shared by every compile with this context.
     /// `None` means no plugin can be hosted: devices of plugin kinds compile as unknown kinds.
     pub plugins: Option<PluginCache>,
+    /// Input channels the live stream delivers; a track that monitors its input gets an input
+    /// node only when this is above 0. The live engine sets it ([`for_live`](Self::for_live)).
+    pub input_channels: u16,
+    /// The tracks armed for recording; a track in automatic monitoring plays its input only
+    /// while armed.
+    pub armed: ArmedTracks,
+    /// Whether the plan carries the metronome (the live engine's does, so count-in clicks and
+    /// the metronome sound; offline renders have none).
+    pub metronome: bool,
 }
 
 impl CompileContext {
@@ -100,6 +110,19 @@ impl CompileContext {
             media_root: media_root.into(),
             sources: SourceCache::new(),
             plugins: None,
+            input_channels: 0,
+            armed: ArmedTracks::default(),
+            metronome: false,
+        }
+    }
+
+    /// The same context for the live stream: `input_channels` input channels, the metronome in
+    /// the plan.
+    pub fn for_live(&self, input_channels: u16) -> Self {
+        Self {
+            input_channels,
+            metronome: true,
+            ..self.clone()
         }
     }
 
@@ -117,6 +140,9 @@ impl CompileContext {
             media_root: self.media_root.clone(),
             sources: self.sources.clone(),
             plugins: self.plugins.as_ref().map(PluginCache::fork),
+            input_channels: 0,
+            armed: ArmedTracks::default(),
+            metronome: false,
         }
     }
 }
@@ -134,6 +160,10 @@ pub enum NodeKey {
     Fader(MixerRef),
     /// A strip's pan or balance stage (absent when it would be unity).
     Pan(MixerRef),
+    /// A track's input monitor: the routed input channels playing through the strip.
+    Monitor(TrackId),
+    /// The metronome (count-in and click), present in the live engine's plan.
+    Metronome,
     /// The unity input stage of a bus or master that has no source or inserts but needs a node
     /// before its pan stage or pre-fader sends.
     Input(MixerRef),
@@ -426,12 +456,20 @@ fn compile_inner(
         project.time_signature_map.clone(),
     );
     let mut missing = BTreeSet::new();
+    // The device input is read by the plan's monitor nodes: one bus when any track monitors.
+    let monitors = ctx.input_channels > 0
+        && project
+            .tracks
+            .iter()
+            .any(|t| t.kind == TrackKind::Audio && t.monitor != MonitorMode::Off);
+    let bus = monitors.then(|| Arc::new(InputBus::new(usize::from(ctx.input_channels), max_block)));
     let mut clips = ClipEnv {
         ctx,
         timeline: &timeline,
         sample_rate,
         max_block,
         missing: &mut missing,
+        bus: bus.clone(),
     };
 
     let shared = Shared {
@@ -495,6 +533,16 @@ fn compile_inner(
         graph.connect(nodes_of.fader, 0, dest, 0)?;
         graph.connect(nodes_of.fader, 1, dest, 1)?;
     }
+    if ctx.metronome {
+        let click = add(
+            &mut graph,
+            NodeKey::Metronome,
+            Box::<MetronomeNode>::default(),
+        );
+        let dest = built[&MixerRef::Master].entry;
+        graph.connect(click, 0, dest, 0)?;
+        graph.connect(click, 0, dest, 1)?;
+    }
     graph.set_master(built[&tap].fader)?;
 
     for (_, target) in &strips {
@@ -527,7 +575,10 @@ fn compile_inner(
         }
     }
 
-    let plan = graph.compile(sample_rate, max_block)?;
+    let mut plan = graph.compile(sample_rate, max_block)?;
+    if let Some(bus) = bus {
+        plan.set_input_bus(bus);
+    }
     if let Some(plugins) = &ctx.plugins {
         // Plugin instances of devices that left the project (or changed kind) are released.
         let live = project
@@ -563,6 +614,8 @@ struct ClipEnv<'a> {
     max_block: usize,
     /// Media that could not be loaded, collected across tracks.
     missing: &'a mut BTreeSet<MediaId>,
+    /// The device input bus, when some track monitors.
+    bus: Option<Arc<InputBus>>,
 }
 
 /// Adds a [`ClipSourceNode`] for `clip` and wires it into the track's summing node `sum`.
@@ -586,6 +639,10 @@ fn add_audio_clip(
     else {
         return false;
     };
+    // An inactive take is not played (it is not even loaded).
+    if clip.take.is_some_and(|take| !take.active) {
+        return false;
+    }
     // The model guarantees the media exists (`validate`).
     let Some(item) = project.media_pool.get(media).filter(|_| !clip.muted) else {
         return false;
@@ -655,6 +712,25 @@ fn add_audio_clip(
         .and_then(|()| graph.connect(node, right, sum, 1));
     debug_assert!(wired.is_ok());
     channels > 1
+}
+
+/// The monitor node of `track` and whether it carries a stereo pair, when the track monitors
+/// its input and the stream has one: the routed channels (by default channel 0, or 0 and 1 on a
+/// device with at least two), gated by the arm flag in automatic mode.
+fn monitor_node(env: &ClipEnv<'_>, track: &Track) -> Option<(Box<dyn crate::Node>, bool)> {
+    let bus = env.bus.as_ref()?;
+    let gate = match track.monitor {
+        MonitorMode::Off => return None,
+        MonitorMode::Auto => Some(env.ctx.armed.flag(track.id)),
+        MonitorMode::On => None,
+    };
+    let (first, stereo) = match track.input.map(|input| input.channels) {
+        Some(InputChannels::Mono(first)) => (first, false),
+        Some(InputChannels::Stereo(first)) => (first, true),
+        None => (0, bus.channels() >= 2),
+    };
+    let node = InputMonitorNode::new(Arc::clone(bus), usize::from(first), stereo, gate);
+    Some((Box::new(node), stereo))
 }
 
 type AddNode<'a> = dyn FnMut(&mut Graph, NodeKey, Box<dyn crate::Node>) -> NodeId + 'a;
@@ -815,11 +891,19 @@ fn build_strip(
                 .values()
                 .filter(|c| c.track == id && matches!(c.content, ClipContent::Audio { .. }))
                 .collect();
-            if !own.is_empty() {
+            let monitor = monitor_node(env, track);
+            if !own.is_empty() || monitor.is_some() {
                 let sum = add(graph, NodeKey::Clips(id), Box::new(GainNode::new(2, 1.0)));
                 let mut stereo = false;
                 for clip in own {
                     stereo |= add_audio_clip(graph, add, env, project, clip, sum);
+                }
+                if let Some((node, stereo_input)) = monitor {
+                    let node = add(graph, NodeKey::Monitor(id), node);
+                    // Both ends were just added as stereo nodes, so connecting cannot fail.
+                    let wired = connect_stereo(graph, node, sum);
+                    debug_assert!(wired.is_ok());
+                    stereo |= stereo_input;
                 }
                 mono_source = !stereo;
                 source = Some(sum);

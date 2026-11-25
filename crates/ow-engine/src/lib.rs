@@ -47,6 +47,7 @@ pub use compile::{
 };
 pub use device::{DeviceNode, MAX_EVENTS_PER_BLOCK};
 pub use graph::clip::{ClipPlacement, ClipSourceNode};
+pub use graph::input::{ArmedTracks, InputBus, InputMonitorNode};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, PanNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
@@ -60,7 +61,8 @@ pub use offline::OfflineRenderer;
 pub use pdc::DelayNode;
 pub use plan::RenderPlan;
 pub use record::{
-    FinishedTake, RecordError, RecordSet, RecordShared, Recording, Stopped, TakeFailure,
+    FinishedTake, MAX_LOOP_TAKES, RecordError, RecordPlan, RecordSet, RecordShared, RecordTrack,
+    Recording, Stopped, TakeFailure, TrackTakes,
 };
 pub use rings::{ProducerRing, RingSender, producer_ring};
 pub use transport::{
@@ -489,22 +491,30 @@ impl Engine {
         send_message(live, Message::Transport(command))
     }
 
-    /// Starts recording one take per `(track, wav path)`: creates the files, hands the record
-    /// tap to the audio thread, and arms and starts the transport from where it is. The takes
-    /// are 32-bit float WAVs at the stream's sample rate, mono when the input has one channel
-    /// and stereo (input channels 0 and 1) otherwise. Fails when no stream or no input is open,
-    /// when `takes` is empty, or when a file cannot be created. See [`record`] for how takes are
-    /// placed. Runs on the control thread; creates files and threads.
+    /// Starts recording one take per `(track, wav path)` on the default input with no loop,
+    /// punch or count-in; see [`start_recording_plan`](Self::start_recording_plan).
     pub fn start_recording(&self, takes: &[(TrackId, PathBuf)]) -> Result<Recording, RecordError> {
+        self.start_recording_plan(&RecordPlan::simple(takes))
+    }
+
+    /// Starts recording `plan`: creates the take files, hands the record tap to the audio
+    /// thread, sets the transport's loop, punch and count-in for the recording, and arms and
+    /// starts the transport from where it is. The takes are 32-bit float WAVs at the stream's
+    /// sample rate, mono or stereo as each track's input says (by default mono on a one-channel
+    /// input and channels 0 and 1 on a wider one). Fails when no stream or no input is open,
+    /// when `plan` has no takes, when a track's channels are not on the input device, or when
+    /// a file cannot be created. See [`record`] for how takes are placed. Runs on the control
+    /// thread; creates files and threads.
+    pub fn start_recording_plan(&self, plan: &RecordPlan) -> Result<Recording, RecordError> {
         let mut guard = lock(&self.live);
         let live = guard.as_mut().ok_or(RecordError::NoStream)?;
         if live.input_channels == 0 {
             return Err(RecordError::NoInput);
         }
         let (recording, set) = Recording::begin(
-            takes,
+            &plan.tracks,
             live.sample_rate,
-            live.input_channels.min(2),
+            live.input_channels,
             live.latency_frames,
         )?;
         let mut pending = set;
@@ -520,7 +530,36 @@ impl Engine {
                 }
             }
         }
+        // Loop, punch and count-in first, then arm and play, so the count-in sees them all.
+        let (loop_on, (loop_start, loop_end)) = match plan.loop_beats {
+            Some(range) => (true, range),
+            None => (false, (0.0, 0.0)),
+        };
+        let (punch_on, (punch_in, punch_out)) = match plan.punch_beats {
+            Some(range) => (true, range),
+            None => (false, (0.0, 0.0)),
+        };
         let started = send_message(
+            live,
+            Message::Transport(TransportCommand::SetLoop {
+                enabled: loop_on,
+                start_beats: loop_start,
+                end_beats: loop_end,
+            }),
+        ) && send_message(
+            live,
+            Message::Transport(TransportCommand::SetPunch {
+                enabled: punch_on,
+                in_beats: punch_in,
+                out_beats: punch_out,
+            }),
+        ) && send_message(
+            live,
+            Message::Transport(TransportCommand::SetMetronome {
+                enabled: false,
+                count_in_bars: plan.count_in_bars,
+            }),
+        ) && send_message(
             live,
             Message::Transport(TransportCommand::SetRecordArm(true)),
         ) && send_message(live, Message::Transport(TransportCommand::Play));
@@ -531,6 +570,7 @@ impl Engine {
                 live,
                 Message::Transport(TransportCommand::SetRecordArm(false)),
             );
+            reset_recording_transport(live);
             return Err(RecordError::Busy);
         }
         Ok(recording)
@@ -538,9 +578,10 @@ impl Engine {
 
     /// Stops the transport, ends `recording` and finishes its take files. The audio thread
     /// confirms it will push no more frames before the files are finished, so each take holds
-    /// every frame that was captured ([`RecordShared::captured`]). Waits up to
+    /// every frame that was captured in its pass ([`RecordShared::pass_captured`]). Waits up to
     /// [`STOP_WAIT`] for that confirmation (an audio stream that was closed meanwhile counts as
-    /// confirmed); [`Stopped::complete`] is false when it did not arrive.
+    /// confirmed); [`Stopped::complete`] is false when it did not arrive. The loop, punch and
+    /// count-in the recording set are cleared.
     pub fn stop_recording(&self, recording: Recording) -> Result<Stopped, RecordError> {
         {
             let mut guard = lock(&self.live);
@@ -551,6 +592,7 @@ impl Engine {
                     Message::Transport(TransportCommand::SetRecordArm(false)),
                 );
                 send_message(live, Message::EndRecording);
+                reset_recording_transport(live);
             }
         }
         let deadline = Instant::now() + STOP_WAIT;
@@ -568,11 +610,13 @@ impl Engine {
             live.control.collect_retired();
         }
         let complete = complete && recording.shared.skipped() == 0;
+        let dropped_passes = recording.shared.dropped_passes();
         let (takes, failures) = recording.finish();
         Ok(Stopped {
             takes,
             complete,
             failures,
+            dropped_passes,
         })
     }
 
@@ -594,6 +638,33 @@ impl Engine {
     pub fn cpu_load(&self) -> f32 {
         f32::from_bits(self.shared.cpu.load(Ordering::Relaxed))
     }
+}
+
+/// Clears the loop, punch range and count-in a recording set on the transport.
+fn reset_recording_transport(live: &mut Live) {
+    send_message(
+        live,
+        Message::Transport(TransportCommand::SetLoop {
+            enabled: false,
+            start_beats: 0.0,
+            end_beats: 0.0,
+        }),
+    );
+    send_message(
+        live,
+        Message::Transport(TransportCommand::SetPunch {
+            enabled: false,
+            in_beats: 0.0,
+            out_beats: 0.0,
+        }),
+    );
+    send_message(
+        live,
+        Message::Transport(TransportCommand::SetMetronome {
+            enabled: false,
+            count_in_bars: 0,
+        }),
+    );
 }
 
 /// Sends one control message to the audio thread, retrying briefly while its ring is full.
@@ -625,7 +696,8 @@ fn install_project(
     if let Some(pending) = live.pending_timeline.take() {
         live.pending_timeline = send_timeline(&mut live.control, pending);
     }
-    let compiled = compile_project_metered(&project, ctx, live.sample_rate, MAX_BLOCK, Some(bank))
+    let ctx = ctx.for_live(live.input_channels);
+    let compiled = compile_project_metered(&project, &ctx, live.sample_rate, MAX_BLOCK, Some(bank))
         .map_err(ProjectError::Compile)?;
     let Compiled {
         mut plan,
@@ -680,12 +752,14 @@ fn first_plan(
     link: &mut ControlLink,
     wanted: Option<&Wanted>,
     sample_rate: u32,
+    input_channels: u16,
     bank: &Arc<TelemetryBank>,
 ) -> Result<(Option<NodeId>, NodeMap, NodeId), String> {
     match wanted {
         Some(Wanted { project, ctx }) => {
+            let ctx = ctx.for_live(input_channels);
             let compiled =
-                compile_project_metered(project, ctx, sample_rate, MAX_BLOCK, Some(bank))
+                compile_project_metered(project, &ctx, sample_rate, MAX_BLOCK, Some(bank))
                     .map_err(|error| error.to_string())?;
             let target = compiled
                 .nodes
@@ -726,31 +800,36 @@ fn make_callback(
     let control_surface = builder.producer_ring(MIDI_RING_CAPACITY);
     let (mut link, mut core) = builder.build();
     let telemetry = Arc::clone(link.telemetry());
-    let started = first_plan(&mut link, wanted.as_ref(), info.sample_rate, &bank).map(
-        |(tone_node, nodes, target)| {
-            (
-                Live {
-                    telemetry: Arc::clone(&telemetry),
-                    control: link,
-                    tone_node,
-                    nodes,
-                    project: wanted.as_ref().map(|w| Arc::clone(&w.project)),
-                    sample_rate: info.sample_rate,
-                    input_channels: info.input_channels,
-                    latency_frames: info.latency_frames,
-                    pending_timeline: None,
-                },
-                MidiRings {
-                    pool,
-                    control_surface,
-                    // Until the MIDI stages route to instruments, MIDI goes to a node that
-                    // ignores it (the tone, or the master fader); the ring path and counters
-                    // are exercised end to end.
-                    target,
-                },
-            )
-        },
-    );
+    let started = first_plan(
+        &mut link,
+        wanted.as_ref(),
+        info.sample_rate,
+        info.input_channels,
+        &bank,
+    )
+    .map(|(tone_node, nodes, target)| {
+        (
+            Live {
+                telemetry: Arc::clone(&telemetry),
+                control: link,
+                tone_node,
+                nodes,
+                project: wanted.as_ref().map(|w| Arc::clone(&w.project)),
+                sample_rate: info.sample_rate,
+                input_channels: info.input_channels,
+                latency_frames: info.latency_frames,
+                pending_timeline: None,
+            },
+            MidiRings {
+                pool,
+                control_surface,
+                // Until the MIDI stages route to instruments, MIDI goes to a node that
+                // ignores it (the tone, or the master fader); the ring path and counters
+                // are exercised end to end.
+                target,
+            },
+        )
+    });
     let _ = started_tx.send(started);
     let sample_rate = info.sample_rate.max(1) as f32;
     let channels = usize::from(info.output_channels).max(1);
