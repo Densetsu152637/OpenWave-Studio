@@ -1,6 +1,7 @@
 //! Media for OpenWave Studio (architecture section 11): import, peak pyramids, disk streaming
-//! and the recording writer. This crate depends on no other OpenWave crate; `ow-engine` depends
-//! on it for its clip source node.
+//! and the recording writer. This crate depends on no other OpenWave crate except `ow-dsp` (for
+//! the library's tempo and key analysis and in-tempo previews); `ow-engine` depends on it for its
+//! clip source node.
 //!
 //! * [`import`]: decode WAV, AIFF, FLAC, MP3 and Ogg Vorbis with symphonia, resample to the
 //!   project rate with rubato and copy into the bundle as a content-hash-named 32-bit float WAV
@@ -12,6 +13,8 @@
 //!   thread fills lock-free blocks ahead of the playhead; an underrun yields silence and bumps
 //!   a counter).
 //! * [`record`]: [`RecordWriter`], a hound-based writer fed from a lock-free ring.
+//! * [`library`]: the loop and sample browser's index (recursive folder scan, tempo and key
+//!   detection, tags from names, a versioned JSON cache, search) and in-tempo previews.
 //!
 //! # Realtime rules
 //!
@@ -21,6 +24,7 @@
 
 pub mod analysis;
 pub mod import;
+pub mod library;
 pub mod peaks;
 pub mod record;
 pub mod source;

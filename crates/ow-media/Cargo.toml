@@ -8,8 +8,11 @@ description = "Media import, peak pyramids, disk streaming and recording for Ope
 
 [dependencies]
 hound = "3.5.1"
+ow-dsp = { path = "../ow-dsp" }
 rtrb = "0.4.1"
 rubato = { version = "5.1.0", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 sha2 = "0.10"
 # Permissive-only codec set (all MPL-2.0 file-level); no AAC/ALAC/MKV/ADPCM.
 symphonia = { version = "0.6.1", default-features = false, features = ["wav", "aiff", "flac", "mp3", "ogg", "vorbis", "pcm", "id3v1", "id3v2"] }
