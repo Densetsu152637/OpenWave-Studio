@@ -24,6 +24,9 @@ export interface DropGeometry {
   left: number;
   /** Top edge of the scroller. */
   top: number;
+  /** Size of the scroller; a drop outside it is not ours. */
+  width: number;
+  height: number;
   scrollTop: number;
   /** Width of the track headers; the lanes start after it. */
   headerPx: number;
@@ -40,8 +43,8 @@ export interface DropTarget {
 }
 
 /**
- * The track and the beat under a drop at (`x`, `y`). Null above the first track (ruler and
- * markers). A MIDI track is refused (`"midi"`): audio only. Below the last track the drop creates
+ * The track and the beat under a drop at (`x`, `y`). Null outside the lanes: above the first
+ * track (ruler and markers), over the header column or outside the scroller. A MIDI track is refused (`"midi"`): audio only. Below the last track the drop creates
  * a new audio track. The beat is snapped (not by `bypass`) and never before 0.
  */
 export function dropTarget(
@@ -57,7 +60,15 @@ export function dropTarget(
   const row = Math.floor(
     (y - geometry.top + geometry.scrollTop - geometry.topPx) / geometry.lanePx,
   );
-  if (row < 0) return null;
+  if (
+    row < 0 ||
+    x < geometry.left + geometry.headerPx ||
+    x > geometry.left + geometry.width ||
+    y < geometry.top ||
+    y > geometry.top + geometry.height
+  ) {
+    return null;
+  }
   const beat = snapBeat(
     xToBeat(view, x - geometry.left - geometry.headerPx),
     snap,

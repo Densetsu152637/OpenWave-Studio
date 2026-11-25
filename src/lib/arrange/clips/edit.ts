@@ -61,7 +61,9 @@ export function framesBetween(
  * by the same amount and an audio clip's `source_offset` advances by the media frames the moved
  * span covers, so the audio stays where it was on the timeline. The edge stops at the clip's end
  * (minus `MIN_CLIP_BEATS`), at beat 0 and, for audio, where `source_offset` would go below 0.
- * A MIDI clip only changes start and length; its notes keep their clip-relative times.
+ * A MIDI clip keeps its notes where they are on the timeline: their clip-relative times shift
+ * by the edge's travel; notes that end at or before the new start are removed and a note that
+ * straddles it is shortened to start at 0 (controllers before it are removed too).
  */
 export function trimLeft(clip: Clip, target: number, tempo: TempoMap, media?: MediaBounds): Clip {
   const end = clip.start + clip.length;
@@ -76,10 +78,26 @@ export function trimLeft(clip: Clip, target: number, tempo: TempoMap, media?: Me
   const start = clamp(target, low, end - MIN_CLIP_BEATS);
   if (start === clip.start) return clip;
   const moved: Clip = { ...clip, start, length: end - start };
+  if (content.type === "midi") return rebaseMidi(moved, start - clip.start);
   if (content.type !== "audio" || !media) return clampFades(moved);
   const frames = content.source_offset + framesBetween(tempo, clip.start, start - clip.start, media);
   const offset = clamp(Math.round(frames), 0, Math.max(0, media.frames - 1));
   return clampFades({ ...moved, content: { ...content, source_offset: offset } });
+}
+
+/** `clip` (already given its new start and length) with its notes moved back by `delta` beats. */
+function rebaseMidi(clip: Clip, delta: number): Clip {
+  if (clip.content.type !== "midi") return clip;
+  const notes = clip.content.notes.flatMap((note) => {
+    const start = note.start - delta;
+    const end = start + note.length;
+    if (end <= 0) return [];
+    return [start < 0 ? { ...note, start: 0, length: end } : { ...note, start }];
+  });
+  const controllers = clip.content.controllers
+    .map((c) => ({ ...c, beat: c.beat - delta }))
+    .filter((c) => c.beat >= 0);
+  return { ...clip, content: { ...clip.content, notes, controllers } };
 }
 
 /**

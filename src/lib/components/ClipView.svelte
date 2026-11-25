@@ -18,6 +18,7 @@
     selected,
     missing,
     displayStart,
+    adjusting = false,
     onpointerdown,
     ondblclick,
     onhandle,
@@ -34,6 +35,8 @@
     missing: boolean;
     /** Where the clip is shown while it is dragged, in beats. */
     displayStart: number;
+    /** A trim or fade drag is running: keep the peaks drawn and fetch again when it lands. */
+    adjusting?: boolean;
     onpointerdown: (event: PointerEvent) => void;
     /** Double-click: opens a MIDI clip in the piano roll. */
     ondblclick?: (event: MouseEvent) => void;
@@ -71,6 +74,8 @@
 
   $effect(() => {
     const key = requestKey;
+    // Each pointer move changes the request; the old peaks stay until the edit lands.
+    if (adjusting) return;
     if (key === null || !request || !tauriTransport.available) {
       peaks = null;
       return;

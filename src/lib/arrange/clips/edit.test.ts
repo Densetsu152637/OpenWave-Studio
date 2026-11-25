@@ -158,14 +158,54 @@ describe("trim", () => {
     expect(trimRight(audio(), -3, tempo, media).length).toBeCloseTo(MIN_CLIP_BEATS, 9);
   });
 
-  it("trimming a MIDI clip changes start and length only; notes stay", () => {
-    const left = trimLeft(midi(), 10, tempo);
-    expect(left.start).toBe(10);
-    expect(left.length).toBe(2);
-    expect(left.content).toEqual(midi().content);
+  it("right-trimming a MIDI clip changes the length only; notes stay", () => {
     const right = trimRight(midi(), 9, tempo);
     expect(right.length).toBe(1);
     expect(right.content).toEqual(midi().content);
+  });
+
+  it("left-trimming a MIDI clip keeps notes fixed on the timeline", () => {
+    // Edge from beat 8 to 10: the note at 0..1 ends before it and goes, the one at 1.5..2.5
+    // straddles it and starts at 0 with length 0.5, the one at 2..4 moves to 0.
+    const trimmed = trimLeft(midi(), 10, tempo);
+    expect(trimmed.start).toBe(10);
+    expect(trimmed.length).toBe(2);
+    expect(trimmed.content).toEqual({
+      type: "midi",
+      notes: [
+        { start: 0, length: 0.5, key: 62, velocity: 90 },
+        { start: 0, length: 2, key: 64, velocity: 80 },
+      ],
+      controllers: [{ beat: 1, controller: 1, value: 20 }],
+    });
+  });
+
+  it("extending a MIDI clip to the left shifts notes later by the same amount", () => {
+    const extended = trimLeft(midi(), 6, tempo);
+    expect(extended.start).toBe(6);
+    expect(extended.length).toBe(6);
+    expect(extended.content).toMatchObject({
+      notes: [
+        { start: 2, length: 1 },
+        { start: 3.5, length: 1 },
+        { start: 4, length: 2 },
+      ],
+      controllers: [{ beat: 3 }, { beat: 5 }],
+    });
+  });
+
+  it("left trim at the start of the media does not extend further", () => {
+    const atStart = audio({}, { source_offset: 0 });
+    const extended = trimLeft(atStart, 1, tempo, media);
+    expect(extended).toEqual(atStart);
+    expect(trimLeft(atStart, 5, tempo, media).start).toBe(5);
+  });
+
+  it("keeps fades clamped after a trim shortens the clip", () => {
+    const faded = audio({}, { fade_in: 2, fade_out: 2 });
+    const left = trimLeft(faded, 7, tempo, media);
+    expect(left.length).toBe(1);
+    expect(left.content).toMatchObject({ fade_in: 1, fade_out: 0 });
   });
 
   it("shortens fades that no longer fit", () => {
@@ -296,6 +336,17 @@ describe("split", () => {
     });
   });
 
+  it("keeps a MIDI note that straddles the split in the left clip, cut at its end", () => {
+    // The note at 1.5..2.5 starts before the split at beat 2 of the clip: it stays left.
+    const parts = splitClip(midi(), 10, tempo, 50)!;
+    expect(parts.left.content).toMatchObject({
+      notes: expect.arrayContaining([{ start: 1.5, length: 1, key: 62, velocity: 90 }]),
+    });
+    expect(parts.right.content).not.toMatchObject({
+      notes: expect.arrayContaining([expect.objectContaining({ key: 62 })]),
+    });
+  });
+
   it("splits only clips that span the playhead, in one transaction with fresh ids", async () => {
     const { api, calls, edits } = recorder();
     const spans = audio();
@@ -343,7 +394,16 @@ describe("duplicate", () => {
 });
 
 describe("drop", () => {
-  const geometry = { left: 10, top: 50, scrollTop: 0, headerPx: 200, topPx: 44, lanePx: 88 };
+  const geometry = {
+    left: 10,
+    top: 50,
+    width: 1000,
+    height: 400,
+    scrollTop: 0,
+    headerPx: 200,
+    topPx: 44,
+    lanePx: 88,
+  };
   const tracks = [
     { id: 1, kind: "audio" as const },
     { id: 2, kind: "midi" as const },
@@ -376,8 +436,18 @@ describe("drop", () => {
     expect(at(262, 50 + 44 + 88 * 3 + 1)).toEqual({ trackId: null, beat: 3 });
   });
 
+  it("ignores drops over the header column and outside the scroller", () => {
+    expect(at(10 + 199, 50 + 44 + 10)).toBeNull();
+    expect(at(5, 50 + 44 + 10)).toBeNull();
+    expect(at(10 + 1001, 50 + 44 + 10)).toBeNull();
+    expect(at(262, 50 + 401)).toBeNull();
+    expect(at(262, 20)).toBeNull();
+    // Inside the scroller below the last track still makes a new track.
+    expect(at(262, 50 + 44 + 88 * 3 + 1)).toEqual({ trackId: null, beat: 3 });
+  });
+
   it("never drops before beat 0", () => {
-    expect(at(20, 50 + 44 + 1)).toEqual({ trackId: 1, beat: 0 });
+    expect(at(10 + 200, 50 + 44 + 1)).toEqual({ trackId: 1, beat: 0 });
   });
 
   it("recognises audio files by extension", () => {
@@ -445,6 +515,16 @@ describe("clip editing shortcuts", () => {
     expect(key("s", { altKey: true })).toBeNull();
     expect(key("d", { ctrlKey: true, shiftKey: true })).toBeNull();
     expect(key("d")).toBeNull();
+  });
+
+  it("ignores auto-repeat for one-shot actions only", () => {
+    expect(key("d", { ctrlKey: true, repeat: true })).toBeNull();
+    expect(key("s", { repeat: true })).toBeNull();
+    expect(key("0", { repeat: true })).toBeNull();
+    expect(key("Delete", { repeat: true })).toBeNull();
+    expect(key("m", { repeat: true })).toBeNull();
+    expect(key("+", { repeat: true })).toBe("zoom-in");
+    expect(key("s")).toBe("split");
   });
 
   it("is off while the piano roll is open", () => {

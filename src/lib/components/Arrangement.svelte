@@ -605,7 +605,7 @@
 
   /** Imports dropped audio files at the track and beat under the drop (physical pixels). */
   function onFilesDropped(paths: string[], position: { x: number; y: number }) {
-    if (!project || !scroller) return;
+    if (!project || !scroller || rollClip) return;
     const ratio = window.devicePixelRatio || 1;
     const rect = scroller.getBoundingClientRect();
     const target = dropTarget(
@@ -614,6 +614,8 @@
       {
         left: rect.left,
         top: rect.top,
+        width: rect.width,
+        height: rect.height,
         scrollTop,
         headerPx: HEADER_PX,
         topPx: RULER_PX + MARKER_PX,

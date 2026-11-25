@@ -18,7 +18,18 @@ export interface KeyLike {
   metaKey: boolean;
   altKey: boolean;
   shiftKey: boolean;
+  /** Auto-repeat of a held key. */
+  repeat?: boolean;
 }
+
+/** Actions that happen once per press: a held key must not repeat them. */
+const SINGLE_SHOT: ReadonlySet<ArrangeKeyAction> = new Set([
+  "add-marker",
+  "delete-selection",
+  "split",
+  "duplicate",
+  "toggle-mute",
+]);
 
 /** The arrangement shortcuts as the Settings panel lists them. */
 export const ARRANGE_SHORTCUTS: readonly {
@@ -54,6 +65,11 @@ export function arrangeKeyAction(
   event: KeyLike,
   context: { rollOpen?: boolean } = {},
 ): ArrangeKeyAction | null {
+  const action = keyAction(event, context);
+  return action && event.repeat && SINGLE_SHOT.has(action) ? null : action;
+}
+
+function keyAction(event: KeyLike, context: { rollOpen?: boolean }): ArrangeKeyAction | null {
   if (event.ctrlKey || event.metaKey) {
     if (event.altKey || event.shiftKey) return null;
     const letter = event.key.toLowerCase();

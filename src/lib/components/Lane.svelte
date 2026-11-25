@@ -114,6 +114,7 @@
     {@const clip = preview?.id === stored.id ? preview : stored}
     <ClipView
       {clip}
+      adjusting={preview?.id === stored.id}
       media={clip.content.type === "audio" ? media.get(clip.content.media) : undefined}
       color={cssColor(track.color)}
       {view}
