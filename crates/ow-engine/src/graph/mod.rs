@@ -17,8 +17,8 @@ pub use builder::{Graph, GraphError};
 use crate::plan::Buffers;
 pub use crate::transport::{BlockTiming, Transport, TransportCommand};
 pub use runtime::{
-    AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiMessage, PreviewSwapError,
-    RecordSwapError, SwapError, Telemetry, default_worker_count,
+    AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiClock, MidiMessage,
+    PreviewSwapError, RecordSwapError, SwapError, Telemetry, default_worker_count,
 };
 
 /// Largest block, in frames, a plan processes at once. Longer device buffers are split.
@@ -69,6 +69,20 @@ pub trait Node: Send {
     /// Receives a MIDI message sent through a message ring, at a block boundary.
     fn on_midi(&mut self, message: MidiMessage) {
         let _ = message;
+    }
+
+    /// Whether the node plays live MIDI input (a MIDI track's instrument). Read once when a plan
+    /// is built; the plan then calls [`on_live_midi`](Self::on_live_midi) for such nodes only.
+    fn accepts_live_midi(&self) -> bool {
+        false
+    }
+
+    /// Receives a live MIDI input message (not a control surface's) at a block boundary:
+    /// `offset` is the frame of the coming block the message belongs to (`0..frames`; a message
+    /// that arrived late is placed at 0). Called only for nodes that
+    /// [`accept live MIDI`](Self::accepts_live_midi).
+    fn on_live_midi(&mut self, offset: u32, message: MidiMessage) {
+        let _ = (offset, message);
     }
 }
 

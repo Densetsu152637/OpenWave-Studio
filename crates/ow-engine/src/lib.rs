@@ -46,14 +46,14 @@ pub use compile::{
     Carry, CompileContext, CompileError, Compiled, NodeDiff, NodeKey, NodeMap, compile_project,
     compile_project_metered, compile_project_tap, fader_gain, pan_gains,
 };
-pub use device::{DeviceNode, MAX_EVENTS_PER_BLOCK};
+pub use device::{DeviceNode, LiveGate, MAX_EVENTS_PER_BLOCK};
 pub use graph::clip::{ClipPlacement, ClipSourceNode};
 pub use graph::input::{ArmedTracks, InputBus, InputMonitorNode};
 pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, PanNode, SumNode, TestToneNode};
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
-    Message, MidiMessage, Node, NodeId, Outputs, PreviewSwapError, ProcessContext, RecordSwapError,
-    SwapError, Telemetry, default_worker_count,
+    Message, MidiClock, MidiMessage, Node, NodeId, Outputs, PreviewSwapError, ProcessContext,
+    RecordSwapError, SwapError, Telemetry, default_worker_count,
 };
 pub use midi_hub::{
     MIDI_RING_CAPACITY, MIDI_RINGS, MidiHub, MidiInputSelection, MidiPortState, MidiStatus,
@@ -63,8 +63,9 @@ pub use pdc::DelayNode;
 pub use plan::RenderPlan;
 pub use preview::{Preview, PreviewHandle};
 pub use record::{
-    FinishedTake, MAX_LOOP_TAKES, RecordError, RecordPlan, RecordSet, RecordShared, RecordTrack,
-    Recording, Stopped, TakeFailure, TrackTakes,
+    FinishedTake, MAX_LOOP_TAKES, MIDI_RECORD_CAPACITY, MidiPass, MidiTakes, RecordError,
+    RecordPlan, RecordSet, RecordShared, RecordTrack, RecordedMidi, Recording, Stopped,
+    TakeFailure, TrackTakes,
 };
 pub use rings::{ProducerRing, RingSender, producer_ring};
 pub use transport::{
@@ -225,6 +226,8 @@ pub struct EngineConfig {
     pub recovery: RecoveryPolicy,
     /// MIDI inputs to connect once audio is running.
     pub midi_inputs: Vec<MidiInputSelection>,
+    /// The clock that places live MIDI timestamps on the audio stream; only tests change it.
+    pub midi_clock: MidiClock,
 }
 
 /// Compiles the smoke-path graph (test tone to stereo master) for `sample_rate`.
@@ -305,6 +308,7 @@ impl Engine {
         let bank = Arc::new(TelemetryBank::new());
         let midi = Arc::new(MidiHub::new(midi_backend));
         midi.set_inputs(config.midi_inputs);
+        let midi_clock = config.midi_clock;
 
         let opener: Opener = {
             let shared = Arc::clone(&shared);
@@ -324,7 +328,14 @@ impl Engine {
                 let opened = registry.open(
                     selection,
                     Box::new(move |info: &StreamInfo| {
-                        make_callback(info, callback_shared, callback_bank, wanted, started_tx)
+                        make_callback(
+                            info,
+                            callback_shared,
+                            callback_bank,
+                            wanted,
+                            started_tx,
+                            midi_clock,
+                        )
                     }),
                 );
                 let stream = opened?;
@@ -568,16 +579,19 @@ impl Engine {
     /// sample rate, mono or stereo as each track's input says (by default mono on a one-channel
     /// input and channels 0 and 1 on a wider one). Fails when no stream or no input is open,
     /// when `plan` has no takes, when a track's channels are not on the input device, or when
-    /// a file cannot be created. See [`record`] for how takes are placed. Runs on the control
+    /// a file cannot be created. See [`record`] for how takes are placed (and for recording MIDI,
+    /// which needs no input device). Runs on the control
     /// thread; creates files and threads.
     pub fn start_recording_plan(&self, plan: &RecordPlan) -> Result<Recording, RecordError> {
         let mut guard = lock(&self.live);
         let live = guard.as_mut().ok_or(RecordError::NoStream)?;
-        if live.input_channels == 0 {
+        // Audio takes need an input device; MIDI alone does not.
+        if live.input_channels == 0 && !plan.tracks.is_empty() {
             return Err(RecordError::NoInput);
         }
         let (recording, set) = Recording::begin(
             &plan.tracks,
+            &plan.midi_tracks,
             live.sample_rate,
             live.input_channels,
             live.latency_frames,
@@ -676,12 +690,13 @@ impl Engine {
         }
         let complete = complete && recording.shared.skipped() == 0;
         let dropped_passes = recording.shared.dropped_passes();
-        let (takes, failures) = recording.finish();
+        let (takes, failures, midi) = recording.finish();
         Ok(Stopped {
             takes,
             complete,
             failures,
             dropped_passes,
+            midi,
         })
     }
 
@@ -852,8 +867,10 @@ fn make_callback(
     bank: Arc<TelemetryBank>,
     wanted: Option<Wanted>,
     started_tx: mpsc::Sender<Started>,
+    midi_clock: MidiClock,
 ) -> AudioCallback {
     let mut builder = CoreBuilder::new()
+        .midi_clock(midi_clock)
         .workers(default_worker_count())
         .realtime_workers(info.sample_rate, info.buffer_frames.unwrap_or(0));
     if let Ok(workgroup) = AudioWorkgroup::default_output() {

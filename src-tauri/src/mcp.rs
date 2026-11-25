@@ -35,10 +35,10 @@ use ow_ipc::{
 };
 use ow_mcp::listener::{McpListener, announce_disabled};
 use ow_mcp::tools::{
-    AnalyzeArgs, AudioAction, AudioSettingsArgs, EditArgs, EditorAction, ExportWavArgs,
-    ImportAudioArgs, LibraryPreviewAction, LibraryPreviewArgs, LibraryScanAction, LibraryScanArgs,
-    LibrarySearchArgs, PluginEditorArgs, ProjectAction, ProjectArgs, RecordAction, RecordArgs,
-    TransportAction, TransportArgs,
+    AnalyzeArgs, AudioAction, AudioSettingsArgs, EditArgs, EditorAction, ExportMidiArgs,
+    ExportWavArgs, ImportAudioArgs, ImportMidiArgs, LibraryPreviewAction, LibraryPreviewArgs,
+    LibraryScanAction, LibraryScanArgs, LibrarySearchArgs, MidiEditArgs, PluginEditorArgs,
+    ProjectAction, ProjectArgs, RecordAction, RecordArgs, TransportAction, TransportArgs,
 };
 use ow_mcp::{Server, ToolBackend, ToolCall, ToolError, ToolOutput, endpoint};
 use serde_json::{Value, json};
@@ -147,6 +147,9 @@ impl ToolBackend for AppBackend {
             ToolCall::LibrarySearch(args) => self.library_search(&args),
             ToolCall::LibraryPreview(args) => self.library_preview(&args),
             ToolCall::Record(args) => self.record(&args),
+            ToolCall::MidiEdit(args) => self.midi_edit(&args),
+            ToolCall::ImportMidi(args) => self.import_midi(&args),
+            ToolCall::ExportMidi(args) => self.export_midi(&args),
             ToolCall::Analyze(args) => self.analyze(args),
             ToolCall::ExportWav(args) => self.export_wav(args),
             ToolCall::AudioSettings(args) => self.audio_settings(&args),
@@ -660,7 +663,9 @@ impl AppBackend {
         let ipc = self.ipc();
         match args.action {
             RecordAction::Arm => {
-                let track = args.track.ok_or("arm needs `track`, an audio track id")?;
+                let track = args
+                    .track
+                    .ok_or("arm needs `track`, an audio or MIDI track id")?;
                 let armed = args.armed.unwrap_or(true);
                 ipc.record_set_arm(track, armed)?;
                 Ok(ToolOutput::new(
@@ -672,7 +677,7 @@ impl AppBackend {
                 ))
             }
             RecordAction::Start => {
-                ipc.record_start(engine)?;
+                ipc.record_start_with(engine, args.midi_mode)?;
                 Ok(ToolOutput::new(
                     json!({"recording": true}),
                     "Recording started.",
@@ -686,6 +691,58 @@ impl AppBackend {
                 ))
             }
         }
+    }
+
+    fn midi_edit(&self, args: &MidiEditArgs) -> Result<ToolOutput, String> {
+        let reply = self.ipc().midi_edit(
+            args.clip,
+            &args.edit,
+            args.notes.as_deref(),
+            self.engine_state().engine(),
+        )?;
+        let summary = format!(
+            "{} on clip {}: {} notes before, {} after.",
+            args.edit.label(),
+            reply.clip,
+            reply.notes_before,
+            reply.notes_after
+        );
+        Ok(ToolOutput::new(to_json(&reply)?, summary))
+    }
+
+    fn import_midi(&self, args: &ImportMidiArgs) -> Result<ToolOutput, String> {
+        let reply = self.ipc().midi_import(
+            Path::new(&args.path),
+            args.track,
+            args.start_beat.unwrap_or(0.0),
+            args.apply_tempo,
+            self.engine_state().engine(),
+        )?;
+        let summary = format!(
+            "Imported {} clip(s) ({} new track(s)){}.",
+            reply.clips.len(),
+            reply.tracks.len(),
+            if reply.tempo_applied {
+                ", tempo map replaced"
+            } else {
+                ""
+            }
+        );
+        Ok(ToolOutput::new(to_json(&reply)?, summary))
+    }
+
+    fn export_midi(&self, args: &ExportMidiArgs) -> Result<ToolOutput, String> {
+        let reply = self.ipc().midi_export(
+            Path::new(&args.path),
+            &args.clips,
+            &args.tracks,
+            args.overwrite,
+        )?;
+        let summary = format!(
+            "Wrote {} ({} track(s), {} notes).",
+            reply.path, reply.tracks, reply.notes
+        );
+        Ok(ToolOutput::new(to_json(&reply)?, summary))
     }
 
     fn analyze(&self, args: AnalyzeArgs) -> Result<ToolOutput, String> {
@@ -935,6 +992,9 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("analyze", "analyze"),
     ("record_set_arm", "record"),
     ("record_start", "record"),
+    ("midi_edit", "midi_edit"),
+    ("midi_import", "import_midi"),
+    ("midi_export", "export_midi"),
 ];
 
 /// The tool that does what each `UiCommand` variant does. `begin`, `end` and `cancel` are the
@@ -2053,6 +2113,110 @@ mod tests {
             assert!((beats - 8.0).abs() < 0.1, "locate answered {beats}");
             let status = client.call("transport", json!({"action": "status"})).await;
             assert_eq!(status["moving"], false);
+        });
+    }
+
+    #[test]
+    fn mcp_midi_tools_edit_notes_and_move_midi_files_with_guards() {
+        let fixture = Fixture::start();
+        block_on(async {
+            let mut client = fixture.client().await;
+            let ids = client.call("alloc_ids", json!({"count": 2})).await["ids"]
+                .as_array()
+                .unwrap()
+                .clone();
+            let (track, clip) = (ids[0].as_u64().unwrap(), ids[1].as_u64().unwrap());
+            let mut bundle = insert_track(track);
+            bundle["bundle"]["item"]["kind"] = json!("midi");
+            bundle["bundle"]["clips"] = json!([{
+                "id": clip, "track": track, "name": "Riff", "start": 0.0, "length": 4.0,
+                "muted": false, "take": null,
+                "content": {"type": "midi", "controllers": [], "notes": [
+                    {"start": 0.2, "length": 0.5, "key": 60, "velocity": 100},
+                    {"start": 1.0, "length": 0.5, "key": 127, "velocity": 100}]}
+            }]);
+            client.call("edit", json!({"commands": [bundle]})).await;
+
+            // Note operations are computed by OpenWave: quantize one note, then transpose all.
+            let reply = client
+                .call(
+                    "midi_edit",
+                    json!({"clip": clip, "notes": [0], "edit": {"op": "quantize", "grid": 0.25}}),
+                )
+                .await;
+            assert_eq!(
+                (reply["notesBefore"].as_u64(), reply["notesAfter"].as_u64()),
+                (Some(2), Some(2))
+            );
+            let notes = |ipc: &crate::ipc::IpcState| match &ipc.snapshot().project.clips
+                [&ow_model::ClipId(clip)]
+                .content
+            {
+                ow_model::ClipContent::Midi { notes, .. } => notes.clone(),
+                _ => panic!("a MIDI clip"),
+            };
+            assert_eq!(notes(&fixture.host.ipc)[0].start, 0.25);
+            let moved = client
+                .call(
+                    "midi_edit",
+                    json!({"clip": clip, "edit": {"op": "transpose", "semitones": 1}}),
+                )
+                .await;
+            assert_eq!(
+                moved["notesAfter"], 1,
+                "the note leaving the range is removed"
+            );
+            assert!(
+                client
+                    .call_error("midi_edit", json!({"clip": 9999, "edit": {"op": "legato"}}))
+                    .await
+                    .contains("no clip")
+            );
+
+            // Export and import: only .mid and .midi, never over an existing file by accident.
+            let file = fixture.work.path().join("riff.mid");
+            let written = client
+                .call("export_midi", json!({"path": file.to_string_lossy()}))
+                .await;
+            assert_eq!(written["notes"], 1);
+            assert!(file.is_file());
+            let again = client
+                .call_error("export_midi", json!({"path": file.to_string_lossy()}))
+                .await;
+            assert!(again.contains("overwrite"), "{again}");
+            client
+                .call(
+                    "export_midi",
+                    json!({"path": file.to_string_lossy(), "overwrite": true, "clips": [clip]}),
+                )
+                .await;
+            let document = fixture.work.path().join("notes.docx");
+            std::fs::write(&document, b"keep me").unwrap();
+            for path in [&document, &fixture.work.path().join("riff.wav")] {
+                let error = client
+                    .call_error(
+                        "export_midi",
+                        json!({"path": path.to_string_lossy(), "overwrite": true}),
+                    )
+                    .await;
+                assert!(error.contains(".mid"), "{error}");
+            }
+            assert_eq!(std::fs::read(&document).unwrap(), b"keep me");
+
+            let imported = client
+                .call(
+                    "import_midi",
+                    json!({"path": file.to_string_lossy(), "start_beat": 8}),
+                )
+                .await;
+            assert_eq!(imported["clips"].as_array().unwrap().len(), 1);
+            assert_eq!(imported["tracks"].as_array().unwrap().len(), 1);
+            assert!(
+                client
+                    .call_error("import_midi", json!({"path": document.to_string_lossy()}))
+                    .await
+                    .contains(".mid")
+            );
         });
     }
 

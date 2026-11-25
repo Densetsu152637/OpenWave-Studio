@@ -26,6 +26,7 @@ pub mod format;
 pub mod history;
 pub mod ids;
 mod keyed;
+pub mod midi;
 pub mod migrate;
 pub mod model;
 pub mod owz;

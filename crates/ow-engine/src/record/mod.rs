@@ -33,7 +33,24 @@
 //! (each take's length equals the frames recorded in its pass, see
 //! [`RecordShared::pass_captured`]).
 //!
-//! Not recorded: MIDI (stage 15), crossfades between takes, region comping.
+//! MIDI. A recording may also capture MIDI input ([`RecordPlan::midi_tracks`]). Each input
+//! message reaches the audio thread stamped with the time it was received
+//! ([`Message::MidiIn`](crate::Message)); the core places it on the stream's frame counter
+//! (see [`MidiClock`](crate::MidiClock)) and, per block, the tap maps that frame to a timeline
+//! sample through the block's spans, so the position is exact to the sample, across block
+//! boundaries and tempo changes (which only matter when the sample is converted to beats). A
+//! message is recorded when its frame lies in a recording span (not in a count-in and inside
+//! the punch range); messages that arrive late are placed by their own timestamp, extended
+//! linearly from the first frame of the block that carried them. The pass logic (one pass per
+//! loop lap, up to [`MAX_LOOP_TAKES`]) is the audio tap's own, kept separately so a recording
+//! without audio takes (MIDI only, no input device needed) works. Messages go through a ring
+//! of [`MIDI_RECORD_CAPACITY`] entries to the control thread, which collects them in
+//! [`Stopped::midi`]; what does not fit is counted in [`MidiTakes::dropped_events`]. The
+//! recorded position is the timeline position of the moment the message was received: no
+//! latency compensation is applied.
+//!
+//! Not recorded: crossfades between takes, region comping, MIDI pitch bend and aftertouch
+//! (they are captured as raw events but the app keeps notes and control changes).
 //!
 //! [`AudioCore::process`]: crate::AudioCore::process
 
@@ -46,8 +63,35 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use ow_media::{RecordProducer, RecordWriter};
 use ow_model::TrackId;
 
-use crate::graph::MAX_BLOCK;
+use crate::graph::{MAX_BLOCK, MidiMessage};
+use crate::rings::{ProducerRing, RingSender, producer_ring};
 use crate::transport::{BlockTiming, Span};
+
+/// Capacity of the ring that carries recorded MIDI to the control thread, in messages.
+pub const MIDI_RECORD_CAPACITY: usize = 1 << 16;
+
+/// A MIDI input message the audio core has placed on its stream frame counter, waiting for the
+/// block that contains it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PendingMidi {
+    /// Stream frame the message belongs to (frames since the stream opened).
+    pub(crate) frame: i64,
+    /// Arrival order, so messages stamped alike keep it.
+    pub(crate) seq: u64,
+    pub(crate) message: MidiMessage,
+}
+
+/// One recorded MIDI message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordedMidi {
+    /// Loop pass (0 without a loop).
+    pub pass: u32,
+    /// Timeline sample of the message. May lie a little before its pass's start (a message that
+    /// was played just before the recording began and arrived late).
+    pub sample: i64,
+    /// Status byte and two data bytes.
+    pub bytes: [u8; 3],
+}
 
 /// Seconds of audio each take's ring holds before the writer thread must have drained it.
 pub const RING_SECONDS: u32 = 2;
@@ -66,6 +110,10 @@ pub struct RecordShared {
     skipped: AtomicU64,
     dropped_passes: AtomicU32,
     done: AtomicBool,
+    midi_passes: AtomicU32,
+    midi_start: [AtomicU64; MAX_LOOP_TAKES],
+    midi_end: [AtomicU64; MAX_LOOP_TAKES],
+    midi_dropped: AtomicU64,
 }
 
 impl RecordShared {
@@ -127,6 +175,35 @@ impl RecordShared {
     pub fn done(&self) -> bool {
         self.done.load(Ordering::Acquire)
     }
+
+    /// MIDI passes begun (0 until the first recording frame of a MIDI recording).
+    pub fn midi_passes(&self) -> usize {
+        self.midi_passes.load(Ordering::Acquire) as usize
+    }
+
+    /// Timeline sample range `start..end` the MIDI tap recorded in pass `pass`.
+    pub fn midi_range(&self, pass: usize) -> (u64, u64) {
+        match (self.midi_start.get(pass), self.midi_end.get(pass)) {
+            (Some(start), Some(end)) => {
+                (start.load(Ordering::Acquire), end.load(Ordering::Acquire))
+            }
+            _ => (0, 0),
+        }
+    }
+
+    /// MIDI messages that were not recorded because the ring to the control thread was full or
+    /// the loop ran past [`MAX_LOOP_TAKES`] passes.
+    pub fn midi_dropped(&self) -> u64 {
+        self.midi_dropped.load(Ordering::Acquire)
+    }
+}
+
+/// The MIDI half of the record tap (see the module documentation).
+struct MidiTap {
+    sender: RingSender<RecordedMidi>,
+    pass: usize,
+    pass_started: bool,
+    expected: Option<u64>,
 }
 
 /// One armed track on the audio thread: the input channels it records and a producer per pass.
@@ -166,6 +243,7 @@ pub struct RecordSet {
     expected: Option<u64>,
     scratch: Vec<f32>,
     ended: bool,
+    midi: Option<MidiTap>,
     shared: Arc<RecordShared>,
 }
 
@@ -190,9 +268,21 @@ impl RecordSet {
             expected: None,
             scratch: vec![0.0; MAX_BLOCK * 2],
             ended: false,
+            midi: None,
             shared: Arc::clone(&shared),
         };
         (set, shared)
+    }
+
+    /// Also records MIDI input into `sender`.
+    pub fn with_midi(mut self, sender: RingSender<RecordedMidi>) -> Self {
+        self.midi = Some(MidiTap {
+            sender,
+            pass: 0,
+            pass_started: false,
+            expected: None,
+        });
+        self
     }
 
     pub(crate) fn is_ended(&self) -> bool {
@@ -215,8 +305,19 @@ impl RecordSet {
     /// Records one block. `timing` is the block's transport timing and `input` its interleaved
     /// input with the channel count per frame (0 when the buffer did not hold a whole number of
     /// channels; `None` when the device has no input). Audio thread; allocation free.
-    pub(crate) fn tap(&mut self, timing: BlockTiming<'_>, input: Option<(&[f32], usize)>) {
+    pub(crate) fn tap(
+        &mut self,
+        timing: BlockTiming<'_>,
+        input: Option<(&[f32], usize)>,
+        midi: (u64, &[PendingMidi]),
+    ) {
         if self.ended {
+            return;
+        }
+        if self.midi.is_some() {
+            self.tap_midi(&timing, midi.0, midi.1);
+        }
+        if self.tracks.is_empty() {
             return;
         }
         let looped = timing.loop_range().is_some();
@@ -229,6 +330,62 @@ impl RecordSet {
             self.expected = Some(start + span.frames() as u64);
             if let Some(range) = span.record_frames() {
                 self.record(&span, range, input);
+            }
+        }
+    }
+
+    /// Records the MIDI messages `events` of the block that starts at stream frame
+    /// `chunk_start`.
+    fn tap_midi(&mut self, timing: &BlockTiming<'_>, chunk_start: u64, events: &[PendingMidi]) {
+        let Some(tap) = self.midi.as_mut() else {
+            return;
+        };
+        let looped = timing.loop_range().is_some();
+        let shared = &self.shared;
+        for span in timing.spans() {
+            let start = span.start_sample();
+            if looped && tap.pass_started && tap.expected.is_some_and(|next| next != start) {
+                tap.pass += 1;
+                tap.pass_started = false;
+            }
+            tap.expected = Some(start + span.frames() as u64);
+            let Some(range) = span.record_frames() else {
+                continue;
+            };
+            if tap.pass >= MAX_LOOP_TAKES {
+                shared
+                    .midi_dropped
+                    .fetch_add(events.len() as u64, Ordering::Release);
+                continue;
+            }
+            if !tap.pass_started {
+                tap.pass_started = true;
+                shared.midi_start[tap.pass].store(span.sample_at(range.start), Ordering::Release);
+                shared
+                    .midi_passes
+                    .store(tap.pass as u32 + 1, Ordering::Release);
+            }
+            shared.midi_end[tap.pass].store(span.sample_at(range.end - 1) + 1, Ordering::Release);
+            let frames = timing.frames() as i64;
+            for event in events {
+                let relative = event.frame - chunk_start as i64;
+                let frame = relative.clamp(0, frames - 1) as usize;
+                if !span.frame_range().contains(&frame) || !range.contains(&frame) {
+                    continue;
+                }
+                let sample = span.sample_at(frame) as i64 + (relative - frame as i64);
+                let recorded = RecordedMidi {
+                    pass: tap.pass as u32,
+                    sample,
+                    bytes: [
+                        event.message.status,
+                        event.message.data1,
+                        event.message.data2,
+                    ],
+                };
+                if !tap.sender.push(recorded) {
+                    shared.midi_dropped.fetch_add(1, Ordering::Release);
+                }
             }
         }
     }
@@ -371,8 +528,11 @@ pub struct TrackTakes {
 /// when the recording stops.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordPlan {
-    /// The armed tracks and their take files.
+    /// The armed audio tracks and their take files (may be empty for a MIDI-only recording).
     pub tracks: Vec<TrackTakes>,
+    /// The armed MIDI tracks. Their input is captured: [`Stopped::midi`] lists the tracks and
+    /// the messages, and the app turns them into clips. Recording MIDI needs no audio input.
+    pub midi_tracks: Vec<TrackId>,
     /// The loop range in beats; each pass becomes a take (give each track up to
     /// [`MAX_LOOP_TAKES`] paths).
     pub loop_beats: Option<(f64, f64)>,
@@ -394,6 +554,7 @@ impl RecordPlan {
                     paths: vec![path.clone()],
                 })
                 .collect(),
+            midi_tracks: Vec::new(),
             loop_beats: None,
             punch_beats: None,
             count_in_bars: 0,
@@ -415,6 +576,8 @@ pub struct Recording {
     pub(crate) shared: Arc<RecordShared>,
     writers: Vec<TakeWriter>,
     sample_rate: u32,
+    midi_tracks: Vec<TrackId>,
+    midi: Option<ProducerRing<RecordedMidi>>,
 }
 
 impl Recording {
@@ -422,11 +585,14 @@ impl Recording {
     /// has `input_channels` input channels.
     pub(crate) fn begin(
         tracks: &[TrackTakes],
+        midi_tracks: &[TrackId],
         sample_rate: u32,
         input_channels: u16,
         latency_frames: u32,
     ) -> Result<(Self, RecordSet), RecordError> {
-        if tracks.is_empty() || tracks.iter().any(|t| t.paths.is_empty()) {
+        if (tracks.is_empty() && midi_tracks.is_empty())
+            || tracks.iter().any(|t| t.paths.is_empty())
+        {
             return Err(RecordError::NoTakes);
         }
         let ring_frames = (sample_rate.max(1) * RING_SECONDS) as usize;
@@ -457,12 +623,21 @@ impl Recording {
             }
             record_tracks.push(RecordTrack::new(first, channels, producers));
         }
-        let (set, shared) = RecordSet::new(record_tracks, latency_frames);
+        let (mut set, shared) = RecordSet::new(record_tracks, latency_frames);
+        let midi = if midi_tracks.is_empty() {
+            None
+        } else {
+            let (sender, ring) = producer_ring(MIDI_RECORD_CAPACITY);
+            set = set.with_midi(sender);
+            Some(ring)
+        };
         Ok((
             Self {
                 shared,
                 writers,
                 sample_rate,
+                midi_tracks: midi_tracks.to_vec(),
+                midi,
             },
             set,
         ))
@@ -475,7 +650,8 @@ impl Recording {
 
     /// Finishes every take file. Call only once the audio thread will push no more frames. A
     /// take whose writer failed is reported in [`Stopped::failures`]; the others are kept.
-    pub(crate) fn finish(self) -> (Vec<FinishedTake>, Vec<TakeFailure>) {
+    pub(crate) fn finish(mut self) -> (Vec<FinishedTake>, Vec<TakeFailure>, MidiTakes) {
+        let midi = self.collect_midi();
         let passes = self.shared.passes();
         let starts: Vec<u64> = (0..MAX_LOOP_TAKES)
             .map(|pass| {
@@ -501,8 +677,61 @@ impl Recording {
                 )
             })
             .collect();
-        collect_takes(results, &starts, skipped, sample_rate)
+        let (takes, failures) = collect_takes(results, &starts, skipped, sample_rate);
+        (takes, failures, midi)
     }
+
+    /// Drains the MIDI ring into passes. Call once the audio thread pushes no more.
+    fn collect_midi(&mut self) -> MidiTakes {
+        let mut out = MidiTakes {
+            tracks: self.midi_tracks.clone(),
+            passes: Vec::new(),
+            dropped_events: self.shared.midi_dropped(),
+        };
+        let Some(ring) = self.midi.as_mut() else {
+            return out;
+        };
+        let passes = self.shared.midi_passes();
+        for pass in 0..passes {
+            let (start_sample, end_sample) = self.shared.midi_range(pass);
+            out.passes.push(MidiPass {
+                pass: pass as u32,
+                start_sample,
+                end_sample,
+                events: Vec::new(),
+            });
+        }
+        while let Some(event) = ring.pop() {
+            if let Some(pass) = out.passes.get_mut(event.pass as usize) {
+                pass.events.push(event);
+            }
+        }
+        out
+    }
+}
+
+/// One pass of a MIDI recording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MidiPass {
+    /// The loop pass, 0 for the first (and for a recording without a loop).
+    pub pass: u32,
+    /// Timeline sample at which the pass started recording.
+    pub start_sample: u64,
+    /// Timeline sample just after the pass's last recorded frame.
+    pub end_sample: u64,
+    /// The messages received in the pass, in arrival order.
+    pub events: Vec<RecordedMidi>,
+}
+
+/// The MIDI a recording captured.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MidiTakes {
+    /// The MIDI tracks that were armed (every message belongs to each of them).
+    pub tracks: Vec<TrackId>,
+    /// The passes that recorded, by pass number.
+    pub passes: Vec<MidiPass>,
+    /// Messages that could not be recorded (ring full, passes beyond [`MAX_LOOP_TAKES`]).
+    pub dropped_events: u64,
 }
 
 /// One writer's outcome: track, pass, channels, file and the writer's result.
@@ -593,6 +822,8 @@ pub struct Stopped {
     /// Loop passes that were not recorded because the takes ran out
     /// ([`RecordShared::dropped_passes`]).
     pub dropped_passes: u32,
+    /// The captured MIDI (empty when [`RecordPlan::midi_tracks`] was).
+    pub midi: MidiTakes,
 }
 
 #[cfg(test)]

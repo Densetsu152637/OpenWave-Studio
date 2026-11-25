@@ -37,6 +37,7 @@ pub mod control;
 pub mod export;
 pub mod library;
 pub mod media;
+pub mod midi;
 pub mod peaks;
 pub mod project;
 pub mod record;
@@ -45,6 +46,8 @@ pub mod record;
 mod mix;
 #[cfg(test)]
 mod mvp;
+#[cfg(test)]
+mod mvp_midi;
 #[cfg(test)]
 mod mvp_record;
 #[cfg(test)]

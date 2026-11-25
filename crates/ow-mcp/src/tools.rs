@@ -8,6 +8,7 @@
 //!
 //! Argument field names are snake_case, like the model's own edit commands.
 
+use ow_model::midi::{MidiEdit, MidiRecordMode};
 use ow_model::{EditCommand, MixerRef};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -205,6 +206,61 @@ pub struct RecordArgs {
     /// For `arm`: true arms the track (the default), false disarms it.
     #[serde(default)]
     pub armed: Option<bool>,
+    /// For `start`, what recording on a MIDI track does to the clips already on it: `replace`
+    /// (the default), `overdub` or `loop-merge`.
+    #[serde(default)]
+    pub midi_mode: Option<MidiRecordMode>,
+}
+
+/// Arguments of `midi_edit`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MidiEditArgs {
+    /// The MIDI clip to edit.
+    pub clip: u64,
+    /// The operation, for example `{"op":"quantize","grid":0.25,"strength":1}`; the schema lists
+    /// quantize, legato, humanize, transpose, velocity_scale and velocity_set.
+    pub edit: MidiEdit,
+    /// Indices into the clip's `notes` array (as `get_project` lists them) to edit; the other
+    /// notes stay as they are. Omit for every note.
+    #[serde(default)]
+    pub notes: Option<Vec<usize>>,
+}
+
+/// Arguments of `import_midi`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImportMidiArgs {
+    /// Absolute path of a `.mid` or `.midi` file (format 0 or 1, at most 32 MiB).
+    pub path: String,
+    /// An existing MIDI track to put every clip on. Omit to create a new MIDI track (with a
+    /// synth) for each track of the file.
+    #[serde(default)]
+    pub track: Option<u64>,
+    /// Beats to move everything later by (default 0).
+    #[serde(default)]
+    pub start_beat: Option<f64>,
+    /// Replace the project's tempo map with the file's tempo changes (default false).
+    #[serde(default)]
+    pub apply_tempo: bool,
+}
+
+/// Arguments of `export_midi`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ExportMidiArgs {
+    /// Absolute path of the `.mid` or `.midi` file to write.
+    pub path: String,
+    /// Export only these MIDI clips.
+    #[serde(default)]
+    pub clips: Vec<u64>,
+    /// Export all MIDI clips of these tracks. With neither `clips` nor `tracks`, every MIDI
+    /// track is exported.
+    #[serde(default)]
+    pub tracks: Vec<u64>,
+    /// Replace the file when it exists (default false).
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 /// Arguments of `analyze`.
@@ -415,7 +471,13 @@ tools! {
     LibraryPreview(LibraryPreviewArgs) = "library_preview",
         "Play a file of the library through the audio output, stretched to the project's tempo, so the user hears it in time with the project (start with a path from library_search, stop ends it). One preview plays at a time; a new one replaces it.";
     Record(RecordArgs) = "record",
-        "Record audio: arm or disarm an audio track, start recording on the armed tracks from the current position, stop. The takes become clips when recording stops. Needs an audio input device (see audio_settings). The project decides how: the settings' loop_range makes every loop pass a take (clips with `take` set; the last pass plays, choose another with the edit set_active_take), punch_enabled with punch_range records only inside the range, and count_in_bars counts in first. A track records the input channels of its `input` (edit set_track_input) and can be heard while it records (edit set_track_monitor).";
+        "Record audio and MIDI: arm or disarm a track, start recording on the armed tracks from the current position, stop. The takes become clips when recording stops (one undo step). Audio tracks need an audio input device (see audio_settings); MIDI tracks record the connected MIDI inputs (audio_settings lists and sets them) and need none. An armed MIDI track also plays what is played through its instrument. `midi_mode` on `start` says what recording on a MIDI track does to the clips there: `replace` (default: the new clip replaces what is under its range; with a loop each pass is a clip of its own over the loop, the last unmuted and the earlier ones muted), `overdub` (the notes join the clip they fall in, every pass adds) or `loop-merge` (every pass of a loop is merged into one clip that replaces the loop range). A MIDI take is positioned by when the message arrived, with no latency compensation. The project decides the rest: for audio the settings' loop_range makes every loop pass a take (clips with `take` set; the last pass plays, choose another with the edit set_active_take), punch_enabled with punch_range records only inside the range, and count_in_bars counts in first. A track records the input channels of its `input` (edit set_track_input) and can be heard while it records (edit set_track_monitor).";
+    MidiEdit(MidiEditArgs) = "midi_edit",
+        "Change the notes of a MIDI clip with a note operation computed by OpenWave, so the result is exactly what the piano roll gives (one undo step): quantize (grid in beats, strength 0 to 1, optionally lengths), legato (each note up to the next note start, on any key or the same key), humanize (seeded, repeatable timing and velocity jitter), transpose (semitones; notes leaving 0 to 127 are removed), velocity_scale and velocity_set. `notes` limits it to some notes by index. The answer gives the note counts before and after.";
+    ImportMidi(ImportMidiArgs) = "import_midi",
+        "Read a Standard MIDI File (format 0 or 1) and add one MIDI clip per file track that holds notes or control changes, onto new MIDI tracks with a synth (or all onto the MIDI track `track`). Clips start where the file's music starts (rounded down to a beat) plus `start_beat`; the file's tempo changes are used only with `apply_tempo`. One undo step. Reads a file with the user's own file access.";
+    ExportMidi(ExportMidiArgs) = "export_midi",
+        "Write MIDI clips to a Standard MIDI File (format 1: a tempo track, then one track per MIDI track, at the clips' positions). Export chosen `clips`, all clips of chosen `tracks`, or every MIDI track. Only `.mid` and `.midi` paths are written, and an existing file needs overwrite=true.";
     Analyze(AnalyzeArgs) = "analyze",
         "Render the project offline (the master, or one strip after its fader; the whole project or a beat range) and measure it: integrated, short-term maximum and momentary maximum loudness (LUFS, ITU-R BS.1770-4), true peak (dBTP), sample peak, RMS, crest factor, stereo correlation and eight frequency-band energies. Use it to check a mix and to find how far to move the levels.";
     ExportWav(ExportWavArgs) = "export_wav",

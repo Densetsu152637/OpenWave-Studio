@@ -74,7 +74,7 @@ use ow_ipc::TelemetryBank;
 
 use crate::clips::midi::{MidiClipPlayer, schedule};
 use crate::clips::{SourceCache, warp};
-use crate::device::DeviceNode;
+use crate::device::{DeviceNode, LiveGate};
 use crate::graph::clip::{ClipPlacement, ClipSourceNode};
 use crate::graph::input::{ArmedTracks, InputBus, InputMonitorNode};
 use crate::graph::nodes::{GainNode, PanNode};
@@ -841,6 +841,11 @@ fn add_instrument(
             env.sample_rate,
         )
     };
+    // A MIDI track plays what is played live while it is armed (monitor `on`: always).
+    let gate = match track.monitor {
+        MonitorMode::On => LiveGate::Always,
+        MonitorMode::Off | MonitorMode::Auto => LiveGate::Armed(env.ctx.armed.flag(track.id)),
+    };
     let node = if is_plugin_kind(&device.kind) {
         let hosted = hosted_device(
             env.ctx.plugins.as_ref(),
@@ -857,7 +862,8 @@ fn add_instrument(
             make_device(info, device, env.sample_rate, env.max_block),
             MidiClipPlayer::new(events()),
         )
-    };
+    }
+    .with_live_input(gate);
     Some(add(graph, NodeKey::Device(instrument), Box::new(node)))
 }
 

@@ -14,8 +14,8 @@ use common::{action, run};
 use ow_ipc::{
     AnalysisReport, AnalysisRequest, CommandReply, DeviceDescriptor, ExportOptions, ExportResult,
     HistoryState, LibraryEntryInfo, LibraryPreviewReply, LibraryQuery, LibraryScanAction,
-    LibraryScanStatus, LibrarySearchReply, MediaImportReply, ModelPatch, PatchOp,
-    PluginScanSummary, Project, Session, Snapshot, UiCommand,
+    LibraryScanStatus, LibrarySearchReply, MediaImportReply, MidiEditReply, MidiExportReply,
+    MidiImportReply, ModelPatch, PatchOp, PluginScanSummary, Project, Session, Snapshot, UiCommand,
 };
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
@@ -47,6 +47,11 @@ fn export_bindings() {
     HistoryState::export_all(&cfg).unwrap();
     CommandReply::export_all(&cfg).unwrap();
     MediaImportReply::export_all(&cfg).unwrap();
+    MidiImportReply::export_all(&cfg).unwrap();
+    MidiExportReply::export_all(&cfg).unwrap();
+    MidiEditReply::export_all(&cfg).unwrap();
+    ow_model::midi::MidiEdit::export_all(&cfg).unwrap();
+    ow_model::midi::MidiRecordMode::export_all(&cfg).unwrap();
     DeviceDescriptor::export_all(&cfg).unwrap();
     PluginScanSummary::export_all(&cfg).unwrap();
     AnalysisRequest::export_all(&cfg).unwrap();

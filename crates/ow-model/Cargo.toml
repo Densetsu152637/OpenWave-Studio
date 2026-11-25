@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Project model for OpenWave Studio: timeline math, tracks, clips, edit commands"
 
 [dependencies]
+midly = "0.5.3"
 schemars = { version = "1.2.3", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }

@@ -134,6 +134,8 @@ pub(crate) struct PlanData {
     pub(crate) dag: Dag,
     /// The device input the plan's monitor nodes read; `None` when no node monitors.
     pub(crate) input: Option<Arc<InputBus>>,
+    /// Indices into `nodes` of the nodes that play live MIDI input.
+    pub(crate) live_midi: Box<[usize]>,
     /// Block parameters of the current cycle, published by `Dag::begin`.
     frames: AtomicUsize,
     block: BlockSlot,
@@ -165,9 +167,16 @@ impl PlanData {
             output_latency,
             dag,
             input: None,
+            live_midi: Box::new([]),
             frames: AtomicUsize::new(0),
             block: BlockSlot(UnsafeCell::new(None)),
         }
+    }
+
+    /// Marks the nodes (by index) that play live MIDI input.
+    pub(crate) fn with_live_midi(mut self, live: Vec<usize>) -> Self {
+        self.live_midi = live.into_boxed_slice();
+        self
     }
 
     fn index_of(&self, id: NodeId) -> Option<usize> {
@@ -315,6 +324,20 @@ impl PlanData {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Hands a live MIDI input message to every node that plays it.
+    ///
+    /// # Safety
+    ///
+    /// Audio thread only, between cycles.
+    pub(crate) unsafe fn live_midi(&self, offset: u32, message: MidiMessage) {
+        for &index in &self.live_midi {
+            // SAFETY: between cycles no worker touches nodes (caller's contract).
+            unsafe { &mut *self.nodes[index].0.get() }
+                .node
+                .on_live_midi(offset, message);
         }
     }
 

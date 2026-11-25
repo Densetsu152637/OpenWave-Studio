@@ -235,9 +235,13 @@ impl Graph {
         let mut latencies = Vec::with_capacity(count);
         let mut slots: Vec<Option<Slot>> = self.slots.into_iter().map(Some).collect();
         let mut nodes = Vec::with_capacity(count);
+        let mut live_midi = Vec::new();
         for (position, &slot_index) in order.iter().enumerate() {
             let mut slot = slots[slot_index].take().expect("each node is placed once");
             slot.node.prepare(sample_rate, max_block);
+            if slot.node.accepts_live_midi() {
+                live_midi.push(position);
+            }
             let (in_start, in_len, out_start, out_len) = ranges[position];
             lookup.push((slot.id, position));
             latencies.push(slot.node.latency_samples());
@@ -251,18 +255,21 @@ impl Graph {
         }
         lookup.sort_by_key(|entry| entry.0);
 
-        Ok(RenderPlan::new(PlanData::new(
-            sample_rate,
-            max_block,
-            nodes.into_boxed_slice(),
-            io.into_boxed_slice(),
-            Buffers::new(buffer_count as usize, max_block),
-            lookup.into_boxed_slice(),
-            latencies.into_boxed_slice(),
-            master_ids,
-            output_latency,
-            Dag::new(count, &dependencies),
-        )))
+        Ok(RenderPlan::new(
+            PlanData::new(
+                sample_rate,
+                max_block,
+                nodes.into_boxed_slice(),
+                io.into_boxed_slice(),
+                Buffers::new(buffer_count as usize, max_block),
+                lookup.into_boxed_slice(),
+                latencies.into_boxed_slice(),
+                master_ids,
+                output_latency,
+                Dag::new(count, &dependencies),
+            )
+            .with_live_midi(live_midi),
+        ))
     }
 
     /// Inserts a [`DelayNode`] on every edge that reaches its node earlier than the node's
