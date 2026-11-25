@@ -15,7 +15,7 @@ function recorder() {
     end: async () => undefined,
     cancel: async () => undefined,
     allocIds: async (count) => Array.from({ length: count }, () => next++),
-    mediaImport: async () => ({ media: 1, frames: 1, sampleRate: 48_000, channels: 1 }),
+    mediaImport: async () => ({ media: 1, frames: 1, sampleRate: 48_000, channels: 1, tempo: null, key: null }),
   };
   return { api, edits };
 }

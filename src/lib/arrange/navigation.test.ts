@@ -54,7 +54,7 @@ function recorder() {
     end: async () => void calls.push("end"),
     cancel: async () => void calls.push("cancel"),
     allocIds: async (count) => Array.from({ length: count }, (_, i) => 50 + i),
-    mediaImport: async () => ({ media: 1, frames: 1, sampleRate: 48_000, channels: 1 }),
+    mediaImport: async () => ({ media: 1, frames: 1, sampleRate: 48_000, channels: 1, tempo: null, key: null }),
   };
   return { api, calls, edits };
 }

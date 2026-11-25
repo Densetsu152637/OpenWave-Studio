@@ -46,7 +46,10 @@ Every tool returns structured content (JSON) and a short text summary. Argument 
 | `undo`, `redo` | Step through history. |
 | `transport` | `play`, `stop`, `locate` (to a beat), `status` (audio state, position in frames and beats, `moving`, true while playing or counting in; `counting_in` and `recording` tell them apart). |
 | `project` | `new`, `open`, `save`, `save_as` (a `.owave` bundle directory). |
-| `import_audio` | Decodes an audio file into the media pool and answers the media id; a clip that references it is added with `edit`. |
+| `import_audio` | Decodes an audio file into the media pool and answers the media id, plus the `tempo` and `key` detected in it (nothing for a file without a clear beat or over ten minutes); a clip that references it is added with `edit`. |
+| `library_scan` | Scans the loop and sample library (the folders in the preferences, `audio_settings` `set` with `{"paths": {"libraryDirs": ["/absolute/folder"]}}`) for tempo, key and length; `force: true` analyses unchanged files again, `action: "status"` reports progress, `"cancel"` stops it. |
+| `library_search` | Searches the scanned library by words, tags, tempo range (`bpm_min`, `bpm_max`, `include_half_double`) and `key` (such as `Am`); answers path, tempo, key, length and tags. |
+| `library_preview` | `start` plays a library file (`path` from `library_search`) through the output, stretched to the project tempo, optionally shifted by `semitones`; `stop` ends it. |
 | `record` | `arm` or disarm an audio track, `start` and `stop` recording. The takes become clips when recording stops. |
 | `analyze` | Renders the project (the master, or one strip after its fader; whole project or a beat range) and measures integrated, short-term and momentary loudness, true peak, sample peak, RMS, crest factor, stereo correlation and eight band energies. |
 | `export_wav` | Renders to a 32-bit float WAV, optionally normalised to a target integrated loudness with a true-peak ceiling. |
@@ -71,6 +74,19 @@ The schema of every tool, including the full shape of each edit command, comes w
 Monitoring feeds the input to the output: when the input device hears the output (speakers, or a digital loopback), `auto` or `on` monitoring feeds back. Whether to monitor is the user's choice; wear headphones or use `off`. The number of loop takes is 16 for up to four armed tracks and fewer with more (a track keeps at least 2).
 
 The timeline placement already compensates the device's round-trip latency, so a take lines up with what was played. Arming, like transport state, is session state: it is not saved and has no undo step.
+
+### Loops, tempo and warp
+
+`import_audio` and the media pool carry what the importer detected: a media item has an optional `tempo` (beats per minute) and `key` (`tonic` 0 to 11 from C, `minor`, `confidence`), both left out when nothing clear was found. An audio clip follows the project tempo when its content has a `warp`:
+
+```json
+{"type": "audio", "media": 7, "source_offset": 0, "gain_db": 0, "fade_in": 0, "fade_out": 0,
+ "warp": {"mode": "follow_tempo", "source_bpm": 120, "markers": [], "transpose_semitones": 0}}
+```
+
+`mode` is `off` (the file plays as it is) or `follow_tempo`: the audio is stretched so that `source_bpm` of it fits the project tempo map, which makes the clip `length` (in beats) the number of beats the loop has at `source_bpm`: an eight-beat loop recorded at 120 bpm is a clip of `length` 8 at any project tempo. `transpose_semitones` (-24 to 24) shifts the pitch without changing the length. `markers` (`{"source_frame", "beat"}`, rising in both) pin a frame of the file to a clip-local beat and bend the stretch between them; with markers `source_offset` is not used. Set it with `edit` `replace_clip`; the stretched audio is rendered when the project compiles and cached under the project's `cache/` folder, so a tempo change takes a moment before the new timing plays. Tempo ratios beyond 4x either way play silence for that part.
+
+Adding a loop: `library_search`, then `import_audio` with the path, then an `edit` that adds the clip with `warp` set (use the `tempo` the import answers when the file name has none). `library_preview` is only an audition; it does not touch the project.
 
 ### Third-party plugins
 

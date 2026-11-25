@@ -28,7 +28,11 @@ export function peakRequest(
   right: number,
 ): PeakRequest | null {
   if (clip.content.type !== "audio" || width <= 0 || right <= left) return null;
-  const seconds = tempo.beatsToSeconds(clip.start + clip.length) - tempo.beatsToSeconds(clip.start);
+  const warp = clip.content.warp;
+  const seconds =
+    warp?.mode === "follow_tempo" && warp.source_bpm > 0
+      ? (clip.length * 60) / warp.source_bpm
+      : tempo.beatsToSeconds(clip.start + clip.length) - tempo.beatsToSeconds(clip.start);
   const first = clip.content.source_offset;
   const last = Math.min(media.frames, first + seconds * media.sample_rate);
   if (!(last > first)) return null;

@@ -7,6 +7,7 @@
   let { prefs = $bindable() }: { prefs: Preferences } = $props();
 
   let newPluginDir = $state("");
+  let newLibraryDir = $state("");
   let scan = $state<PluginScanSummary | null>(null);
   let scanning = $state(false);
   let scanError = $state<string | null>(null);
@@ -27,6 +28,14 @@
     } finally {
       scanning = false;
     }
+  }
+
+  function addLibraryDir() {
+    const dir = newLibraryDir.trim();
+    if (dir && !prefs.paths.libraryDirs.includes(dir)) {
+      prefs.paths.libraryDirs = [...prefs.paths.libraryDirs, dir];
+    }
+    newLibraryDir = "";
   }
 
   function addPluginDir() {
@@ -54,6 +63,34 @@
       Use default
     </button>
   </div>
+
+  <h4>Loop and sample folders</h4>
+  <ul>
+    {#each prefs.paths.libraryDirs as dir (dir)}
+      <li>
+        <span class="path">{dir}</span>
+        <button
+          type="button"
+          onclick={() => (prefs.paths.libraryDirs = prefs.paths.libraryDirs.filter((entry) => entry !== dir))}
+        >
+          Remove
+        </button>
+      </li>
+    {:else}
+      <li class="hint">None. Add folders of loops and samples for the loop browser.</li>
+    {/each}
+  </ul>
+  <div class="row">
+    <input
+      type="text"
+      aria-label="Library folder to add"
+      placeholder="Absolute path of a folder"
+      bind:value={newLibraryDir}
+      onkeydown={(event) => event.key === "Enter" && addLibraryDir()}
+    />
+    <button type="button" onclick={addLibraryDir} disabled={!newLibraryDir.trim()}>Add</button>
+  </div>
+  <p class="hint">Save the settings, then press Scan in the loop browser.</p>
 
   <h4>Extra plugin folders</h4>
   <ul>

@@ -38,7 +38,7 @@ function recorder(failOn?: string) {
     },
     mediaImport: async (path) => {
       await step(`import:${path}`);
-      return { media: 7, frames: 96_000, sampleRate: 48_000, channels: 2 };
+      return { media: 7, frames: 96_000, sampleRate: 48_000, channels: 2, tempo: null, key: null };
     },
   };
   return { api, calls, edits };

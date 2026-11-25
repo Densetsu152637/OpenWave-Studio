@@ -98,7 +98,7 @@ function recorder() {
     },
     mediaImport: async (path) => {
       calls.push(`import:${path}`);
-      return { media: 70 + calls.length, frames: 96_000, sampleRate: 48_000, channels: 2 };
+      return { media: 70 + calls.length, frames: 96_000, sampleRate: 48_000, channels: 2, tempo: null, key: null };
     },
   };
   return { api, calls, edits };

@@ -8,6 +8,10 @@ import type {
   EditCommand,
   ExportOptions,
   ExportResult,
+  LibraryPreviewReply,
+  LibraryQuery,
+  LibraryScanStatus,
+  LibrarySearchReply,
   MediaImportReply,
   ModelPatch,
   PluginScanSummary,
@@ -126,6 +130,55 @@ export function mediaImport(
   transport: IpcTransport = tauriTransport,
 ): Promise<MediaImportReply> {
   return queued(transport, () => transport.invoke<MediaImportReply>("media_import", { path }));
+}
+
+/**
+ * Scans the library folders of the settings (`paths.libraryDirs`) for loops and samples and
+ * resolves with the result when the scan is done or stopped. Unchanged files come from the
+ * cache unless `force`. Not queued behind edits: poll `libraryScanStatus` for progress.
+ */
+export function libraryScan(
+  force = false,
+  transport: IpcTransport = tauriTransport,
+): Promise<LibraryScanStatus> {
+  return transport.invoke<LibraryScanStatus>("library_scan", { force });
+}
+
+/** Progress of the running library scan, or the result of the last one. */
+export function libraryScanStatus(
+  transport: IpcTransport = tauriTransport,
+): Promise<LibraryScanStatus> {
+  return transport.invoke<LibraryScanStatus>("library_scan_status");
+}
+
+/** Stops the running library scan; resolves with whether one was running. */
+export function libraryScanCancel(transport: IpcTransport = tauriTransport): Promise<boolean> {
+  return transport.invoke<boolean>("library_scan_cancel");
+}
+
+/** Searches the library (the last scan, or its cache before the first scan of the session). */
+export function librarySearch(
+  query: LibraryQuery,
+  transport: IpcTransport = tauriTransport,
+): Promise<LibrarySearchReply> {
+  return transport.invoke<LibrarySearchReply>("library_search", { query });
+}
+
+/**
+ * Plays a library file through the engine, stretched to the project tempo (a file without a
+ * tempo plays as it is), optionally shifted by `semitones`. Replaces a preview that is playing.
+ */
+export function libraryPreview(
+  path: string,
+  semitones = 0,
+  transport: IpcTransport = tauriTransport,
+): Promise<LibraryPreviewReply> {
+  return transport.invoke<LibraryPreviewReply>("library_preview", { path, semitones });
+}
+
+/** Stops the library preview. */
+export function libraryPreviewStop(transport: IpcTransport = tauriTransport): Promise<void> {
+  return transport.invoke<void>("library_preview_stop");
 }
 
 /**

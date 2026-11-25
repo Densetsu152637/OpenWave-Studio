@@ -4,6 +4,16 @@
   import { tauriTransport } from "../ipc";
   import Lane from "./Lane.svelte";
   import PianoRoll from "./PianoRoll.svelte";
+  import LoopBrowser from "../browser/LoopBrowser.svelte";
+  import {
+    clampTranspose,
+    setClipsTranspose,
+    setClipsWarp,
+    sharedSourceBpm,
+    sharedTranspose,
+    warpState,
+  } from "../browser/warp";
+  import { bpmLabel } from "../browser/library";
   import TrackHeader from "./TrackHeader.svelte";
   import BusHeader from "./BusHeader.svelte";
   import SendsPanel from "./SendsPanel.svelte";
@@ -178,6 +188,8 @@
   let view = $state.raw<View>(DEFAULT_VIEW);
   let width = $state(800);
   let selectedTrack = $state<number | null>(null);
+  /** The loop browser is shown above the dock. */
+  let browserOpen = $state(false);
   /** A bus (its id) or the master selected instead of a track; its FX and sends fill the dock. */
   let selectedBus = $state<number | "master" | null>(null);
   let selection = $state.raw<ClipSelection>(NO_SELECTION);
@@ -596,6 +608,21 @@
       : null;
   });
 
+  /** Whether the selected audio clips follow the project tempo: "on", "off", "mixed" or null. */
+  const warping = $derived(warpState(selectedAudio));
+  const warpBpm = $derived(sharedSourceBpm(selectedAudio));
+  const transposition = $derived(sharedTranspose(selectedAudio));
+  const toggleWarp = () =>
+    run(() =>
+      setClipsWarp(
+        commandsApi,
+        selectedAudio,
+        warping !== "on",
+        (id) => project?.media_pool.get(id),
+        tempo,
+      ),
+    );
+
   function splitAtPlayhead() {
     if (hasLockedTake) return onError(CHOOSE_ONE_TAKE);
     if (splitTargets.length === 0) return;
@@ -889,6 +916,47 @@
         }}
       />
     </label>
+    <button
+      type="button"
+      aria-pressed={warping === "on"}
+      title="Stretch the selected audio clips to follow the project tempo"
+      onclick={toggleWarp}
+      disabled={warping === null}
+    >
+      {warping === "mixed" ? "Warp: mixed" : "Warp"}
+    </button>
+    <label class="snap">
+      Transpose
+      <input
+        type="number"
+        aria-label="Transpose in semitones"
+        title="Pitch shift of the selected warped clips in semitones"
+        min="-24"
+        max="24"
+        step="1"
+        value={transposition ?? ""}
+        placeholder={warping === "on" ? "mixed" : ""}
+        disabled={warping !== "on" && warping !== "mixed"}
+        onchange={(event) => {
+          const value = event.currentTarget.valueAsNumber;
+          if (Number.isNaN(value)) return;
+          void run(() => setClipsTranspose(commandsApi, selectedAudio, clampTranspose(value)));
+        }}
+      />
+    </label>
+    {#if warpBpm !== null}
+      <span class="snap" title="Tempo of the clip's audio, from which it is stretched">
+        Source {bpmLabel(warpBpm)} BPM
+      </span>
+    {/if}
+    <button
+      type="button"
+      aria-pressed={browserOpen}
+      title="Show the loop and sample browser"
+      onclick={() => (browserOpen = !browserOpen)}
+    >
+      Loops
+    </button>
     <span class="spacer"></span>
     <button
       type="button"
@@ -1170,6 +1238,23 @@
         {/if}
       </div>
     </div>
+    {#if browserOpen}
+      <LoopBrowser
+        {tempo}
+        {playheadBeat}
+        selectedTrack={selectedTrack !== null &&
+        tracks.some((t) => t.id === selectedTrack && t.kind === "audio")
+          ? selectedTrack
+          : null}
+        trackCount={tracks.length}
+        onAdded={(added) => {
+          selectedTrack = added.trackId;
+          selection = new Set([added.clipId]);
+        }}
+        {onError}
+        onClose={() => (browserOpen = false)}
+      />
+    {/if}
     {#if dockRef && dockStrip}
       <section class="dock" aria-label="Piano roll, FX and device panel">
         {#if rollClip && rollTrack}

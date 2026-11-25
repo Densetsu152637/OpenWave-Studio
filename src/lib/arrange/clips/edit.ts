@@ -46,13 +46,24 @@ export function clampGain(db: number): number {
 
 const replace = (clip: Clip): EditCommand => ({ command: "replace_clip", clip });
 
-/** Media frames (at the media's own rate) that `beats` from `at` cover. */
+/** The source tempo of an audio clip that follows the project tempo; null for any other clip. */
+export function warpBpm(clip: Clip): number | null {
+  const warp = clip.content.type === "audio" ? clip.content.warp : null;
+  return warp?.mode === "follow_tempo" && warp.source_bpm > 0 ? warp.source_bpm : null;
+}
+
+/**
+ * Media frames (at the media's own rate) that `beats` from `at` cover. A clip that follows the
+ * project tempo (`sourceBpm`) plays its source at that tempo whatever the tempo map says.
+ */
 export function framesBetween(
   tempo: TempoMap,
   at: number,
   beats: number,
   media: MediaBounds,
+  sourceBpm: number | null = null,
 ): number {
+  if (sourceBpm !== null) return ((beats * 60) / sourceBpm) * media.sample_rate;
   return (tempo.beatsToSeconds(at + beats) - tempo.beatsToSeconds(at)) * media.sample_rate;
 }
 
@@ -72,7 +83,11 @@ export function trimLeft(clip: Clip, target: number, tempo: TempoMap, media?: Me
   if (content.type === "audio") {
     if (!media) return clip;
     const back = content.source_offset / Math.max(1, media.sample_rate);
-    low = Math.max(0, tempo.secondsToBeats(Math.max(0, tempo.beatsToSeconds(clip.start) - back)));
+    const sourceBpm = warpBpm(clip);
+    low =
+      sourceBpm !== null
+        ? Math.max(0, clip.start - (back * sourceBpm) / 60)
+        : Math.max(0, tempo.secondsToBeats(Math.max(0, tempo.beatsToSeconds(clip.start) - back)));
   }
   if (!(end - MIN_CLIP_BEATS >= low)) return clip;
   const start = clamp(target, low, end - MIN_CLIP_BEATS);
@@ -80,7 +95,9 @@ export function trimLeft(clip: Clip, target: number, tempo: TempoMap, media?: Me
   const moved: Clip = { ...clip, start, length: end - start };
   if (content.type === "midi") return rebaseMidi(moved, start - clip.start);
   if (content.type !== "audio" || !media) return clampFades(moved);
-  const frames = content.source_offset + framesBetween(tempo, clip.start, start - clip.start, media);
+  const frames =
+    content.source_offset +
+    framesBetween(tempo, clip.start, start - clip.start, media, warpBpm(clip));
   const offset = clamp(Math.round(frames), 0, Math.max(0, media.frames - 1));
   return clampFades({ ...moved, content: { ...content, source_offset: offset } });
 }
@@ -111,7 +128,11 @@ export function trimRight(clip: Clip, target: number, tempo: TempoMap, media?: M
   if (clip.content.type === "audio") {
     if (!media) return clip;
     const seconds = (media.frames - clip.content.source_offset) / Math.max(1, media.sample_rate);
-    high = tempo.secondsToBeats(tempo.beatsToSeconds(clip.start) + Math.max(0, seconds));
+    const sourceBpm = warpBpm(clip);
+    high =
+      sourceBpm !== null
+        ? clip.start + (Math.max(0, seconds) * sourceBpm) / 60
+        : tempo.secondsToBeats(tempo.beatsToSeconds(clip.start) + Math.max(0, seconds));
   }
   if (!(high >= low)) return clip;
   const length = clamp(target, low, high) - clip.start;
@@ -226,7 +247,7 @@ export function splitClip(
   const right: Clip = { ...clip, id: rightId, start: at, length: end - at, take: null };
   if (content.type === "audio") {
     if (!media) return null;
-    const advance = framesBetween(tempo, clip.start, leftLength, media);
+    const advance = framesBetween(tempo, clip.start, leftLength, media, warpBpm(clip));
     left.content = { ...content, fade_out: 0 };
     right.content = {
       ...content,

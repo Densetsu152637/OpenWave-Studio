@@ -91,7 +91,7 @@ export interface Preferences {
     bufferFrames: number | null;
   };
   midi: { inputs: MidiInputPref[] };
-  paths: { projectsDir: string | null; pluginDirs: string[] };
+  paths: { projectsDir: string | null; pluginDirs: string[]; libraryDirs: string[] };
   appearance: { theme: Theme };
   /** Control by AI agents through the local MCP endpoint. */
   ai: { allowControl: boolean };
@@ -153,7 +153,7 @@ export const defaultPreferences: Preferences = {
   version: 1,
   audio: { backend: "", outputDevice: null, inputDevice: null, sampleRate: null, bufferFrames: null },
   midi: { inputs: [] },
-  paths: { projectsDir: null, pluginDirs: [] },
+  paths: { projectsDir: null, pluginDirs: [], libraryDirs: [] },
   appearance: { theme: "system" },
   ai: { allowControl: true },
   shortcuts: {},
