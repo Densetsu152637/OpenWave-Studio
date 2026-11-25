@@ -1,5 +1,6 @@
-//! Time-stretch and pitch-shift on top of Signalsmith Stretch (MIT; the `signalsmith-stretch`
-//! crate builds the C++ library with `cc` and needs libclang for its `bindgen` step).
+//! Time-stretch and pitch-shift on top of Signalsmith Stretch (MIT; vendored in
+//! `vendor/signalsmith-stretch`, compiled by `build.rs` with `cc` behind a small hand-declared
+//! C ABI, so a C++ compiler is needed but libclang is not).
 //!
 //! * [`stretch_to_length`] renders a whole buffer offline to an exact frame count, for cached
 //!   warped loops and in-tempo previews.
@@ -10,7 +11,9 @@
 //! Ratios in this module are always `output duration / input duration`: 2.0 plays at half speed
 //! (twice as long), 0.5 at double speed. Pitch is independent of tempo and given in semitones.
 
-use signalsmith_stretch::Stretch;
+mod native;
+
+use native::Stretch;
 
 /// Largest pitch shift accepted in either direction, in semitones.
 pub const MAX_PITCH_SEMITONES: f32 = 24.0;
@@ -36,7 +39,7 @@ fn set_pitch(stretch: &mut Stretch, semitones: f32) {
     } else {
         0.0
     };
-    stretch.set_transpose_factor_semitones(semitones, None);
+    stretch.set_transpose_semitones(semitones);
 }
 
 /// Stretches `input` (planar; channel `c` is `input[c]`, missing channels are silent, longer
