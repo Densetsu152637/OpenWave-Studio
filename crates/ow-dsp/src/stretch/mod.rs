@@ -154,26 +154,30 @@ impl Stretcher {
             input_buffer: vec![0.0; max_input * channels],
             output_buffer: vec![0.0; max_block * channels],
         };
-        stretcher.warm_up();
+        if !stretcher.warm_up() {
+            return Err(StretchError::Unavailable);
+        }
         Ok(stretcher)
     }
 
     /// Runs silence through the algorithm at both ratio extremes so the library's scratch
     /// vectors reach their final size, then resets.
-    fn warm_up(&mut self) {
+    fn warm_up(&mut self) -> bool {
         let block = self.max_block;
         let seek_len = self.max_input;
         self.input_buffer[..seek_len * self.channels].fill(0.0);
-        self.stretch
+        let mut ok = self
+            .stretch
             .seek(&self.input_buffer[..seek_len * self.channels], 1.0);
         for ratio in [MIN_RATIO, MAX_RATIO, 1.0] {
             let wanted = ((block as f64 / ratio).round() as usize).clamp(1, self.max_input);
-            self.stretch.process(
+            ok &= self.stretch.process(
                 &self.input_buffer[..wanted * self.channels],
                 &mut self.output_buffer[..block * self.channels],
             );
         }
         self.stretch.reset();
+        ok
     }
 
     /// Sets the pitch shift in semitones (clamped to +-24), independent of the ratio.
@@ -199,16 +203,18 @@ impl Stretcher {
 
     /// Primes the algorithm with `input`, the audio just before the position playback starts
     /// at (at most the last `max_block / MIN_RATIO` frames are used), without producing output.
-    pub fn seek(&mut self, input: &[&[f32]], ratio: f64) {
+    /// Returns false when the library failed; the stretcher should then be [`Stretcher::reset`].
+    pub fn seek(&mut self, input: &[&[f32]], ratio: f64) -> bool {
         let available = input.first().map_or(0, |c| c.len());
         let take = available.min(self.max_input);
         let from = available - take;
         interleave(input, self.channels, from, take, &mut self.input_buffer);
-        self.stretch.seek(
+        let ok = self.stretch.seek(
             &self.input_buffer[..take * self.channels],
             1.0 / clamp_ratio(ratio),
         );
         self.carry = 0.0;
+        ok
     }
 
     /// Input frames [`Stretcher::process`] will consume for `output_frames` frames of output at

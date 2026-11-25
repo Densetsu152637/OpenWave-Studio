@@ -385,6 +385,25 @@ mod scan {
     }
 
     #[test]
+    fn scan_cache_without_analysis_version_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("lib");
+        write_wav(&root.join("a.wav"), &[drum_loop(120.0, 6.0)], RATE);
+        let cache = dir.path().join("library.json");
+        let roots = [root];
+        scan(&roots, &options(Some(cache.clone())));
+        // An older cache of the same index version that predates `analysis_version`.
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
+        for entry in json["entries"].as_array_mut().unwrap() {
+            entry.as_object_mut().unwrap().remove("analysis_version");
+        }
+        fs::write(&cache, serde_json::to_vec(&json).unwrap()).unwrap();
+        let report = scan(&roots, &options(Some(cache)));
+        assert_eq!((report.analysed, report.cached), (1, 0));
+    }
+
+    #[test]
     fn scan_tags_follow_the_folder_names_even_when_cached() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("lib");

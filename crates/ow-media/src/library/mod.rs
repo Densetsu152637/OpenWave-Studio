@@ -10,8 +10,8 @@
 //!   one and wins in [`LibraryEntry::bpm`] and [`LibraryEntry::key`].
 //! * The result is a [`LibraryIndex`], cached as versioned JSON keyed by path, size and
 //!   modification time (plus [`ANALYSIS_VERSION`] and the size limit in force), like the plugin
-//!   scan cache: unchanged files are not decoded again, a changed file is analysed again, a vanished file drops out, and a cache with another
-//!   [`INDEX_VERSION`] or unreadable JSON is ignored. Files that fail to decode are cached too
+//!   scan cache: unchanged files are not decoded again, a changed file is analysed again, a
+//!   vanished file drops out, and a cache with another [`INDEX_VERSION`] or unreadable JSON is ignored. Files that fail to decode are cached too
 //!   (with the error), so they are not retried until they change.
 //! * [`LibraryIndex::search`] filters by text, tags, tempo range and key.
 //! * [`preview_in_tempo`] returns a loop stretched to a target tempo with
