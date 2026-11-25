@@ -305,4 +305,22 @@ mod analysis {
         assert_eq!(mixed, vec![0.5, 0.5, 0.25]);
         assert!(mono_mixdown(&[]).is_empty());
     }
+
+    #[test]
+    fn analysis_survives_non_finite_samples() {
+        let mut drums = drum_fixture(120.0, 0.0, false, 24.0);
+        let mut chords = chord_fixture(&[(0, false), (5, false), (7, false), (0, false)], 2.0, 2);
+        for buf in [&mut drums, &mut chords] {
+            for i in (0..buf.len()).step_by(1009) {
+                buf[i] = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY][i % 3];
+            }
+        }
+        let tempo = detect_tempo(&drums, RATE).expect("tempo despite bad samples");
+        assert!(tempo.bpm.is_finite() && tempo.first_beat_seconds.is_finite());
+        let key = detect_key(&chords, RATE).expect("key despite bad samples");
+        assert!(key.correlation.is_finite());
+        // All bad: silence, so nothing to report.
+        assert!(detect_tempo(&vec![f32::NAN; 44_100 * 5], RATE).is_none());
+        assert!(detect_key(&vec![f32::INFINITY; 44_100 * 5], RATE).is_none());
+    }
 }

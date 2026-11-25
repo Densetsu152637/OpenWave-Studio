@@ -28,7 +28,9 @@ fn interleave(channels: &[&[f32]], count: usize, start: usize, frames: usize, ou
     for c in 0..count {
         let source = channels.get(c).copied().unwrap_or(&[]);
         for i in 0..frames {
-            out[i * count + c] = source.get(start + i).copied().unwrap_or(0.0);
+            let sample = source.get(start + i).copied().unwrap_or(0.0);
+            // NaN and infinity would poison the algorithm's state; they read as silence.
+            out[i * count + c] = if sample.is_finite() { sample } else { 0.0 };
         }
     }
 }
@@ -51,7 +53,13 @@ fn set_pitch(stretch: &mut Stretch, semitones: f32) {
 /// and the tail is whatever the algorithm produces for the end of the input. Targets too short
 /// for the algorithm's latency are rendered with zero padding on both sides, in proportion, and
 /// cut back, so the length is exact for every target. Silence in, or no frames to produce, gives
-/// silence. Allocates; control thread only.
+/// silence.
+///
+/// Non-finite input samples (NaN, infinities) are treated as silence and the output is always
+/// finite. If the algorithm cannot run (out of memory, or more than `i32::MAX` frames), the
+/// result is silence of the exact length rather than an error or a panic, so a caller that
+/// must tell the cases apart should check the output for silence. Allocates; control thread
+/// only.
 pub fn stretch_to_length(
     input: &[&[f32]],
     channels: usize,
@@ -64,7 +72,9 @@ pub fn stretch_to_length(
     if channels == 0 || target_frames == 0 || in_frames == 0 || sample_rate == 0 {
         return result;
     }
-    let mut stretch = Stretch::preset_default(channels as u32, sample_rate);
+    let Some(mut stretch) = Stretch::preset_default(channels as u32, sample_rate) else {
+        return result;
+    };
     set_pitch(&mut stretch, pitch_semitones);
     // `exact` refuses outputs shorter than twice the output latency.
     let minimum = stretch.output_latency() * 2 + 64;
@@ -74,6 +84,10 @@ pub fn stretch_to_length(
         out_total = minimum;
         in_total = in_frames + (((minimum - target_frames) as f64 / ratio).ceil() as usize);
     }
+    let limit = i32::MAX as usize / channels;
+    if in_total > limit || out_total > limit {
+        return result;
+    }
     let mut interleaved_in = vec![0.0_f32; in_total * channels];
     interleave(input, channels, 0, in_frames, &mut interleaved_in);
     let mut interleaved_out = vec![0.0_f32; out_total * channels];
@@ -82,11 +96,29 @@ pub fn stretch_to_length(
     }
     for (c, channel) in result.iter_mut().enumerate() {
         for (i, sample) in channel.iter_mut().enumerate() {
-            *sample = interleaved_out[i * channels + c];
+            let value = interleaved_out[i * channels + c];
+            *sample = if value.is_finite() { value } else { 0.0 };
         }
     }
     result
 }
+
+/// Why a [`Stretcher`] could not be made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StretchError {
+    /// The stretch library could not allocate its state.
+    Unavailable,
+}
+
+impl std::fmt::Display for StretchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable => write!(f, "the time-stretch engine could not be created"),
+        }
+    }
+}
+
+impl std::error::Error for StretchError {}
 
 /// A streaming time-stretcher and pitch-shifter for the audio thread.
 ///
@@ -107,13 +139,14 @@ pub struct Stretcher {
 impl Stretcher {
     /// Prepares a stretcher for `channels` channels and output blocks of up to `max_block`
     /// frames (longer blocks are processed in several steps). Allocates and warms up the
-    /// algorithm's internal buffers.
-    pub fn new(channels: usize, sample_rate: u32, max_block: usize) -> Self {
+    /// algorithm's internal buffers. Fails only when the library cannot allocate.
+    pub fn new(channels: usize, sample_rate: u32, max_block: usize) -> Result<Self, StretchError> {
         let channels = channels.max(1);
         let max_block = max_block.max(1);
         let max_input = (max_block as f64 / MIN_RATIO).ceil() as usize + 2;
         let mut stretcher = Self {
-            stretch: Stretch::preset_default(channels as u32, sample_rate.max(1)),
+            stretch: Stretch::preset_default(channels as u32, sample_rate.max(1))
+                .ok_or(StretchError::Unavailable)?,
             channels,
             max_block,
             max_input,
@@ -122,7 +155,7 @@ impl Stretcher {
             output_buffer: vec![0.0; max_block * channels],
         };
         stretcher.warm_up();
-        stretcher
+        Ok(stretcher)
     }
 
     /// Runs silence through the algorithm at both ratio extremes so the library's scratch
@@ -188,7 +221,8 @@ impl Stretcher {
     /// (planar, positioned at the next unread frame) at `ratio` (output over input duration,
     /// clamped to [`MIN_RATIO`]..=[`MAX_RATIO`]). Returns the number of input frames consumed;
     /// the caller advances its read position by that much. Input that runs out reads as
-    /// silence. No allocation, lock or I/O on the Rust side.
+    /// silence, and so does a block the library failed to render. Non-finite input reads as
+    /// silence and the output is always finite. No allocation, lock or I/O on the Rust side.
     pub fn process(&mut self, input: &[&[f32]], output: &mut [&mut [f32]], ratio: f64) -> usize {
         let ratio = clamp_ratio(ratio);
         let out_frames = output.iter().map(|c| c.len()).min().unwrap_or(0);
@@ -207,13 +241,19 @@ impl Stretcher {
                         source.get(consumed + i).copied().unwrap_or(0.0);
                 }
             }
-            self.stretch.process(
+            let ran = self.stretch.process(
                 &self.input_buffer[..take * self.channels],
                 &mut self.output_buffer[..chunk * self.channels],
             );
             for (c, channel) in output.iter_mut().enumerate().take(self.channels) {
                 for i in 0..chunk {
-                    channel[done + i] = self.output_buffer[i * self.channels + c];
+                    let sample = self.output_buffer[i * self.channels + c];
+                    // A failed run or a non-finite value is silence, never noise.
+                    channel[done + i] = if ran && sample.is_finite() {
+                        sample
+                    } else {
+                        0.0
+                    };
                 }
             }
             consumed += take;

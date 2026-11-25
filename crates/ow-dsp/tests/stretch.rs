@@ -108,7 +108,7 @@ mod stretch {
     fn stretch_streaming_matches_ratio_and_pitch() {
         let input = sine(440.0, 200_000, RATE);
         for ratio in [0.5, 1.0, 2.0] {
-            let mut stretcher = Stretcher::new(1, RATE, 256);
+            let mut stretcher = Stretcher::new(1, RATE, 256).unwrap();
             let mut produced = Vec::new();
             let mut position = 0;
             let mut block = vec![0.0_f32; 256];
@@ -134,7 +134,7 @@ mod stretch {
 
     #[test]
     fn stretch_streaming_reports_latency() {
-        let stretcher = Stretcher::new(2, RATE, 128);
+        let stretcher = Stretcher::new(2, RATE, 128).unwrap();
         assert!(stretcher.latency_frames() > 0);
         assert!(stretcher.input_latency_frames() > 0);
         assert_eq!(stretcher.input_frames_for(128, 2.0), 64);
@@ -145,7 +145,7 @@ mod stretch {
     fn stretch_process_is_allocation_free() {
         let input_l = sine(330.0, 400_000, RATE);
         let input_r = sine(550.0, 400_000, RATE);
-        let mut stretcher = Stretcher::new(2, RATE, 128);
+        let mut stretcher = Stretcher::new(2, RATE, 128).unwrap();
         stretcher.set_pitch_semitones(3.0);
         let mut out_l = vec![0.0_f32; 128];
         let mut out_r = vec![0.0_f32; 128];
@@ -174,5 +174,22 @@ mod stretch {
             )
         });
         assert_eq!(used, 128);
+    }
+
+    #[test]
+    fn stretch_non_finite_input_gives_finite_output() {
+        let mut input = sine(440.0, 48_000, RATE);
+        for i in (0..input.len()).step_by(997) {
+            input[i] = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY][i % 3];
+        }
+        let out = stretch_to_length(&[&input], 1, RATE, 60_000, 3.0);
+        assert_eq!(out[0].len(), 60_000);
+        assert!(out[0].iter().all(|s| s.is_finite()));
+        let mut stretcher = Stretcher::new(1, RATE, 128).unwrap();
+        let mut block = vec![0.0_f32; 128];
+        for _ in 0..40 {
+            stretcher.process(&[&input], &mut [&mut block[..]], 1.0);
+            assert!(block.iter().all(|s| s.is_finite()));
+        }
     }
 }

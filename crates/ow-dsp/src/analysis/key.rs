@@ -75,6 +75,7 @@ impl KeyEstimate {
 
 /// The 12-bin chromagram of `mono` (index 0 is C), or `None` for audio too short or silent.
 pub fn chroma(mono: &[f32], sample_rate: u32) -> Option<[f64; 12]> {
+    let mono = &*super::finite(mono);
     let rate = f64::from(sample_rate);
     if sample_rate == 0 || (mono.len() as f64) < MIN_KEY_SECONDS * rate {
         return None;

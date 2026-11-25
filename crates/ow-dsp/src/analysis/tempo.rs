@@ -79,6 +79,7 @@ impl TempoEstimate {
 /// Computes the onset curves of `mono` at `sample_rate`; empty when the audio is shorter than
 /// one analysis window.
 pub fn onset_envelope(mono: &[f32], sample_rate: u32) -> OnsetEnvelope {
+    let mono = &*super::finite(mono);
     let rate = f64::from(sample_rate.max(1));
     let size = next_pow2((rate * 0.0232).round() as usize).max(256);
     let hop = size / 4;

@@ -336,6 +336,34 @@ mod scan {
     }
 
     #[test]
+    fn scan_cache_is_keyed_by_size_limit_and_analysis_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("lib");
+        write_wav(&root.join("a.wav"), &[drum_loop(120.0, 6.0)], RATE);
+        let cache = dir.path().join("library.json");
+        let roots = [root];
+
+        // Too large under a tiny limit: listed with an error, no analysis.
+        let tiny = ScanOptions {
+            max_file_bytes: 1000,
+            ..options(Some(cache.clone()))
+        };
+        let first = scan(&roots, &tiny);
+        assert_eq!(first.failed, 1);
+        assert!(first.index.entries[0].bpm_detected.is_none());
+        assert_eq!(scan(&roots, &tiny).cached, 1);
+        // Raising the limit analyses the file again.
+        let raised = scan(&roots, &options(Some(cache.clone())));
+        assert_eq!((raised.analysed, raised.failed), (1, 0));
+        assert!(raised.index.entries[0].bpm_detected.is_some());
+        // An entry from another analysis version is not trusted.
+        let mut stale: LibraryIndex = serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
+        stale.entries[0].analysis_version = ANALYSIS_VERSION + 1;
+        fs::write(&cache, serde_json::to_vec(&stale).unwrap()).unwrap();
+        assert_eq!(scan(&roots, &options(Some(cache))).analysed, 1);
+    }
+
+    #[test]
     fn scan_cache_with_another_version_or_bad_json_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("lib");

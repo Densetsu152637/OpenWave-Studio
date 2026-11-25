@@ -1,14 +1,16 @@
 //! The loop and sample library (stage 22): a scan of local folders into a searchable index.
 //!
-//! * [`scan`] walks the root folders recursively (symbolic links to folders are not followed),
+//! * [`scan`] walks the root folders recursively (a root itself may be a link; symbolic links
+//!   found inside, to files or to folders, are skipped, so links can neither loop nor leave
+//!   the library),
 //!   decodes every WAV, AIFF, FLAC, Ogg Vorbis and MP3 file with [`import::decode_file`], and
 //!   records its duration, rate, channel count, a tempo and key detected by `ow_dsp::analysis`
 //!   on a mono mixdown, and tags from folder names and file-name tokens (see [`tags`]).
 //!   A tempo or key written in the file name (`120bpm`, `Am`) is kept apart from the detected
 //!   one and wins in [`LibraryEntry::bpm`] and [`LibraryEntry::key`].
 //! * The result is a [`LibraryIndex`], cached as versioned JSON keyed by path, size and
-//!   modification time, like the plugin scan cache: unchanged files are not decoded again, a
-//!   changed file is analysed again, a vanished file drops out, and a cache with another
+//!   modification time (plus [`ANALYSIS_VERSION`] and the size limit in force), like the plugin
+//!   scan cache: unchanged files are not decoded again, a changed file is analysed again, a vanished file drops out, and a cache with another
 //!   [`INDEX_VERSION`] or unreadable JSON is ignored. Files that fail to decode are cached too
 //!   (with the error), so they are not retried until they change.
 //! * [`LibraryIndex::search`] filters by text, tags, tempo range and key.
@@ -16,7 +18,10 @@
 //!   `ow_dsp::stretch::stretch_to_length`.
 //!
 //! Scanning allocates and reads whole files: run it on a worker thread, never on the audio
-//! thread. Files larger than [`ScanOptions::max_file_bytes`] are listed without analysis.
+//! thread. Files larger than [`ScanOptions::max_file_bytes`] (128 MiB by default) are listed
+//! without analysis, and files that cannot be statted are listed with an error. Memory is
+//! bounded by at most [`MAX_WORKERS`] files being decoded at once, each limited to 2^26
+//! samples (256 MiB), so a scan peaks near 1.3 GiB however large the library.
 
 pub mod tags;
 
@@ -40,6 +45,12 @@ pub use tags::{LibraryKey, NameTokens, parse_name, path_tags};
 
 /// Version of the cached index format; a cache with another version is ignored.
 pub const INDEX_VERSION: u32 = 1;
+/// Version of the analysis (decoding limits, tempo and key algorithms); bump it when results
+/// can change, so cached entries are analysed again.
+pub const ANALYSIS_VERSION: u32 = 1;
+/// Most workers decoding at once; each holds one decoded file (at most 256 MiB of samples) and
+/// its mono mixdown, so peak memory is about this many times 320 MiB.
+pub const MAX_WORKERS: usize = 4;
 /// File extensions the scan picks up (lower case).
 pub const AUDIO_EXTENSIONS: [&str; 6] = ["wav", "flac", "ogg", "mp3", "aif", "aiff"];
 /// Detected tempi below this confidence are dropped: a sustained pad has no beat to report.
@@ -78,8 +89,13 @@ pub struct LibraryEntry {
     /// Tags from folder and file names; recomputed on every scan, so renaming folders never
     /// needs a re-analysis.
     pub tags: Vec<String>,
-    /// Why the file could not be analysed (undecodable, too large), when so.
+    /// Why the file could not be analysed (undecodable, too large, unreadable), when so.
     pub error: Option<String>,
+    /// [`ANALYSIS_VERSION`] this entry was analysed with (cache key).
+    pub analysis_version: u32,
+    /// The [`ScanOptions::max_file_bytes`] in force when it was analysed (cache key: raising
+    /// the limit re-analyses files that were skipped as too large).
+    pub max_file_bytes: u64,
 }
 
 impl LibraryEntry {
@@ -190,7 +206,8 @@ pub struct ScanOptions {
     pub max_file_bytes: u64,
     /// Ignore the cache and analyse everything again.
     pub force: bool,
-    /// Worker threads for decoding and analysis; 0 picks the machine's parallelism (at most 8).
+    /// Worker threads for decoding and analysis; 0 picks the machine's parallelism, and any
+    /// value is capped at [`MAX_WORKERS`] to bound memory.
     pub threads: usize,
 }
 
@@ -198,7 +215,7 @@ impl Default for ScanOptions {
     fn default() -> Self {
         Self {
             cache_path: None,
-            max_file_bytes: 256 << 20,
+            max_file_bytes: 128 << 20,
             force: false,
             threads: 0,
         }
@@ -279,9 +296,9 @@ fn save_cache(path: &Path, index: &LibraryIndex) {
     }
 }
 
-/// Decodes and analyses one file into an entry without tags.
-fn analyse(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> LibraryEntry {
-    let mut entry = LibraryEntry {
+/// An entry with no analysis results.
+fn blank(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> LibraryEntry {
+    LibraryEntry {
         path: path.to_path_buf(),
         size,
         modified_ms,
@@ -296,13 +313,22 @@ fn analyse(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> L
         key_tag: None,
         tags: Vec::new(),
         error: None,
-    };
+        analysis_version: ANALYSIS_VERSION,
+        max_file_bytes: options.max_file_bytes,
+    }
+}
+
+/// Decodes and analyses one file into an entry without tags.
+fn analyse(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> LibraryEntry {
+    let mut entry = blank(path, size, modified_ms, options);
     if size > options.max_file_bytes {
         entry.error = Some("file too large to analyse".into());
         return entry;
     }
     let limits = ImportLimits {
         max_file_bytes: options.max_file_bytes,
+        // 2^26 samples: at most 256 MiB of decoded audio per worker.
+        max_samples: 1 << 26,
         ..ImportLimits::default()
     };
     match decode_file(path, &limits) {
@@ -361,11 +387,18 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
         .collect();
     for (i, (path, _)) in files.iter().enumerate() {
         let Some((size, modified)) = fingerprint(path) else {
+            // Listed, with the reason, so the user sees the file instead of it vanishing.
+            let mut entry = blank(path, 0, 0, options);
+            entry.error = Some("cannot read file metadata".into());
+            slots[i] = Some(entry);
             continue;
         };
-        let hit = known
-            .get(path.as_path())
-            .filter(|e| e.size == size && e.modified_ms == modified);
+        let hit = known.get(path.as_path()).filter(|e| {
+            e.size == size
+                && e.modified_ms == modified
+                && e.analysis_version == ANALYSIS_VERSION
+                && e.max_file_bytes == options.max_file_bytes
+        });
         match hit {
             Some(entry) => {
                 slots[i] = Some((*entry).clone());
@@ -376,10 +409,11 @@ pub fn scan(roots: &[PathBuf], options: &ScanOptions) -> ScanReport {
     }
 
     let threads = if options.threads == 0 {
-        std::thread::available_parallelism().map_or(2, |n| n.get().min(8))
+        std::thread::available_parallelism().map_or(2, std::num::NonZero::get)
     } else {
         options.threads
     }
+    .clamp(1, MAX_WORKERS)
     .min(todo.len().max(1));
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<(usize, LibraryEntry)>> = Mutex::new(Vec::new());
