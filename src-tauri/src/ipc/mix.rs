@@ -57,6 +57,8 @@ fn project(work: &Path, settings: StripSettings) -> (IpcState, CompilingTarget, 
                     ..Strip::default()
                 },
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         },
     );
@@ -78,6 +80,7 @@ fn project(work: &Path, settings: StripSettings) -> (IpcState, CompilingTarget, 
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         },
     );

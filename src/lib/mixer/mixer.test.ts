@@ -50,6 +50,8 @@ const track = (id: number, s: Strip = strip()): Track => ({
   kind: "audio",
   strip: s,
   instrument: null,
+  input: null,
+  monitor: "Off",
 });
 
 const bus = (id: number, s: Strip = strip()): Bus => ({ id, name: `B${id}`, color: 0, strip: s });

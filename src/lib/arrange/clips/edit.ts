@@ -222,7 +222,8 @@ export function splitClip(
   const leftLength = at - clip.start;
   const content = clip.content;
   const left: Clip = { ...clip, length: leftLength };
-  const right: Clip = { ...clip, id: rightId, start: at, length: end - at };
+  // The right part is a plain clip: only the left keeps the clip's take.
+  const right: Clip = { ...clip, id: rightId, start: at, length: end - at, take: null };
   if (content.type === "audio") {
     if (!media) return null;
     const advance = framesBetween(tempo, clip.start, leftLength, media);
@@ -303,6 +304,8 @@ export function duplicates(clips: readonly Clip[], ids: readonly number[]): Clip
     ...structuredClone(clip),
     id: ids[i]!,
     start: clip.start - first + last,
+    // A copy is not another take of the recording.
+    take: null,
   }));
 }
 

@@ -15,6 +15,7 @@ function audioClip(over: Partial<Clip> = {}, offset = 0): Clip {
     length: 8,
     muted: false,
     content: { type: "audio", media: 9, source_offset: offset, gain_db: 0, fade_in: 0, fade_out: 0 },
+    take: null,
     ...over,
   };
 }

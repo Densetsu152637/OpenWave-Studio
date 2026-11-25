@@ -137,6 +137,8 @@ fn audio_project(inserts: &[Insert]) -> (Project, Vec<DeviceId>) {
                         ..Strip::default()
                     },
                     instrument: None,
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![Clip {
                     id: clip,
@@ -152,6 +154,7 @@ fn audio_project(inserts: &[Insert]) -> (Project, Vec<DeviceId>) {
                         fade_in: 0.0,
                         fade_out: 0.0,
                     },
+                    take: None,
                 }],
                 devices: ids
                     .iter()
@@ -195,6 +198,8 @@ fn midi_project(inserts: &[Insert]) -> Project {
                         ..Strip::default()
                     },
                     instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![Clip {
                     id: clip,
@@ -212,6 +217,7 @@ fn midi_project(inserts: &[Insert]) -> Project {
                         }],
                         controllers: vec![],
                     },
+                    take: None,
                 }],
                 devices,
                 lanes: vec![],

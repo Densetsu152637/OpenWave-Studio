@@ -223,6 +223,8 @@ fn build(
                     },
                     strip: Strip::default(),
                     instrument: None,
+                    input: None,
+                    monitor: Default::default(),
                 })),
             })
         }
@@ -305,6 +307,7 @@ fn build(
                         }],
                         controllers: vec![],
                     },
+                    take: None,
                 }),
             })
         }
@@ -427,6 +430,8 @@ fn build(
                         inserts: vec![device.into()],
                     },
                     instrument: None,
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: if *audio {
                     vec![]
@@ -442,6 +447,7 @@ fn build(
                             notes: vec![],
                             controllers: vec![],
                         },
+                        take: None,
                     }]
                 },
                 devices: vec![device_of(device, "Owned device")],
@@ -581,6 +587,7 @@ fn build(
                         fade_in: 0.25,
                         fade_out: 0.5,
                     },
+                    take: None,
                 }),
             })
         }
@@ -653,6 +660,7 @@ fn build(
                     length: 4.0,
                     muted: false,
                     content: ClipContent::Pattern { pattern },
+                    take: None,
                 }),
             })
         }

@@ -122,6 +122,8 @@ impl Mix {
                             ..Strip::default()
                         },
                         instrument: None,
+                        input: None,
+                        monitor: Default::default(),
                     },
                     clips: vec![Clip {
                         id: clip,
@@ -137,6 +139,7 @@ impl Mix {
                             fade_in: 0.0,
                             fade_out: 0.0,
                         },
+                        take: None,
                     }],
                     devices: vec![],
                     lanes: vec![],

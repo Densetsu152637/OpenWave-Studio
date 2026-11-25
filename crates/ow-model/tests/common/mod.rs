@@ -146,6 +146,7 @@ fn clip_for(ed: &mut Editor, track: &Track, op: Op) -> Option<Clip> {
         length: len_beats(op.c),
         muted: op.a % 9 == 0,
         content,
+        take: None,
     })
 }
 
@@ -182,6 +183,8 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                     inserts: vec![],
                 },
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             };
             if let Some(bus) = pick(&buses, op.c) {
                 track.strip.settings.output = Output::Bus(bus);
@@ -486,6 +489,8 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                     None
                 },
                 count_in_bars: (op.c % 5) as u8,
+                punch_enabled: false,
+                punch_range: None,
             },
         },
         35 => {
@@ -500,6 +505,8 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                 kind: TrackKind::Midi,
                 strip: Strip::default(),
                 instrument: Some(dev.id),
+                input: None,
+                monitor: Default::default(),
             };
             track.strip.sends = pick(&buses, op.c)
                 .map(|target| {
@@ -526,6 +533,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                             notes: vec![note(op.c)],
                             controllers: vec![],
                         },
+                        take: None,
                     }],
                     lanes: vec![AutomationLane {
                         id: lane_id,
@@ -572,6 +580,7 @@ pub fn make_command(ed: &mut Editor, op: Op) -> Option<EditCommand> {
                     notes: vec![],
                     controllers: vec![],
                 },
+                take: None,
             }),
         },
         38 => EditCommand::SetStripSettings {
@@ -623,6 +632,8 @@ pub fn reference_project() -> Project {
                     end: 12.0,
                 }),
                 count_in_bars: 1,
+                punch_enabled: false,
+                punch_range: None,
             },
         },
     );
@@ -696,6 +707,8 @@ pub fn reference_project() -> Project {
                     inserts: vec![],
                 },
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         },
     );
@@ -717,6 +730,7 @@ pub fn reference_project() -> Project {
                     fade_in: 0.25,
                     fade_out: 0.5,
                 },
+                take: None,
             }),
         },
     );
@@ -742,6 +756,8 @@ pub fn reference_project() -> Project {
                         inserts: vec![],
                     },
                     instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![],
                 devices: vec![Device {
@@ -817,6 +833,7 @@ pub fn reference_project() -> Project {
                 length: 16.0,
                 muted: false,
                 content: ClipContent::Pattern { pattern },
+                take: None,
             }),
         },
     );
@@ -844,6 +861,7 @@ pub fn reference_project() -> Project {
                         value: 64,
                     }],
                 },
+                take: None,
             }),
         },
     );

@@ -115,6 +115,8 @@ impl Fixture {
                         ..Strip::default()
                     },
                     instrument: None,
+                    input: None,
+                    monitor: Default::default(),
                 })),
             })
             .unwrap();
@@ -140,6 +142,7 @@ impl Fixture {
                         fade_in: spec.fade_in,
                         fade_out: spec.fade_out,
                     },
+                    take: None,
                 }),
             })
             .unwrap();

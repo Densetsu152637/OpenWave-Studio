@@ -6,7 +6,9 @@
       "settings": {
         "sample_rate": 48000,
         "loop_range": null,
-        "count_in_bars": 0
+        "count_in_bars": 0,
+        "punch_range": null,
+        "punch_enabled": false
       },
       "tempo_map": [
         {
@@ -563,7 +565,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -579,7 +583,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         },
         {
@@ -865,7 +870,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -938,7 +945,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -1253,7 +1262,9 @@
           "settings": {
             "sample_rate": 48000,
             "loop_range": null,
-            "count_in_bars": 6
+            "count_in_bars": 6,
+            "punch_range": null,
+            "punch_enabled": false
           }
         }
       ],
@@ -1498,7 +1509,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -1698,7 +1711,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -2460,7 +2475,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -2533,7 +2550,9 @@
                 249
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -2549,7 +2568,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         },
         {
@@ -3067,7 +3087,9 @@
           "settings": {
             "sample_rate": 48000,
             "loop_range": null,
-            "count_in_bars": 1
+            "count_in_bars": 1,
+            "punch_range": null,
+            "punch_enabled": false
           }
         }
       ],
@@ -3127,7 +3149,9 @@
           "settings": {
             "sample_rate": 48000,
             "loop_range": null,
-            "count_in_bars": 0
+            "count_in_bars": 0,
+            "punch_range": null,
+            "punch_enabled": false
           }
         },
         {
@@ -3180,7 +3204,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -3221,7 +3247,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         },
         {
@@ -3538,7 +3565,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -3779,7 +3808,9 @@
                 354
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -3795,7 +3826,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         },
         {
@@ -3995,7 +4027,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -4338,7 +4372,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         }
       ],
@@ -4609,7 +4644,9 @@
           "settings": {
             "sample_rate": 48000,
             "loop_range": null,
-            "count_in_bars": 13
+            "count_in_bars": 13,
+            "punch_range": null,
+            "punch_enabled": false
           }
         }
       ],
@@ -4707,7 +4744,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -5716,7 +5755,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -5898,7 +5939,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         }
       ],
@@ -6098,7 +6141,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -6334,7 +6379,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -6595,7 +6642,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -7038,7 +7087,8 @@
                 }
               ],
               "controllers": []
-            }
+            },
+            "take": null
           }
         }
       ],
@@ -7423,7 +7473,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         },
         {
@@ -7857,7 +7909,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -7922,7 +7976,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -8006,7 +8062,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -8043,7 +8101,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -8091,7 +8151,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -8170,7 +8231,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -8207,7 +8270,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 85,
@@ -8229,7 +8294,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 79,
@@ -8249,7 +8316,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -8297,7 +8366,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -8407,7 +8477,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -8444,7 +8516,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 85,
@@ -8466,7 +8540,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 79,
@@ -8486,7 +8562,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -8534,7 +8612,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -8659,7 +8738,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -8696,7 +8777,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 85,
@@ -8718,7 +8801,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 79,
@@ -8738,7 +8823,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -8786,7 +8873,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -8911,7 +8999,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -8948,7 +9038,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -8970,7 +9062,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 79,
@@ -8990,7 +9084,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -9038,7 +9134,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -9163,7 +9260,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -9200,7 +9299,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -9222,7 +9323,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 79,
@@ -9242,7 +9345,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -9290,7 +9395,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -9424,7 +9530,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -9461,7 +9569,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -9483,7 +9593,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -9531,7 +9643,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -9665,7 +9778,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -9702,7 +9817,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -9724,7 +9841,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -9772,7 +9891,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -9906,7 +10026,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -9943,7 +10065,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -9965,7 +10089,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 242,
@@ -9985,7 +10111,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 248,
@@ -10007,7 +10135,9 @@
                 249
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -10055,7 +10185,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           },
           {
             "id": 252,
@@ -10068,7 +10199,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -10242,7 +10374,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -10279,7 +10413,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -10301,7 +10437,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 242,
@@ -10321,7 +10459,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 248,
@@ -10343,7 +10483,9 @@
                 249
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -10391,7 +10533,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -10571,7 +10714,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 6
+          "count_in_bars": 6,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -10608,7 +10753,9 @@
                 86
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -10630,7 +10777,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 242,
@@ -10650,7 +10799,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 248,
@@ -10672,7 +10823,9 @@
                 249
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -10720,7 +10873,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [
@@ -10898,7 +11052,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -10935,7 +11091,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -10983,7 +11141,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -11062,7 +11221,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -11099,7 +11260,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -11119,7 +11282,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -11167,7 +11332,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -11246,7 +11412,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -11283,7 +11451,9 @@
                 56
               ]
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -11303,7 +11473,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -11351,7 +11523,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -11436,7 +11609,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -11471,7 +11646,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -11491,7 +11668,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -11539,7 +11718,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -11604,7 +11784,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -11639,7 +11821,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -11659,7 +11843,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -11707,7 +11893,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -11762,7 +11949,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 0
+          "count_in_bars": 0,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -11797,7 +11986,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -11817,7 +12008,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -11865,7 +12058,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -11920,7 +12114,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -11955,7 +12151,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -11981,7 +12179,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -12029,7 +12229,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -12084,7 +12285,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -12119,7 +12322,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -12145,7 +12350,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -12193,7 +12400,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -12255,7 +12463,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -12290,7 +12500,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -12316,7 +12528,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -12364,7 +12578,8 @@
               "type": "midi",
               "notes": [],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -12426,7 +12641,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -12461,7 +12678,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -12487,7 +12706,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -12589,7 +12810,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -12624,7 +12847,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -12650,7 +12875,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -12752,7 +12979,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -12787,7 +13016,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -12813,7 +13044,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -12833,7 +13066,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -12935,7 +13170,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -12970,7 +13207,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -12990,7 +13229,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -13016,7 +13257,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -13036,7 +13279,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -13144,7 +13389,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -13179,7 +13426,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -13199,7 +13448,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -13219,7 +13470,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -13245,7 +13498,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -13265,7 +13520,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -13379,7 +13636,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -13414,7 +13673,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -13434,7 +13695,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -13454,7 +13717,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -13474,7 +13739,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -13500,7 +13767,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -13520,7 +13789,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -13644,7 +13915,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -13679,7 +13952,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -13699,7 +13974,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -13719,7 +13996,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -13739,7 +14018,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -13765,7 +14046,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -13785,7 +14068,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -13903,7 +14188,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -13938,7 +14225,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -13958,7 +14247,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -13978,7 +14269,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -13998,7 +14291,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -14024,7 +14319,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -14044,7 +14341,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -14099,7 +14398,8 @@
                 }
               ],
               "controllers": []
-            }
+            },
+            "take": null
           }
         ],
         "patterns": [],
@@ -14189,7 +14489,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -14224,7 +14526,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -14244,7 +14548,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -14264,7 +14570,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -14284,7 +14592,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -14310,7 +14620,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -14330,7 +14642,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -14472,7 +14786,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -14507,7 +14823,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -14527,7 +14845,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -14547,7 +14867,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 733,
@@ -14567,7 +14889,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -14587,7 +14911,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -14613,7 +14939,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -14633,7 +14961,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -14775,7 +15105,9 @@
         "settings": {
           "sample_rate": 48000,
           "loop_range": null,
-          "count_in_bars": 13
+          "count_in_bars": 13,
+          "punch_range": null,
+          "punch_enabled": false
         },
         "tempo_map": [
           {
@@ -14810,7 +15142,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 55,
@@ -14830,7 +15164,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 595,
@@ -14850,7 +15186,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 619,
@@ -14870,7 +15208,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 329,
@@ -14896,7 +15236,9 @@
               ],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           },
           {
             "id": 577,
@@ -14916,7 +15258,9 @@
               "sends": [],
               "inserts": []
             },
-            "instrument": null
+            "instrument": null,
+            "input": null,
+            "monitor": "Off"
           }
         ],
         "buses": [
@@ -15059,7 +15403,9 @@
       "settings": {
         "sample_rate": 48000,
         "loop_range": null,
-        "count_in_bars": 13
+        "count_in_bars": 13,
+        "punch_range": null,
+        "punch_enabled": false
       },
       "tempo_map": [
         {
@@ -15094,7 +15440,9 @@
             "sends": [],
             "inserts": []
           },
-          "instrument": null
+          "instrument": null,
+          "input": null,
+          "monitor": "Off"
         },
         {
           "id": 55,
@@ -15114,7 +15462,9 @@
             "sends": [],
             "inserts": []
           },
-          "instrument": null
+          "instrument": null,
+          "input": null,
+          "monitor": "Off"
         },
         {
           "id": 595,
@@ -15134,7 +15484,9 @@
             "sends": [],
             "inserts": []
           },
-          "instrument": null
+          "instrument": null,
+          "input": null,
+          "monitor": "Off"
         },
         {
           "id": 619,
@@ -15154,7 +15506,9 @@
             "sends": [],
             "inserts": []
           },
-          "instrument": null
+          "instrument": null,
+          "input": null,
+          "monitor": "Off"
         },
         {
           "id": 329,
@@ -15180,7 +15534,9 @@
             ],
             "inserts": []
           },
-          "instrument": null
+          "instrument": null,
+          "input": null,
+          "monitor": "Off"
         },
         {
           "id": 577,
@@ -15200,7 +15556,9 @@
             "sends": [],
             "inserts": []
           },
-          "instrument": null
+          "instrument": null,
+          "input": null,
+          "monitor": "Off"
         }
       ],
       "buses": [

@@ -187,6 +187,8 @@ pub fn add_track(
                         ..Strip::default()
                     },
                     instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![Clip {
                     id: clip,
@@ -204,6 +206,7 @@ pub fn add_track(
                         }],
                         controllers: vec![],
                     },
+                    take: None,
                 }],
                 devices,
                 lanes: vec![],

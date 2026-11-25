@@ -52,6 +52,7 @@ const clip: Clip = {
   length: 8,
   muted: false,
   content: { type: "audio", media: 7, source_offset: 480, gain_db: -3, fade_in: 0, fade_out: 0 },
+  take: null,
 };
 
 const tempo = new TempoMap([{ beat: 0, bpm: 120, ramp: false }]);
@@ -112,6 +113,7 @@ describe("import", () => {
             fade_in: 0,
             fade_out: 0,
           },
+          take: null,
         },
       },
     ]);

@@ -1254,6 +1254,8 @@ mod tests {
                 kind: TrackKind::Audio,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap()
@@ -1275,6 +1277,7 @@ mod tests {
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         })
         .unwrap()
@@ -1561,6 +1564,8 @@ mod tests {
                 ..Strip::default()
             },
             instrument: None,
+            input: None,
+            monitor: Default::default(),
         });
         bundle.devices.push(Device {
             id: DeviceId(device),

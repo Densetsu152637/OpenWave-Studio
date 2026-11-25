@@ -131,6 +131,8 @@ fn add_clip(state: &IpcState, target: &dyn PlanTarget, media: u64) {
                 kind: TrackKind::Audio,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         },
     );
@@ -152,6 +154,7 @@ fn add_clip(state: &IpcState, target: &dyn PlanTarget, media: u64) {
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         },
     );

@@ -74,6 +74,7 @@ export function newMidiClip(id: number, track: number, name: string, start: numb
     length,
     muted: false,
     content: { type: "midi", notes: [], controllers: [] },
+    take: null,
   };
 }
 

@@ -179,6 +179,8 @@ fn undo_of_a_failed_command_leaves_history_alone() {
             kind: TrackKind::Audio,
             strip: Strip::default(),
             instrument: None,
+            input: None,
+            monitor: Default::default(),
         })),
     })
     .unwrap();
@@ -192,6 +194,8 @@ fn undo_of_a_failed_command_leaves_history_alone() {
             kind: TrackKind::Audio,
             strip: Strip::default(),
             instrument: None,
+            input: None,
+            monitor: Default::default(),
         })),
     });
     assert_eq!(again, Err(EditError::IdTaken(id.0)));

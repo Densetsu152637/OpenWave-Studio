@@ -40,6 +40,7 @@ fn midi_clip(id: u64, track: u64, start: f64, length: f64, notes: Vec<Note>) -> 
             notes,
             controllers: vec![],
         },
+        take: None,
     }
 }
 
@@ -82,6 +83,8 @@ fn project_with(tempo_bpm: f64, clips: impl FnOnce(u64) -> Vec<Clip>) -> Project
                     kind: TrackKind::Midi,
                     strip: Strip::default(),
                     instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips,
                 devices: vec![ModelDevice {

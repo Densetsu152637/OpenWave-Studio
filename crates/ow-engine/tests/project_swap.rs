@@ -52,6 +52,8 @@ fn add_track(editor: &mut Editor) -> TrackId {
                 kind: TrackKind::Audio,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap();

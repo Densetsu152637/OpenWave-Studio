@@ -41,8 +41,85 @@ fn serde_golden_v1_loads() {
     assert_eq!(loaded.tracks.len(), 2);
     assert_eq!(loaded.devices.len(), 2);
     assert_eq!(loaded.clips.len(), 3);
-    // Reading the golden file and writing it again is stable.
-    assert_eq!(to_json(&loaded).unwrap(), golden_v1());
+    // Reading the golden file and writing it again is stable once the fields added since the
+    // file was written (all with serde defaults, so the file still loads) are set aside.
+    let mut rewritten: Value = serde_json::from_slice(&to_json(&loaded).unwrap()).unwrap();
+    strip_recording_defaults(&mut rewritten);
+    let golden: Value = serde_json::from_slice(&golden_v1()).unwrap();
+    assert_eq!(rewritten, golden);
+}
+
+/// Removes the stage 14 fields (recording input, monitoring, takes, punch) when they hold
+/// their defaults, leaving what a file written before stage 14 contains.
+fn strip_recording_defaults(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for (key, default) in [
+                ("input", json!(null)),
+                ("monitor", json!("Off")),
+                ("take", json!(null)),
+                ("punch_range", json!(null)),
+                ("punch_enabled", json!(false)),
+            ] {
+                if map.get(key) == Some(&default) {
+                    map.remove(key);
+                }
+            }
+            map.values_mut().for_each(strip_recording_defaults);
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_recording_defaults),
+        _ => {}
+    }
+}
+
+/// A file written before stage 14 has none of its fields; it loads with the defaults and the
+/// new fields survive a save and load.
+#[test]
+fn serde_files_without_recording_fields_load_with_defaults() {
+    let golden: Value = serde_json::from_slice(&golden_v1()).unwrap();
+    let text = golden.to_string();
+    for key in [
+        "\"input\"",
+        "\"monitor\"",
+        "\"take\"",
+        "\"punch_range\"",
+        "\"punch_enabled\"",
+    ] {
+        assert!(!text.contains(key), "the golden file predates {key}");
+    }
+    let mut project = from_json(&golden_v1()).unwrap();
+    assert!(project.tracks.iter().all(|t| t.input.is_none()));
+    assert!(project.tracks.iter().all(|t| t.monitor == MonitorMode::Off));
+    assert!(project.clips.values().all(|c| c.take.is_none()));
+    assert_eq!(project.settings.punch_range, None);
+    assert!(!project.settings.punch_enabled);
+
+    let audio = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.kind == TrackKind::Audio)
+        .unwrap();
+    audio.input = Some(TrackInput {
+        channels: InputChannels::Stereo(2),
+    });
+    audio.monitor = MonitorMode::Auto;
+    project.settings.punch_range = Some(BeatRange {
+        start: 4.0,
+        end: 8.0,
+    });
+    project.settings.punch_enabled = true;
+    let take = project
+        .clips
+        .values_mut()
+        .find(|c| matches!(c.content, ClipContent::Audio { .. }))
+        .unwrap();
+    take.take = Some(TakeInfo {
+        group: 9,
+        index: 1,
+        active: true,
+    });
+    let loaded = from_json(&to_json(&project).unwrap()).unwrap();
+    assert_eq!(loaded, project);
 }
 
 #[test]
@@ -500,6 +577,8 @@ fn serde_edited_arrangement_round_trips() {
                 kind,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap();
@@ -521,6 +600,7 @@ fn serde_edited_arrangement_round_trips() {
             fade_in: 0.0,
             fade_out: 0.0,
         },
+        take: None,
     };
     let whole: ClipId = ed.alloc_id().unwrap();
     ed.apply(EditCommand::AddClip {
@@ -587,6 +667,7 @@ fn serde_edited_arrangement_round_trips() {
             notes,
             controllers: vec![],
         },
+        take: None,
     };
     let riff: ClipId = ed.alloc_id().unwrap();
     ed.apply(EditCommand::AddClip {

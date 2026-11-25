@@ -16,4 +16,12 @@ loop_range: BeatRange | null,
 /**
  * Bars of metronome count-in before recording, 0 to 16.
  */
-count_in_bars: number, };
+count_in_bars: number, 
+/**
+ * Punch range, if set; used only while `punch_enabled`.
+ */
+punch_range: BeatRange | null, 
+/**
+ * Whether recording is limited to the punch range.
+ */
+punch_enabled: boolean, };

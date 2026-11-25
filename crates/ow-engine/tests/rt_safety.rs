@@ -448,6 +448,8 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
                 kind: TrackKind::Audio,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap();
@@ -468,6 +470,7 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         })
         .unwrap();
@@ -599,6 +602,8 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
                         ..Strip::default()
                     },
                     instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![Clip {
                     id: clip,
@@ -611,6 +616,7 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
                         notes,
                         controllers: vec![],
                     },
+                    take: None,
                 }],
                 devices: std::iter::once((synth, "builtin.synth"))
                     .chain(effects.iter().copied().zip([
@@ -719,6 +725,8 @@ fn the_mix_stages_and_the_limiter_are_allocation_free() {
                             ..Strip::default()
                         },
                         instrument: Some(synth),
+                        input: None,
+                        monitor: Default::default(),
                     },
                     clips: vec![Clip {
                         id: clip,
@@ -731,6 +739,7 @@ fn the_mix_stages_and_the_limiter_are_allocation_free() {
                             notes,
                             controllers: vec![],
                         },
+                        take: None,
                     }],
                     devices: vec![Device {
                         id: synth,

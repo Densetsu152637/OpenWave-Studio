@@ -40,6 +40,8 @@ fn hardening_ids_stay_within_the_javascript_safe_range() {
             kind: TrackKind::Midi,
             strip: Strip::default(),
             instrument: None,
+            input: None,
+            monitor: Default::default(),
         })),
     })
     .unwrap();
@@ -55,6 +57,7 @@ fn hardening_ids_stay_within_the_javascript_safe_range() {
                 notes: vec![],
                 controllers: vec![],
             },
+            take: None,
         }),
     };
     for bad in [MAX_ID + 1, u64::MAX] {

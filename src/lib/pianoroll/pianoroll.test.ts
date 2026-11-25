@@ -194,6 +194,7 @@ const midiClip = (notes: Note[]): Clip => ({
   length: CLIP,
   muted: false,
   content: { type: "midi", notes, controllers: [{ beat: 1, controller: 1, value: 2 }] },
+  take: null,
 });
 
 describe("commands", () => {

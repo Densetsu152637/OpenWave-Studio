@@ -67,6 +67,7 @@ const clipAt = (id: number, start: number): Clip => ({
   length: 4,
   muted: false,
   content: { type: "midi", notes: [], controllers: [] },
+  take: null,
 });
 
 describe("zoom", () => {

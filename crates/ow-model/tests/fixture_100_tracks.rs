@@ -31,6 +31,8 @@ fn build() -> Project {
                     inserts: vec![],
                 },
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap();
@@ -56,6 +58,7 @@ fn build() -> Project {
                         notes,
                         controllers: vec![],
                     },
+                    take: None,
                 }),
             })
             .unwrap();

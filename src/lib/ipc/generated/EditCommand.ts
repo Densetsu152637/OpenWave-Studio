@@ -14,6 +14,7 @@ import type { MarkerId } from "./MarkerId";
 import type { MediaId } from "./MediaId";
 import type { MediaItem } from "./MediaItem";
 import type { MixerRef } from "./MixerRef";
+import type { MonitorMode } from "./MonitorMode";
 import type { Owned } from "./Owned";
 import type { Pattern } from "./Pattern";
 import type { PatternId } from "./PatternId";
@@ -24,6 +25,7 @@ import type { StripSettings } from "./StripSettings";
 import type { TempoPointJson } from "./TempoPointJson";
 import type { Track } from "./Track";
 import type { TrackId } from "./TrackId";
+import type { TrackInput } from "./TrackInput";
 
 /**
  * A change to a [`Project`].
@@ -96,7 +98,35 @@ name: string,
 /**
  * New color.
  */
-color: number, } | { "command": "set_strip_settings", 
+color: number, } | { "command": "set_track_input", 
+/**
+ * The audio track.
+ */
+track: TrackId, 
+/**
+ * The input, or `None` for the default (channel 0, or 0 and 1 on a wider device).
+ */
+input: TrackInput | null, } | { "command": "set_track_monitor", 
+/**
+ * The audio track.
+ */
+track: TrackId, 
+/**
+ * The monitoring mode.
+ */
+monitor: MonitorMode, } | { "command": "set_active_take", 
+/**
+ * The track the takes are on.
+ */
+track: TrackId, 
+/**
+ * The take group.
+ */
+group: number, 
+/**
+ * The take to play.
+ */
+index: number, } | { "command": "set_strip_settings", 
 /**
  * The strip.
  */

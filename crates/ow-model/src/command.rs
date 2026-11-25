@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{BusId, ClipId, DeviceId, LaneId, MarkerId, MediaId, PatternId, TrackId};
 use crate::model::{
     AutomationLane, AutomationTarget, AuxSend, Bus, Clip, ClipContent, Device, Marker, MediaItem,
-    MixerRef, Pattern, Project, ProjectSettings, StateChunk, Strip, StripSettings, Track,
+    MixerRef, MonitorMode, Pattern, Project, ProjectSettings, StateChunk, Strip, StripSettings,
+    Track, TrackInput, TrackKind,
 };
 use crate::time::{TempoMap, TimeSignatureMap};
 use crate::validate::{ValidationError, check_marker, check_media, check_pattern, check_settings};
@@ -239,6 +240,31 @@ pub enum EditCommand {
         /// New color.
         color: u32,
     },
+    /// Sets which input channels an audio track records from (`None`: the default).
+    SetTrackInput {
+        /// The audio track.
+        track: TrackId,
+        /// The input, or `None` for the default (channel 0, or 0 and 1 on a wider device).
+        input: Option<TrackInput>,
+    },
+    /// Sets when an audio track's input is heard through its strip.
+    SetTrackMonitor {
+        /// The audio track.
+        track: TrackId,
+        /// The monitoring mode.
+        monitor: MonitorMode,
+    },
+    /// Chooses which take of a group plays: the clip of `track` whose take has this `group` and
+    /// `index` becomes active and the group's other takes become inactive (silent).
+    SetActiveTake {
+        /// The track the takes are on.
+        track: TrackId,
+        /// The take group.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        group: u64,
+        /// The take to play.
+        index: u32,
+    },
     /// Replaces a strip's fader, pan, mute, solo and output.
     SetStripSettings {
         /// The strip.
@@ -399,6 +425,9 @@ impl EditCommand {
             Self::RemoveBus { .. } => "Delete bus",
             Self::MoveBus { .. } => "Move bus",
             Self::SetInfo { .. } => "Rename",
+            Self::SetTrackInput { .. } => "Change track input",
+            Self::SetTrackMonitor { .. } => "Change monitoring",
+            Self::SetActiveTake { .. } => "Choose take",
             Self::SetStripSettings { .. } => "Change mixer",
             Self::SetSends { .. } => "Change sends",
             Self::InsertDevice { .. } => "Add device",
@@ -548,6 +577,70 @@ impl Project {
                     }
                     MixerRef::Master => Err(EditError::WrongTarget("the master has no name")),
                 }
+            }
+            C::SetTrackInput { track, input } => {
+                let index = self
+                    .tracks
+                    .iter()
+                    .position(|t| t.id == track)
+                    .ok_or_else(|| not_found("track", track.0))?;
+                let mut candidate = self.tracks[index].clone();
+                candidate.input = input;
+                self.check_track(&candidate)?;
+                let old = std::mem::replace(&mut self.tracks[index].input, input);
+                Ok(C::SetTrackInput { track, input: old })
+            }
+            C::SetTrackMonitor { track, monitor } => {
+                let t = self
+                    .tracks
+                    .iter_mut()
+                    .find(|t| t.id == track)
+                    .ok_or_else(|| not_found("track", track.0))?;
+                if t.kind != TrackKind::Audio {
+                    return Err(EditError::WrongTarget("only audio tracks monitor input"));
+                }
+                let old = std::mem::replace(&mut t.monitor, monitor);
+                Ok(C::SetTrackMonitor {
+                    track,
+                    monitor: old,
+                })
+            }
+            C::SetActiveTake {
+                track,
+                group,
+                index,
+            } => {
+                let in_group =
+                    |c: &Clip| c.track == track && c.take.is_some_and(|t| t.group == group);
+                if !self
+                    .clips
+                    .values()
+                    .any(|c| in_group(c) && c.take.is_some_and(|t| t.index == index))
+                {
+                    return Err(not_found("take", u64::from(index)));
+                }
+                let mut undo = Vec::new();
+                for clip in self.clips.values_mut().filter(|c| in_group(c)) {
+                    let Some(take) = clip.take.as_mut() else {
+                        continue;
+                    };
+                    let active = take.index == index;
+                    if take.active != active {
+                        undo.push(C::ReplaceClip {
+                            clip: Box::new(clip.clone()),
+                        });
+                        if let Some(take) = clip.take.as_mut() {
+                            take.active = active;
+                        }
+                    }
+                }
+                // Undo turns the previously inactive takes off before the active one comes back,
+                // so at most one take of the group is ever active (`check_clip`).
+                undo.sort_by_key(|command| match command {
+                    C::ReplaceClip { clip } => clip.take.is_some_and(|t| t.active),
+                    _ => false,
+                });
+                Ok(C::Batch { commands: undo })
             }
             C::SetStripSettings { target, settings } => {
                 let old = self.replace_strip(target, |strip| strip.settings = settings)?;

@@ -241,6 +241,7 @@ impl IpcState {
                             fade_in: 0.0,
                             fade_out: 0.0,
                         },
+                        take: None,
                     }),
                 },
             },

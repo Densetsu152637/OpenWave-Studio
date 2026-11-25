@@ -959,6 +959,8 @@ mod tests {
                     ..Strip::default()
                 },
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap();
@@ -978,6 +980,7 @@ mod tests {
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         })
         .unwrap();
@@ -1205,6 +1208,8 @@ mod tests {
                         ..Strip::default()
                     },
                     instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![Clip {
                     id: clip,
@@ -1222,6 +1227,7 @@ mod tests {
                         }],
                         controllers: vec![],
                     },
+                    take: None,
                 }],
                 devices: vec![device(synth, instrument_kind), device(fx, insert_kind)],
                 lanes: vec![],

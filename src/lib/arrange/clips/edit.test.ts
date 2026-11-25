@@ -49,6 +49,7 @@ function audio(extra: Partial<Clip> = {}, content: Partial<Clip["content"]> = {}
       fade_out: 0,
       ...content,
     } as Clip["content"],
+    take: null,
     ...extra,
   };
 }
@@ -73,6 +74,7 @@ function midi(): Clip {
         { beat: 3, controller: 1, value: 20 },
       ],
     },
+    take: null,
   };
 }
 

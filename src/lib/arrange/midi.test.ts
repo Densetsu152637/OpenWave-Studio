@@ -92,6 +92,7 @@ describe("MIDI clips", () => {
           length: 4,
           muted: false,
           content: { type: "midi", notes: [], controllers: [] },
+          take: null,
         },
       },
     ]);

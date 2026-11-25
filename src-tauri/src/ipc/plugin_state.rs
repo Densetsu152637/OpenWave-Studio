@@ -64,6 +64,8 @@ fn add_plugin_track(state: &IpcState, target: &dyn PlanTarget, kind: &str) -> De
                         ..Strip::default()
                     },
                     instrument: None,
+                    input: None,
+                    monitor: Default::default(),
                 },
                 clips: vec![],
                 devices: vec![Device {

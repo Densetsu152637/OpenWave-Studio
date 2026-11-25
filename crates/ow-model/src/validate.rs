@@ -8,8 +8,9 @@ use std::fmt;
 
 use crate::ids::DeviceId;
 use crate::model::{
-    AutomationLane, AutomationTarget, AuxSend, Bus, Clip, ClipContent, Device, Marker, MediaItem,
-    MixerRef, Note, Output, Pattern, Project, ProjectSettings, Strip, Track, TrackKind,
+    AutomationLane, AutomationTarget, AuxSend, Bus, Clip, ClipContent, Device, InputChannels,
+    Marker, MediaItem, MixerRef, Note, Output, Pattern, Project, ProjectSettings, Strip, Track,
+    TrackKind,
 };
 
 /// Longest name, in characters.
@@ -22,6 +23,9 @@ pub const MIN_GAIN_DB: f64 = -144.0;
 pub const MAX_GAIN_DB: f64 = 48.0;
 /// Longest device kind, format tag or media path, in bytes.
 const MAX_TAG_BYTES: usize = 512;
+
+/// Input channels a track can name (the first channel of its input), exclusive.
+pub const MAX_INPUT_CHANNELS: u16 = 256;
 /// Largest id an entity may have: 2^53 - 1, so ids survive a round trip through JavaScript
 /// numbers in the UI.
 pub const MAX_ID: u64 = (1 << 53) - 1;
@@ -165,6 +169,13 @@ pub(crate) fn check_settings(settings: &ProjectSettings) -> Result {
         position("settings.loop_range.end", range.end)?;
         if range.end <= range.start {
             return bad("settings.loop_range", "must end after it starts");
+        }
+    }
+    if let Some(range) = settings.punch_range {
+        position("settings.punch_range.start", range.start)?;
+        position("settings.punch_range.end", range.end)?;
+        if range.end <= range.start {
+            return bad("settings.punch_range", "must end after it starts");
         }
     }
     Ok(())
@@ -352,6 +363,18 @@ impl Project {
                 return bad("instrument", format!("unknown device {}", instrument.0));
             }
         }
+        if let Some(input) = track.input {
+            if track.kind != TrackKind::Audio {
+                return bad("input", "only audio tracks have an input");
+            }
+            let (InputChannels::Mono(first) | InputChannels::Stereo(first)) = input.channels;
+            if first >= MAX_INPUT_CHANNELS {
+                return bad(
+                    "input",
+                    format!("channel must be below {MAX_INPUT_CHANNELS}"),
+                );
+            }
+        }
         Ok(())
     }
 
@@ -368,6 +391,22 @@ impl Project {
         let Some(track) = self.track(clip.track) else {
             return bad("track", format!("unknown track {}", clip.track.0));
         };
+        if let Some(take) = clip.take {
+            if !matches!(clip.content, ClipContent::Audio { .. }) {
+                return bad("take", "only audio clips can be takes");
+            }
+            if take.active
+                && self.clips.values().any(|other| {
+                    other.id != clip.id
+                        && other.track == clip.track
+                        && other
+                            .take
+                            .is_some_and(|t| t.group == take.group && t.active)
+                })
+            {
+                return bad("take", "another take of this group is already active");
+            }
+        }
         match &clip.content {
             ClipContent::Audio {
                 media,

@@ -61,6 +61,8 @@ fn add_track(editor: &mut Editor, name: &str) -> TrackId {
                 kind: TrackKind::Audio,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         })
         .unwrap();
@@ -119,6 +121,7 @@ fn project(root: &Path) -> (Project, TrackId) {
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         })
         .unwrap();

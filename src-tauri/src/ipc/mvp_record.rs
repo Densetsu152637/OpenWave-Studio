@@ -87,6 +87,8 @@ fn add_track(state: &IpcState, engine: &Engine, name: &str) -> TrackId {
                 kind: TrackKind::Audio,
                 strip: Strip::default(),
                 instrument: None,
+                input: None,
+                monitor: Default::default(),
             })),
         },
     );
@@ -119,6 +121,7 @@ fn project_with_impulse(state: &IpcState, engine: &Engine, work: &Path) -> (Trac
                     fade_in: 0.0,
                     fade_out: 0.0,
                 },
+                take: None,
             }),
         },
     );

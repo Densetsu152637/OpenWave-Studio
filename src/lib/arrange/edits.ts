@@ -133,6 +133,8 @@ export function newAudioTrack(id: number, name: string, color: number): Owned<Tr
         inserts: [],
       },
       instrument: null,
+      input: null,
+      monitor: "Off",
     },
     clips: [],
     devices: [],
@@ -283,5 +285,6 @@ export function importedClip(
       fade_in: 0,
       fade_out: 0,
     },
+    take: null,
   };
 }

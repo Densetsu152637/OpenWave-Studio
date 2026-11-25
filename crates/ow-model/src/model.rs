@@ -145,6 +145,48 @@ pub struct Track {
     /// The instrument device (MIDI tracks only).
     #[serde(default)]
     pub instrument: Option<DeviceId>,
+    /// Which input channels an audio track records from; `None` is the default (mono: input
+    /// channel 0; stereo and wider devices: channels 0 and 1).
+    #[serde(default)]
+    pub input: Option<TrackInput>,
+    /// When the track's input is heard through its strip.
+    #[serde(default)]
+    pub monitor: MonitorMode,
+}
+
+/// The input channels an audio track records from. Channel numbers count from 0 on the open
+/// input device.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackInput {
+    /// The channel or channel pair.
+    pub channels: InputChannels,
+}
+
+/// One input channel or an adjacent pair.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputChannels {
+    /// One channel; the take is mono.
+    Mono(u16),
+    /// A pair starting at this channel (it and the next); the take is stereo.
+    Stereo(u16),
+}
+
+/// When a track's input is heard through its strip (before the inserts, so effects are heard).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MonitorMode {
+    /// Never.
+    #[default]
+    Off,
+    /// While the track is armed for recording.
+    Auto,
+    /// Always.
+    On,
 }
 
 /// A bus or group channel: tracks and other buses route or send into it.
@@ -245,6 +287,25 @@ pub struct Clip {
     pub muted: bool,
     /// What it plays.
     pub content: ClipContent,
+    /// Set when the clip is one take of a recording (see [`TakeInfo`]).
+    #[serde(default)]
+    pub take: Option<TakeInfo>,
+}
+
+/// Which take of a recording a clip is. The takes of one loop recording on a track share a
+/// `group`; exactly one of them is `active` and plays, the others are silent until chosen
+/// (`EditCommand::SetActiveTake`).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TakeInfo {
+    /// Identifies the group on its track (the id of the group's first clip when recorded).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub group: u64,
+    /// Position in the group, 0 for the first pass.
+    pub index: u32,
+    /// Whether this take plays.
+    pub active: bool,
 }
 
 /// A pattern shared by its instances: editing it changes every instance.
@@ -485,6 +546,12 @@ pub struct ProjectSettings {
     /// Bars of metronome count-in before recording, 0 to 16.
     #[serde(default)]
     pub count_in_bars: u8,
+    /// Punch range, if set; used only while `punch_enabled`.
+    #[serde(default)]
+    pub punch_range: Option<BeatRange>,
+    /// Whether recording is limited to the punch range.
+    #[serde(default)]
+    pub punch_enabled: bool,
 }
 
 impl Default for ProjectSettings {
@@ -493,6 +560,8 @@ impl Default for ProjectSettings {
             sample_rate: 48_000,
             loop_range: None,
             count_in_bars: 0,
+            punch_range: None,
+            punch_enabled: false,
         }
     }
 }
