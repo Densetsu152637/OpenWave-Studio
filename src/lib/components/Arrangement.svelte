@@ -101,6 +101,10 @@
     deleteClipsKeepingTakes,
     dragRange,
     grabAt,
+    CHOOSE_ONE_TAKE,
+    onBar,
+    isLocked,
+    withSiblings,
     groupKey,
     laneClips,
     setTrackInputCommand,
@@ -186,6 +190,8 @@
   /** The pointer travel's beat shift of the drag running now. */
   let dragShift = 0;
   let dragging = false;
+  /** A trim was tried on a take that has other takes. */
+  let lockedTrim = false;
   /** Scroll position and height of the track area, for rendering only the tracks in view. */
   let scrollTop = $state(0);
   let scrollHeight = $state(600);
@@ -400,10 +406,13 @@
   /** Whether the pointer is on the stored range's bar (not on empty strip). */
   function onRange(kind: RangeKind, event: MouseEvent): boolean {
     const range = storedRange(kind);
-    if (!range) return false;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    return x >= beatToX(view, range.start) - 6 && x <= beatToX(view, range.end) + 6;
+    return onBar(
+      range,
+      event.clientX - rect.left,
+      range ? beatToX(view, range.start) : 0,
+      range ? beatToX(view, range.end) : 0,
+    );
   }
 
   /** The punch strip: drag on empty space for a new range, on the bar to move or resize it. */
@@ -520,19 +529,32 @@
     dragMode = mode;
     if (mode !== "move") {
       dragging = true;
+      // Trimming one take of a group would leave its siblings out of step.
+      if (isLocked(clip, takes)) {
+        lockedTrim = true;
+        return;
+      }
       const target = dragTarget(clip, mode, dx, view, signatures, snap, alt);
       preview = adjustClip(clip, mode, target, tempo, mediaOf(clip));
       return;
     }
-    const minStart = Math.min(...selectedClips.map((c) => c.start));
+    const group = withSiblings(selectedClips, takes);
+    const minStart = Math.min(...group.map((c) => c.start));
     dragging = true;
     dragShift = dragDelta(clip.start, minStart, dx, view, signatures, snap, alt);
-    moving = new Map(selectedClips.map((c) => [c.id, c.start + dragShift]));
+    moving = new Map(group.map((c) => [c.id, c.start + dragShift]));
   }
 
   function onDragEnd(commit: boolean) {
     dragging = false;
     if (dragMode !== "move") {
+      if (lockedTrim) {
+        lockedTrim = false;
+        dragMode = "move";
+        preview = null;
+        onError(CHOOSE_ONE_TAKE);
+        return;
+      }
       const adjusted = preview;
       const mode = dragMode;
       dragMode = "move";
@@ -553,12 +575,15 @@
       return;
     }
     // The clips stay where they were dropped until the move has landed, so they never jump back.
-    void run(() => moveClips(commandsApi, selectedClips, delta)).finally(() => (moving = null));
+    void run(() => moveClips(commandsApi, withSiblings(selectedClips, takes), delta)).finally(() => (moving = null));
   }
 
   const mediaOf = (clip: Clip) =>
     clip.content.type === "audio" ? project?.media_pool.get(clip.content.media) : undefined;
-  const splitTargets = $derived(splittable(selectedClips, playheadBeat, tempo, mediaOf));
+  const hasLockedTake = $derived(selectedClips.some((c) => isLocked(c, takes)));
+  const splitTargets = $derived(
+    hasLockedTake ? [] : splittable(selectedClips, playheadBeat, tempo, mediaOf),
+  );
   const selectedAudio = $derived(selectedClips.filter((c) => c.content.type === "audio"));
   /** The gain every selected audio clip shares, or null when they differ (or none is selected). */
   const sharedGain = $derived.by(() => {
@@ -572,6 +597,7 @@
   });
 
   function splitAtPlayhead() {
+    if (hasLockedTake) return onError(CHOOSE_ONE_TAKE);
     if (splitTargets.length === 0) return;
     void run(async () => {
       const created = await splitClips(commandsApi, selectedClips, playheadBeat, tempo, mediaOf);
@@ -581,6 +607,7 @@
 
   function duplicateSelection() {
     if (selectedClips.length === 0) return;
+    if (hasLockedTake) return onError(CHOOSE_ONE_TAKE);
     void run(async () => {
       selection = new Set(await duplicateClips(commandsApi, selectedClips));
     });
@@ -821,7 +848,7 @@
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>
     <button
       type="button"
-      title="Split the selected clips at the playhead (S)"
+      title={hasLockedTake ? CHOOSE_ONE_TAKE : "Split the selected clips at the playhead (S)"}
       onclick={splitAtPlayhead}
       disabled={splitTargets.length === 0}
     >
@@ -829,9 +856,9 @@
     </button>
     <button
       type="button"
-      title="Copy the selected clips to just after them (Ctrl/Cmd+D)"
+      title={hasLockedTake ? CHOOSE_ONE_TAKE : "Copy the selected clips to just after them (Ctrl/Cmd+D)"}
       onclick={duplicateSelection}
-      disabled={selectedClips.length === 0}
+      disabled={selectedClips.length === 0 || hasLockedTake}
     >
       Duplicate
     </button>

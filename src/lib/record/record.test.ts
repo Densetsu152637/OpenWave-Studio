@@ -14,6 +14,8 @@ import {
   grabAt,
   inputChannelCount,
   inputOptions,
+  isLocked,
+  withSiblings,
   onBar,
   laneClips,
   monitorView,
@@ -170,8 +172,17 @@ describe("takes", () => {
     const plain = { ...take(30, 0, 0, true), take: null } as Clip;
     expect(laneClips([plain, ...clips]).map((c) => c.id)).toEqual([30, 12, 20]);
   });
-  it("shows the first take of a group left without an active one", () => {
-    expect(laneClips([take(1, 1, 3, false), take(2, 1, 4, false)]).map((c) => c.id)).toEqual([1]);
+  it("shows nothing for a group left without an active take", () => {
+    expect(laneClips([take(1, 1, 3, false), take(2, 1, 4, false)])).toEqual([]);
+  });
+  it("locks a take with siblings and moves its whole group together", () => {
+    const group = [take(1, 1, 0, false), take(2, 1, 1, true), take(3, 7, 0, true)];
+    const groups = takeGroups(group);
+    expect(isLocked(group[1]!, groups)).toBe(true);
+    expect(isLocked(group[2]!, groups)).toBe(false);
+    expect(isLocked({ ...group[2]!, take: null } as Clip, groups)).toBe(false);
+    expect(withSiblings([group[1]!], groups).map((c) => c.id).sort()).toEqual([1, 2]);
+    expect(withSiblings([group[1]!, group[0]!, group[2]!], groups)).toHaveLength(3);
   });
   it("badges the active take with its position and choices", () => {
     const badge = badgeFor(clips[2]!, groups)!;

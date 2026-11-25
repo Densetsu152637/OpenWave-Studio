@@ -45,16 +45,16 @@ export interface DragContext {
 /** The shortest range a drag may leave, in beats; shorter than this is a click, not a range. */
 export const MIN_RANGE_BEATS = 1e-6;
 
-/**
- * The range a drag shows with the pointer at `beat`, or null when it has none (a click, or a
- * creating drag that has not left its starting grid line). Ends land on the grid and the range
- * keeps a non-zero length; the body keeps its length and never starts before beat 0.
- */
 /** Whether x pixels is on a range's bar (its ends included, with the grab margin). */
 export function onBar(range: BeatRange | null, x: number, startX: number, endX: number): boolean {
   return range !== null && x >= startX - END_GRAB_PX && x <= endX + END_GRAB_PX;
 }
 
+/**
+ * The range a drag shows with the pointer at `beat`, or null when it has none (a click, or a
+ * creating drag that has not left its starting grid line). Ends land on the grid and the range
+ * keeps a non-zero length; the body keeps its length and never starts before beat 0.
+ */
 export function dragRange(
   drag: RangeDrag,
   beat: number,

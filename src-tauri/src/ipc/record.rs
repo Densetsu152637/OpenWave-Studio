@@ -377,9 +377,9 @@ impl IpcState {
 pub(super) fn active_pass_index(frames: &[u64]) -> usize {
     let longest = frames.iter().copied().max().unwrap_or(0);
     match frames.last() {
-        Some(&last) if last < longest => frames
+        Some(&last) if last * 100 < longest * 98 => frames
             .iter()
-            .rposition(|&f| f == longest)
+            .rposition(|&f| f * 100 >= longest * 98)
             .unwrap_or(frames.len() - 1),
         _ => frames.len().saturating_sub(1),
     }
@@ -449,5 +449,8 @@ mod active_pass_tests {
         assert_eq!(active_pass_index(&[100, 100, 50]), 1);
         assert_eq!(active_pass_index(&[100, 80, 50]), 0);
         assert_eq!(active_pass_index(&[50, 100]), 1);
+        // Buffer-size jitter does not demote a complete last pass.
+        assert_eq!(active_pass_index(&[480_000, 480_000, 479_992]), 2);
+        assert_eq!(active_pass_index(&[480_000, 480_000, 400_000]), 1);
     }
 }

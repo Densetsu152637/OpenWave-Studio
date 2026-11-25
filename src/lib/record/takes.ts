@@ -41,13 +41,12 @@ export function takeGroups(clips: Iterable<Clip>): Map<string, TakeGroup> {
 /**
  * The clips a lane draws: every clip that is not a take, and each group's active take. The
  * other takes are hidden (the badge on the active take reaches them), so takes never overlap.
- * A group with no active take (all but one deleted by hand) still shows its first take.
+ * A group with no active take shows nothing.
  */
 export function laneClips<T extends Clip>(clips: readonly T[]): T[] {
   const shown = new Set<number>();
   for (const group of takeGroups(clips).values()) {
-    const pick = group.active ?? group.takes[0];
-    if (pick) shown.add(pick.id);
+    if (group.active) shown.add(group.active.id);
   }
   return clips.filter((c) => !c.take || shown.has(c.id));
 }
@@ -141,3 +140,26 @@ export async function deleteClipsKeepingTakes(
     for (const clip of doomed) await api.edit({ command: "remove_clip", id: clip.id });
   });
 }
+
+/** A take whose group has other takes: split, duplicate and trim would break the group. */
+export function isLocked(clip: Clip, groups: ReadonlyMap<string, TakeGroup>): boolean {
+  if (!clip.take) return false;
+  return (groups.get(groupKey(clip.track, clip.take.group))?.takes.length ?? 0) >= 2;
+}
+
+/** `clips` plus the hidden takes of every take group among them, so a move keeps a group together. */
+export function withSiblings(
+  clips: readonly Clip[],
+  groups: ReadonlyMap<string, TakeGroup>,
+): Clip[] {
+  const out = new Map<number, Clip>(clips.map((c) => [c.id, c]));
+  for (const clip of clips) {
+    if (!clip.take) continue;
+    for (const sibling of groups.get(groupKey(clip.track, clip.take.group))?.takes ?? []) {
+      if (!out.has(sibling.id)) out.set(sibling.id, sibling);
+    }
+  }
+  return [...out.values()];
+}
+
+export const CHOOSE_ONE_TAKE = "Choose one take first: this clip has other takes.";
