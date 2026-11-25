@@ -39,8 +39,8 @@ impl Fft {
     pub(crate) fn forward(&self, re: &mut [f64], im: &mut [f64]) {
         let n = self.size;
         debug_assert!(re.len() == n && im.len() == n);
-        for i in 0..n {
-            let j = self.reverse[i] as usize;
+        for (i, &reversed) in self.reverse.iter().enumerate().take(n) {
+            let j = reversed as usize;
             if j > i {
                 re.swap(i, j);
                 im.swap(i, j);
