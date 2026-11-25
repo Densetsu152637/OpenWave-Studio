@@ -67,6 +67,8 @@ The schema of every tool, including the full shape of each edit command, comes w
 - **Count-in.** `count_in_bars` (0 to 16) in the same settings: the metronome counts in, the transport reports `counting_in`, and nothing is recorded until the start position.
 - **Loop takes.** With `loop_range` set, the transport loops while recording and every pass of the loop is a take of its own (up to 16 per recording; later passes are not recorded and `stop` reports it). The takes of one recording on a track are clips that share `take.group`, with `take.index` counting the passes from 0. Exactly one take of a group is active and plays: the last pass at first. `set_active_take` with `track`, `group` and `index` plays another one and silences the rest (one undo step). Takes are whole clips, so a take is a recording of the loop region and can be moved, trimmed, split or deleted like any clip (a split or duplicate is no longer a take).
 
+Monitoring feeds the input to the output: when the input device hears the output (speakers, or a digital loopback), `auto` or `on` monitoring feeds back. Whether to monitor is the user's choice; wear headphones or use `off`. The number of loop takes is 16 for up to four armed tracks and fewer with more (a track keeps at least 2).
+
 The timeline placement already compensates the device's round-trip latency, so a take lines up with what was played. Arming, like transport state, is session state: it is not saved and has no undo step.
 
 ### Third-party plugins

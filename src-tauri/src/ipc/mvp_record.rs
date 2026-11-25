@@ -452,3 +452,62 @@ fn edit_result(state: &IpcState, engine: &Engine, edit: EditCommand) -> Result<(
         .command(UiCommand::Edit { edit }, engine)
         .map(|_| ())
 }
+
+#[test]
+fn mvp_record_a_loop_group_whose_last_take_failed_still_has_an_active_take() {
+    let work = tempfile::tempdir().unwrap();
+    let engine = engine(2);
+    let state = IpcState::new();
+    let _ui = Ui::attach(&state);
+    let (_, armed) = project_with_impulse(&state, &engine, work.path());
+    // Two takes of a group, neither active: what is left when the last pass failed to import.
+    let media = lock(&state.control)
+        .session()
+        .project()
+        .media_pool
+        .keys()
+        .next()
+        .copied()
+        .unwrap();
+    let mut ids = Vec::new();
+    for index in 0..2_u32 {
+        let id = command(&state, &engine, UiCommand::AllocIds { count: 1 })[0];
+        ids.push(ow_model::ClipId(id));
+        edit(
+            &state,
+            &engine,
+            EditCommand::AddClip {
+                clip: Box::new(Clip {
+                    id: id.into(),
+                    track: armed,
+                    name: format!("take {index}"),
+                    start: 0.0,
+                    length: 1.0,
+                    muted: false,
+                    content: ClipContent::Audio {
+                        media,
+                        source_offset: 0,
+                        gain_db: 0.0,
+                        fade_in: 0.0,
+                        fade_out: 0.0,
+                    },
+                    take: Some(ow_model::TakeInfo {
+                        group: ids[0].0,
+                        index,
+                        active: false,
+                    }),
+                }),
+            },
+        );
+    }
+    super::record::ensure_active_take(&mut lock(&state.control), &ids, &engine).unwrap();
+    let control = lock(&state.control);
+    let active: Vec<u32> = control
+        .session()
+        .project()
+        .clips
+        .values()
+        .filter_map(|c| c.take.filter(|t| t.active).map(|t| t.index))
+        .collect();
+    assert_eq!(active, [1], "the last placed take plays");
+}

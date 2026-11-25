@@ -866,3 +866,34 @@ fn sustained_recording_of_16_tracks_for_10_minutes_overruns_no_ring() {
         assert!((first - want).abs() < 1e-6 && (last - want).abs() < 1e-6);
     }
 }
+
+#[test]
+fn count_in_punch_and_loop_together() {
+    let work = tempfile::tempdir().unwrap();
+    // A bar of count-in is 96000 frames; the loop is 12000 frames and the punch covers
+    // positions 2400 to 9600 of it.
+    const COUNT_IN: u64 = 96_000;
+    let (engine, handle) = manual(1, 0);
+    let mut editor = Editor::new(Project::new("combined"));
+    let track = add_routed_track(&mut editor, "vox", None, MonitorMode::Off);
+    set_project(&engine, &editor, work.path());
+    let mut plan = plan_for(track, pass_paths(work.path(), 4));
+    plan.count_in_bars = 1;
+    plan.loop_beats = Some((0.0, 0.5));
+    plan.punch_beats = Some((0.1, 0.4));
+    // The count-in and three passes, plus 32 frames of a fourth that is before the punch-in.
+    let stopped = record_ramp(&engine, &handle, &plan, 2063);
+    assert!(stopped.complete);
+    let takes: Vec<_> = stopped.takes.iter().filter(|t| t.frames > 0).collect();
+    assert_eq!(takes.len(), 3);
+    for (pass, take) in takes.iter().enumerate() {
+        assert_eq!(take.frames, 7_200, "pass {pass}");
+        assert_eq!(take.start_sample, 2_400, "pass {pass}");
+        let (_, samples) = read_take(&take.path);
+        assert_eq!(
+            frame_of(samples[0]),
+            COUNT_IN + pass as u64 * 12_000 + 2_400,
+            "pass {pass} starts at its punch-in"
+        );
+    }
+}
