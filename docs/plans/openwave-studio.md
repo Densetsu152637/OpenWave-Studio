@@ -1,6 +1,6 @@
 # Plan: OpenWave Studio
 
-Revision: 2026-11-23, revision 4 (MVP track added at the owner's request; earlier: critic rounds 1–3, owner answers 1, 2 and 4)
+Revision: 2026-11-25, revision 5 (stage 12 started after the MVP and editor tracks; earlier: MVP track added at the owner's request; earlier: critic rounds 1–3, owner answers 1, 2 and 4)
 
 Resumed 2026-11-23: the owner asked to continue on `experimental` until a minimum viable product exists with only the minimum features; see the [MVP track](#mvp-track-owner-request-2026-11-23), which runs before stage 12. (Previously paused after stage 11 at `661350c`. Owner checks still open: PR #3 merge and a stable `v*` tag for the `updater-main` feed; manual update procedures for stages 3–4; stage 9 device checks on macOS/Linux, real unplug, real MIDI hardware; open question 1.)
 
@@ -393,7 +393,7 @@ Editor non-goals: generative music tools, automation lanes, MIDI learn, a separa
 - Acceptance checks:
   - View-model tests (zoom, snap, selection): `pnpm vitest run src/lib/arrange`.
   - Frame budget (manual): open the `100_tracks.owave` fixture (100 tracks, 500 clips), run the scroll benchmark; p95 frame time ≤ 16.7 ms on Windows, on Linux under an X11 session, and on Linux under a Wayland session (the configuration where plugin editors use XWayland). Record OS, GPU and p95 in Outcome.
-- Status: pending
+- Status: in progress (resumed 2026-11-25; owner asked to continue one worker at a time)
 - Outcome:
 - Handoff notes: profile WebKitGTK first; it is the slowest webview.
 
