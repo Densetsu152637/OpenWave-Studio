@@ -530,7 +530,7 @@
     if (mode !== "move") {
       dragging = true;
       // Trimming one take of a group would leave its siblings out of step.
-      if (isLocked(clip, takes)) {
+      if ((mode === "trim-left" || mode === "trim-right") && isLocked(clip, takes)) {
         lockedTrim = true;
         return;
       }

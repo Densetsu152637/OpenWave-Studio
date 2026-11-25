@@ -172,8 +172,17 @@ describe("takes", () => {
     const plain = { ...take(30, 0, 0, true), take: null } as Clip;
     expect(laneClips([plain, ...clips]).map((c) => c.id)).toEqual([30, 12, 20]);
   });
-  it("shows nothing for a group left without an active take", () => {
-    expect(laneClips([take(1, 1, 3, false), take(2, 1, 4, false)])).toEqual([]);
+  it("shows the first take of an orphan group, badged so it can be repaired", async () => {
+    const orphan = [take(1, 1, 3, false), take(2, 1, 4, false)];
+    expect(laneClips(orphan).map((c) => c.id)).toEqual([1]);
+    const badge = badgeFor(orphan[0]!, takeGroups(orphan))!;
+    expect(badge).toMatchObject({ orphan: true, label: "No active take" });
+    expect(badge.choices.some((c) => c.active)).toBe(false);
+    const lone = [take(5, 2, 0, false)];
+    expect(badgeFor(lone[0]!, takeGroups(lone))?.orphan).toBe(true);
+    const { api, edits } = recorder();
+    expect(await chooseTake(api, orphan[0]!, 3)).toBe(true);
+    expect(edits[0]).toMatchObject({ command: "set_active_take", index: 3 });
   });
   it("locks a take with siblings and moves its whole group together", () => {
     const group = [take(1, 1, 0, false), take(2, 1, 1, true), take(3, 7, 0, true)];

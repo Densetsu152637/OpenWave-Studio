@@ -153,6 +153,7 @@
   class:selected
   class:missing
   class:muted={clip.muted}
+  class:orphan={badge?.orphan}
   style:left="{left}px"
   style:width="{boxWidth}px"
   style:--track={color}
@@ -208,6 +209,9 @@
       onpointerdown={(event) => event.stopPropagation()}
       onchange={(event) => onTake(Number(event.currentTarget.value))}
     >
+      {#if badge.orphan}
+        <option value="" selected disabled>{boxWidth < 96 ? "None" : badge.label}</option>
+      {/if}
       {#each badge.choices as choice (choice.index)}
         <option value={choice.index} selected={choice.active}>
           {choice.active ? (boxWidth < 96 ? `${badge.position}/${badge.count}` : badge.label) : choice.label}
@@ -238,6 +242,10 @@
   }
   .clip.muted {
     opacity: 0.45;
+  }
+  .clip.orphan {
+    opacity: 0.55;
+    border-style: dashed;
   }
   .clip.missing {
     border-style: dashed;

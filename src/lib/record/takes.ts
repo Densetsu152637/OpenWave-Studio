@@ -41,12 +41,14 @@ export function takeGroups(clips: Iterable<Clip>): Map<string, TakeGroup> {
 /**
  * The clips a lane draws: every clip that is not a take, and each group's active take. The
  * other takes are hidden (the badge on the active take reaches them), so takes never overlap.
- * A group with no active take shows nothing.
+ * A group with no active take shows its first take (dimmed, with a "No active take" badge).
  */
 export function laneClips<T extends Clip>(clips: readonly T[]): T[] {
   const shown = new Set<number>();
   for (const group of takeGroups(clips).values()) {
-    if (group.active) shown.add(group.active.id);
+    // A group with no active take shows its first take, so it can be repaired or deleted.
+    const pick = group.active ?? group.takes[0];
+    if (pick) shown.add(pick.id);
   }
   return clips.filter((c) => !c.take || shown.has(c.id));
 }
@@ -56,26 +58,31 @@ export interface TakeBadge {
   /** 1-based position of the active take, "Take 2/4". */
   position: number;
   count: number;
+  /** The group has no active take (an agent deleted it); choosing one repairs the group. */
+  orphan: boolean;
   label: string;
   /** What the badge's choices set. */
   choices: { index: number; label: string; active: boolean }[];
 }
 
-/** The badge of a clip: null when it is not a take, or the only one left of its group. */
+/** The badge of a clip: null when it is not a take, or the only take left and it plays. */
 export function badgeFor(clip: Clip, groups: ReadonlyMap<string, TakeGroup>): TakeBadge | null {
   if (!clip.take) return null;
   const group = groups.get(groupKey(clip.track, clip.take.group));
-  if (!group || group.takes.length < 2) return null;
+  if (!group) return null;
+  const orphan = group.active === undefined;
+  if (group.takes.length < 2 && !orphan) return null;
   const at = group.takes.findIndex((c) => c.id === clip.id);
   return {
     group: group.group,
     position: at + 1,
     count: group.takes.length,
-    label: `Take ${at + 1}/${group.takes.length}`,
+    orphan,
+    label: orphan ? "No active take" : `Take ${at + 1}/${group.takes.length}`,
     choices: group.takes.map((c, i) => ({
       index: c.take.index,
       label: `Take ${i + 1}`,
-      active: c === clip,
+      active: !orphan && c === clip,
     })),
   };
 }
