@@ -120,6 +120,7 @@ fn project_with_impulse(state: &IpcState, engine: &Engine, work: &Path) -> (Trac
                     gain_db: 0.0,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    warp: None,
                 },
                 take: None,
             }),
@@ -332,8 +333,18 @@ fn mvp_record_with_a_loop_adds_one_take_per_pass_and_the_last_one_plays() {
     });
     state.record_set_arm(armed.0, true).unwrap();
     state.record_start(&engine).unwrap();
-    // At least four 62 ms passes of real time.
-    std::thread::sleep(Duration::from_millis(400));
+    // Wait for the loop to wrap five times (so at least four passes are complete), however
+    // slowly a loaded machine runs the paced mock device. Missed polls only wait longer.
+    let mut wraps = 0;
+    let mut last = engine.telemetry_bank().position();
+    wait_until("five loop passes", || {
+        let now = engine.telemetry_bank().position();
+        if now < last {
+            wraps += 1;
+        }
+        last = now;
+        wraps >= 5
+    });
     state.transport_stop(&engine).unwrap();
 
     let snapshot = ui.sync(&state);
@@ -350,14 +361,21 @@ fn mvp_record_with_a_loop_adds_one_take_per_pass_and_the_last_one_plays() {
         group, takes[0].id.0,
         "the group is named after its first clip"
     );
+    // The last pass plays, unless Stop cut it short: then the last complete one does.
+    let longest = takes.iter().map(|c| c.length).fold(0.0, f64::max);
+    let last_full = takes
+        .iter()
+        .rposition(|c| c.length >= longest - 1e-9)
+        .unwrap();
+    let expected = if takes.last().unwrap().length < longest - 1e-9 {
+        last_full
+    } else {
+        takes.len() - 1
+    };
     for (index, clip) in takes.iter().enumerate() {
         let info = clip.take.expect("every clip is a take");
         assert_eq!((info.group, info.index), (group, index as u32));
-        assert_eq!(
-            info.active,
-            index + 1 == takes.len(),
-            "only the last pass plays"
-        );
+        assert_eq!(info.active, index == expected, "only one pass plays");
     }
     // The model holds that invariant (a second active take would be refused).
     assert!(
@@ -451,4 +469,64 @@ fn edit_result(state: &IpcState, engine: &Engine, edit: EditCommand) -> Result<(
     lock(&state.control)
         .command(UiCommand::Edit { edit }, engine)
         .map(|_| ())
+}
+
+#[test]
+fn mvp_record_a_loop_group_whose_last_take_failed_still_has_an_active_take() {
+    let work = tempfile::tempdir().unwrap();
+    let engine = engine(2);
+    let state = IpcState::new();
+    let _ui = Ui::attach(&state);
+    let (_, armed) = project_with_impulse(&state, &engine, work.path());
+    // Two takes of a group, neither active: what is left when the last pass failed to import.
+    let media = lock(&state.control)
+        .session()
+        .project()
+        .media_pool
+        .keys()
+        .next()
+        .copied()
+        .unwrap();
+    let mut ids = Vec::new();
+    for index in 0..2_u32 {
+        let id = command(&state, &engine, UiCommand::AllocIds { count: 1 })[0];
+        ids.push(ow_model::ClipId(id));
+        edit(
+            &state,
+            &engine,
+            EditCommand::AddClip {
+                clip: Box::new(Clip {
+                    id: id.into(),
+                    track: armed,
+                    name: format!("take {index}"),
+                    start: 0.0,
+                    length: 1.0,
+                    muted: false,
+                    content: ClipContent::Audio {
+                        media,
+                        source_offset: 0,
+                        gain_db: 0.0,
+                        fade_in: 0.0,
+                        fade_out: 0.0,
+                        warp: None,
+                    },
+                    take: Some(ow_model::TakeInfo {
+                        group: ids[0].0,
+                        index,
+                        active: false,
+                    }),
+                }),
+            },
+        );
+    }
+    super::record::ensure_active_take(&mut lock(&state.control), &ids, &engine).unwrap();
+    let control = lock(&state.control);
+    let active: Vec<u32> = control
+        .session()
+        .project()
+        .clips
+        .values()
+        .filter_map(|c| c.take.filter(|t| t.active).map(|t| t.index))
+        .collect();
+    assert_eq!(active, [1], "the last placed take plays");
 }

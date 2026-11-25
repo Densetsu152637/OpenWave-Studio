@@ -72,8 +72,8 @@ use ow_plugin_host::{PluginCache, PluginDevice, decode_state, is_plugin_kind};
 
 use ow_ipc::TelemetryBank;
 
-use crate::clips::SourceCache;
 use crate::clips::midi::{MidiClipPlayer, schedule};
+use crate::clips::{SourceCache, warp};
 use crate::device::{DeviceNode, LiveGate};
 use crate::graph::clip::{ClipPlacement, ClipSourceNode};
 use crate::graph::input::{ArmedTracks, InputBus, InputMonitorNode};
@@ -635,6 +635,7 @@ fn add_audio_clip(
         gain_db,
         fade_in,
         fade_out,
+        warp,
     } = &clip.content
     else {
         return false;
@@ -676,6 +677,38 @@ fn add_audio_clip(
     } else {
         offset as u64
     };
+    // A clip that follows the tempo plays a buffer rendered offline to the exact length it
+    // has on the timeline (see `clips::warp`); it then starts at the buffer's first frame.
+    let warped =
+        warp.as_ref()
+            .filter(|warp| warp::active(warp))
+            .and_then(|warp| {
+                let segments = warp::plan(
+                    clip.start,
+                    clip.length,
+                    warp,
+                    *source_offset,
+                    loaded.source_rate,
+                    env.timeline,
+                    rate,
+                );
+                let frames = warp::total_frames(&segments);
+                if frames == 0 || frames > warp::MAX_WARPED_FRAMES || frames != end - start {
+                    return None;
+                }
+                let pitch = warp::pitch(warp);
+                let key = warp::key(&item.hash, rate, channels, pitch, &segments);
+                Some(env.ctx.sources.warped(
+                    &env.ctx.media_root,
+                    key,
+                    (rate, channels, frames),
+                    || warp::render(&loaded.pcm, &segments, pitch),
+                ))
+            });
+    let (pcm, offset) = match warped {
+        Some(pcm) => (pcm, 0),
+        None => (loaded.pcm, offset),
+    };
     let placement = ClipPlacement {
         start,
         length: end.saturating_sub(start),
@@ -699,7 +732,7 @@ fn add_audio_clip(
             clip.start + clip.length,
         ),
     );
-    let source = Box::new(MemorySource::new(loaded.pcm));
+    let source = Box::new(MemorySource::new(pcm));
     let node = add(
         graph,
         NodeKey::Clip(clip.id),
@@ -1027,6 +1060,8 @@ mod tests {
                 sample_rate: RATE,
                 channels: 1,
                 frames: u64::from(RATE),
+                tempo: None,
+                key: None,
             },
         })
         .unwrap();
@@ -1069,6 +1104,7 @@ mod tests {
                     gain_db: 0.0,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    warp: None,
                 },
                 take: None,
             }),

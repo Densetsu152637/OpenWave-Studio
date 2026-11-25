@@ -253,6 +253,9 @@ pub enum ClipContent {
         fade_in: f64,
         /// Fade-out length in beats.
         fade_out: f64,
+        /// Time-stretch settings (format version 3); `None` plays the file as it is.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        warp: Option<Warp>,
     },
     /// MIDI data owned by the clip (MIDI tracks).
     Midi {
@@ -348,6 +351,76 @@ pub struct MediaItem {
     /// Length in frames.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub frames: u64,
+    /// Tempo in beats per minute detected on import (format version 3); `None` when the audio
+    /// has no clear beat, the file was too long to analyse or it was imported by an older
+    /// version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tempo: Option<f64>,
+    /// Key detected on import (format version 3), with the same `None` cases as `tempo`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<KeyInfo>,
+}
+
+/// A detected musical key.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct KeyInfo {
+    /// Pitch class of the tonic: 0 = C, 1 = C sharp, ... 11 = B.
+    pub tonic: u8,
+    /// Minor (true) or major (false).
+    pub minor: bool,
+    /// How sure the detection was, 0 to 1.
+    pub confidence: f64,
+}
+
+/// How an audio clip follows the project tempo.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WarpMode {
+    /// The clip plays at the speed of its file.
+    #[default]
+    Off,
+    /// The clip is time-stretched so its source tempo follows the project's tempo map.
+    FollowTempo,
+}
+
+/// A pin that ties a source position to a position in the clip.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WarpMarker {
+    /// Frame of the media file (at the file's own sample rate).
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub source_frame: u64,
+    /// Position inside the clip, in beats from the clip start.
+    pub beat: f64,
+}
+
+/// Time-stretch settings of an audio clip (format version 3).
+///
+/// With [`WarpMode::FollowTempo`] the source is played at `source_bpm` against the clip's beats
+/// (so a loop recorded at 120 bpm lasts the same number of bars at any project tempo), with the
+/// pitch moved by `transpose_semitones`. `markers` bend that mapping: between two markers the
+/// source is stretched linearly, before the first and after the last it continues at
+/// `source_bpm`. Markers must rise in both source frame and beat.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Warp {
+    /// Whether the clip is stretched.
+    #[serde(default)]
+    pub mode: WarpMode,
+    /// Tempo of the source audio in beats per minute.
+    pub source_bpm: f64,
+    /// Warp markers, ascending; may be empty.
+    #[serde(default)]
+    pub markers: Vec<WarpMarker>,
+    /// Pitch shift in semitones, independent of the tempo.
+    #[serde(default)]
+    pub transpose_semitones: f64,
 }
 
 /// An opaque saved plugin or device state of one format.

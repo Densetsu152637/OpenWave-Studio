@@ -434,6 +434,8 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
                 sample_rate: SAMPLE_RATE,
                 channels: 1,
                 frames: u64::from(SAMPLE_RATE) * 4,
+                tempo: None,
+                key: None,
             },
         })
         .unwrap();
@@ -469,6 +471,7 @@ fn telemetry_bank_writes_from_metered_faders_are_allocation_free() {
                     gain_db: 0.0,
                     fade_in: 0.0,
                     fade_out: 0.0,
+                    warp: None,
                 },
                 take: None,
             }),
@@ -570,6 +573,41 @@ fn the_record_tap_is_allocation_free() {
     let stats = writer.finish().unwrap();
     assert_eq!(stats.frames, shared.captured());
     assert_eq!(stats.dropped_frames, 0);
+}
+
+/// The loop browser's preview mixes into the output, ends, is replaced and is stopped under
+/// the allocation guard (the preview buffer is handed back, never freed on the audio thread).
+#[test]
+fn the_preview_is_allocation_free() {
+    use ow_engine::Preview;
+    let pcm = |frames: usize| ow_media::Pcm {
+        sample_rate: SAMPLE_RATE,
+        channels: vec![vec![0.5; frames], vec![0.25; frames]],
+    };
+    let (mut link, mut core) = builder().build();
+    link.swap_plan(plan(0).0).unwrap();
+    let mut output = vec![0.0_f32; 128];
+    let (first, first_handle) = Preview::new(pcm(2_000));
+    link.swap_preview(first).unwrap();
+    for _ in 0..40 {
+        core.process(&mut output, 2, None);
+    }
+    assert!(first_handle.finished(), "plays out and ends");
+    // A preview replaced while playing, then one stopped while playing.
+    let (second, second_handle) = Preview::new(pcm(100_000));
+    link.swap_preview(second).unwrap();
+    core.process(&mut output, 2, None);
+    let (third, third_handle) = Preview::new(pcm(100_000));
+    link.swap_preview(third).unwrap();
+    core.process(&mut output, 2, None);
+    assert!(second_handle.finished());
+    third_handle.stop();
+    for _ in 0..40 {
+        core.process(&mut output, 2, None);
+    }
+    assert!(third_handle.finished());
+    // Everything handed back is freed on the control thread.
+    link.collect_retired();
 }
 
 /// Loop-take switching and input monitoring run under the allocation guard: a short loop wraps

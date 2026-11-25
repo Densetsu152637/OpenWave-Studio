@@ -93,6 +93,8 @@ impl Fixture {
                     sample_rate: rate,
                     channels: ch,
                     frames: u64::from(frames),
+                    tempo: None,
+                    key: None,
                 },
             })
             .unwrap();
@@ -141,6 +143,7 @@ impl Fixture {
                         gain_db: spec.gain_db,
                         fade_in: spec.fade_in,
                         fade_out: spec.fade_out,
+                        warp: None,
                     },
                     take: None,
                 }),

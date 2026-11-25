@@ -117,6 +117,8 @@ fn audio_project(inserts: &[Insert]) -> (Project, Vec<DeviceId>) {
                 sample_rate: RATE,
                 channels: 1,
                 frames: u64::from(RATE) * 2,
+                tempo: None,
+                key: None,
             },
         })
         .unwrap();
@@ -153,6 +155,7 @@ fn audio_project(inserts: &[Insert]) -> (Project, Vec<DeviceId>) {
                         gain_db: 0.0,
                         fade_in: 0.0,
                         fade_out: 0.0,
+                        warp: None,
                     },
                     take: None,
                 }],

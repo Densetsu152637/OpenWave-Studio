@@ -5,6 +5,7 @@
   import type { TempoMap } from "../arrange/time";
   import { peaksRange, tauriTransport, type PeakBins } from "../ipc";
   import type { AdjustMode } from "../arrange/clips/edit";
+  import type { TakeBadge } from "../record/takes";
   import type { Clip, MediaItem } from "../ipc/types";
 
   let {
@@ -22,6 +23,8 @@
     onpointerdown,
     ondblclick,
     onhandle,
+    badge = null,
+    onTake,
   }: {
     clip: Clip;
     media: MediaItem | undefined;
@@ -42,6 +45,10 @@
     ondblclick?: (event: MouseEvent) => void;
     /** Pointer down on a trim edge or fade handle. */
     onhandle: (event: PointerEvent, mode: AdjustMode) => void;
+    /** The take badge when the clip is the active take of a group with other takes. */
+    badge?: TakeBadge | null;
+    /** Chooses the take with this index (a take of the clip's group). */
+    onTake?: (index: number) => void;
   } = $props();
 
   /** Pause between asking again for peaks that are still being built. */
@@ -146,6 +153,7 @@
   class:selected
   class:missing
   class:muted={clip.muted}
+  class:orphan={badge?.orphan}
   style:left="{left}px"
   style:width="{boxWidth}px"
   style:--track={color}
@@ -193,6 +201,24 @@
   <div class="edge left" title="Trim start (drag)" role="presentation" onpointerdown={(event) => onhandle(event, "trim-left")}></div>
   <div class="edge right" title="Trim end (drag)" role="presentation" onpointerdown={(event) => onhandle(event, "trim-right")}></div>
   <span class="name">{clip.name}{missing ? " (media missing)" : ""}{clip.muted ? " (muted)" : ""}</span>
+  {#if badge && onTake}
+    <select
+      class="take"
+      aria-label="Take of {clip.name}"
+      title="Choose which take plays"
+      onpointerdown={(event) => event.stopPropagation()}
+      onchange={(event) => onTake(Number(event.currentTarget.value))}
+    >
+      {#if badge.orphan}
+        <option value="" selected disabled>{boxWidth < 96 ? "None" : badge.label}</option>
+      {/if}
+      {#each badge.choices as choice (choice.index)}
+        <option value={choice.index} selected={choice.active}>
+          {choice.active ? (boxWidth < 96 ? `${badge.position}/${badge.count}` : badge.label) : choice.label}
+        </option>
+      {/each}
+    </select>
+  {/if}
   {#if gainDb !== 0}<span class="gain">{gainDb > 0 ? "+" : ""}{gainDb.toFixed(1)} dB</span>{/if}
 </div>
 
@@ -216,6 +242,10 @@
   }
   .clip.muted {
     opacity: 0.45;
+  }
+  .clip.orphan {
+    opacity: 0.55;
+    border-style: dashed;
   }
   .clip.missing {
     border-style: dashed;
@@ -276,6 +306,17 @@
   }
   .fade-handle:hover {
     opacity: 1;
+  }
+  .take {
+    position: absolute;
+    bottom: 1px;
+    left: 2px;
+    max-width: calc(100% - 4px);
+    padding: 0 2px;
+    font-size: 10px;
+    line-height: 14px;
+    z-index: 1;
+    cursor: pointer;
   }
   .gain {
     position: absolute;

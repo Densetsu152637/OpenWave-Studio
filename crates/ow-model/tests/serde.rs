@@ -5,7 +5,7 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::{make_command, ops, reference_project};
+use common::{make_command, ops, reference_project, reference_project_v3};
 use ow_model::migrate::{Migration, migrate_chain};
 use ow_model::*;
 use proptest::prelude::*;
@@ -46,29 +46,97 @@ fn serde_golden_v1_loads_through_migration() {
     assert_eq!(loaded.clips.len(), 3);
 }
 
-/// `OW_UPDATE_GOLDEN=1 cargo test -p ow-model serde_golden_v2` rewrites the fixture. Never do
-/// that for a version that has shipped: the file is what old projects look like.
+/// The v2 file is what projects looked like before stage 22: it loads through the v2 to v3
+/// migration (which adds nothing) and equals the reference project. Never rewrite it.
 #[test]
-fn serde_golden_v2_loads_and_rewrites_identically() {
-    if std::env::var_os("OW_UPDATE_GOLDEN").is_some() {
-        let path = golden_path(2);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, to_json(&reference_project()).unwrap()).unwrap();
-    }
+fn serde_golden_v2_loads_through_migration() {
     let bytes = golden(2);
     let loaded = from_json(&bytes).expect("the committed v2 file loads");
     assert_eq!(loaded, reference_project());
+    assert!(
+        loaded
+            .media_pool
+            .values()
+            .all(|m| m.tempo.is_none() && m.key.is_none())
+    );
+    assert!(
+        loaded
+            .clips
+            .values()
+            .all(|c| !matches!(&c.content, ClipContent::Audio { warp: Some(_), .. }))
+    );
+    // Saving it writes the current version, and loads back equal.
+    let saved = to_json(&loaded).unwrap();
+    assert_eq!(from_json(&saved).unwrap(), loaded);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&saved).unwrap()["format_version"],
+        json!(FORMAT_VERSION)
+    );
+}
+
+/// `OW_UPDATE_GOLDEN=1 cargo test -p ow-model serde_golden_v3` rewrites the fixture. Never do
+/// that for a version that has shipped: the file is what old projects look like.
+#[test]
+fn serde_golden_v3_loads_and_rewrites_identically() {
+    if std::env::var_os("OW_UPDATE_GOLDEN").is_some() {
+        let path = golden_path(3);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, to_json(&reference_project_v3()).unwrap()).unwrap();
+    }
+    let bytes = golden(3);
+    let loaded = from_json(&bytes).expect("the committed v3 file loads");
+    assert_eq!(loaded, reference_project_v3());
     assert_eq!(to_json(&loaded).unwrap(), bytes);
     // A file the next version wrote is refused, not read with fields dropped.
     let mut doc: Value = serde_json::from_slice(&bytes).unwrap();
-    doc["format_version"] = json!(3);
+    doc["format_version"] = json!(4);
     assert!(matches!(
         from_json(doc.to_string().as_bytes()),
         Err(FormatError::TooNew {
-            found: 3,
-            supported: 2
+            found: 4,
+            supported: 3
         })
     ));
+}
+
+/// Warp settings and detected analysis are validated like every other field.
+#[test]
+fn serde_rejects_invalid_warp_and_analysis() {
+    let mut project = reference_project_v3();
+    let media = *project.media_pool.keys().next().unwrap();
+    let clip = *project.clips.keys().next().unwrap();
+    let mut set_warp = |project: &mut Project, change: &dyn Fn(&mut Warp)| {
+        if let ClipContent::Audio { warp: Some(w), .. } =
+            &mut project.clips.get_mut(&clip).unwrap().content
+        {
+            change(w);
+        }
+    };
+    assert!(project.validate().is_ok());
+    for change in [
+        (&|w: &mut Warp| w.source_bpm = 0.0) as &dyn Fn(&mut Warp),
+        &|w| w.source_bpm = f64::NAN,
+        &|w| w.transpose_semitones = 99.0,
+        &|w| w.markers[1].beat = 1.0,
+        &|w| w.markers[1].source_frame = 10,
+        &|w| w.markers = vec![w.markers[0]; 300],
+    ] {
+        let mut broken = project.clone();
+        set_warp(&mut broken, change);
+        assert!(broken.validate().is_err());
+    }
+    let mut broken = project.clone();
+    broken.media_pool.get_mut(&media).unwrap().tempo = Some(5000.0);
+    assert!(broken.validate().is_err());
+    let mut broken = project.clone();
+    broken.media_pool.get_mut(&media).unwrap().key = Some(KeyInfo {
+        tonic: 12,
+        minor: false,
+        confidence: 0.5,
+    });
+    assert!(broken.validate().is_err());
+    set_warp(&mut project, &|w| w.mode = WarpMode::Off);
+    assert!(project.validate().is_ok());
 }
 
 /// A file written before stage 14 has none of its fields; it loads with the defaults and the
@@ -562,6 +630,8 @@ fn serde_edited_arrangement_round_trips() {
             sample_rate: 44_100,
             channels: 2,
             frames: 441_000,
+            tempo: None,
+            key: None,
         },
     })
     .unwrap();
@@ -598,6 +668,7 @@ fn serde_edited_arrangement_round_trips() {
             gain_db: 0.0,
             fade_in: 0.0,
             fade_out: 0.0,
+            warp: None,
         },
         take: None,
     };

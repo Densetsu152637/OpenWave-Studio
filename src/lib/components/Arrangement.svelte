@@ -48,7 +48,6 @@
   import {
     addTrack,
     commandsApi,
-    deleteClips,
     importAudio,
     moveClips,
     moveTrack,
@@ -95,6 +94,25 @@
   import { pingPong } from "../perf/scroll";
   import { addMidiTrack, createMidiClip } from "../arrange/midi";
   import { armedSet, recordApi, toggleArm } from "../arrange/record";
+  import {
+    badgeFor,
+    chooseTake,
+    commitRange,
+    deleteClipsKeepingTakes,
+    dragRange,
+    grabAt,
+    CHOOSE_ONE_TAKE,
+    onBar,
+    isLocked,
+    withSiblings,
+    groupKey,
+    laneClips,
+    setTrackInputCommand,
+    setTrackMonitorCommand,
+    takeGroups,
+    type RangeDrag,
+    type RangeKind,
+  } from "../record";
   import { SignatureMap, TempoMap } from "../arrange/time";
   import {
     DEFAULT_VIEW,
@@ -112,6 +130,7 @@
   import type { MirrorState } from "../stores";
   import type { Strip } from "../ipc/types";
   import type {
+    BeatRange,
     Bus,
     Clip,
     Device,
@@ -128,9 +147,12 @@
     mirror,
     playheadBeat,
     recording,
+    inputChannels = null,
     onLocate,
     onError,
   }: {
+    /** Channels of the input device the tracks record from; null without one. */
+    inputChannels?: number | null;
     mirror: MirrorState;
     /** A recording is running: arming is locked. */
     recording: boolean;
@@ -141,9 +163,15 @@
   } = $props();
 
   const HEADER_PX = 200;
-  const LANE_PX = 88;
+  const LANE_PX = 108;
   const RULER_PX = 24;
   const MARKER_PX = 20;
+  /** The punch strip under the markers. */
+  const PUNCH_PX = 14;
+  /** The bottom part of the ruler that holds the loop bar. */
+  const LOOP_BAR_PX = 10;
+  /** Height above the first track lane. */
+  const TOP_PX = RULER_PX + MARKER_PX + PUNCH_PX;
   const ZOOM_STEP = 1.25;
   const WHEEL_ZOOM = 0.002;
 
@@ -162,6 +190,8 @@
   /** The pointer travel's beat shift of the drag running now. */
   let dragShift = 0;
   let dragging = false;
+  /** A trim was tried on a take that has other takes. */
+  let lockedTrim = false;
   /** Scroll position and height of the track area, for rendering only the tracks in view. */
   let scrollTop = $state(0);
   let scrollHeight = $state(600);
@@ -186,10 +216,10 @@
   const busIds = $derived(buses.map((b) => b.id));
   // Only the tracks in (or near) the viewport are rendered; spacers keep the scroll height.
   const firstRow = $derived(
-    visibleRows(scrollTop - RULER_PX - MARKER_PX - 2, scrollHeight, LANE_PX, tracks.length).first,
+    visibleRows(scrollTop - TOP_PX - 2, scrollHeight, LANE_PX, tracks.length).first,
   );
   const lastRow = $derived(
-    visibleRows(scrollTop - RULER_PX - MARKER_PX - 2, scrollHeight, LANE_PX, tracks.length).last,
+    visibleRows(scrollTop - TOP_PX - 2, scrollHeight, LANE_PX, tracks.length).last,
   );
   const visibleTracks = $derived(tracks.slice(firstRow, lastRow));
   const marks = $derived(rulerMarks(view, width, signatures));
@@ -214,11 +244,36 @@
     }
     return byTrack;
   });
+  // Takes of one recording stack: the lane draws each group's active take, whose badge reaches
+  // the others.
+  const takes = $derived(takeGroups(project?.clips.values() ?? []));
+  const laneByTrack = $derived.by(() => {
+    const byTrack = new Map<number, Clip[]>();
+    for (const [track, list] of clipsByTrack) byTrack.set(track, laneClips(list));
+    return byTrack;
+  });
+  /** The clips the lanes draw (inactive takes are hidden): only these can be selected. */
+  const shownIds = $derived(new Set([...laneByTrack.values()].flatMap((list) => list.map((c) => c.id))));
+  const settings = $derived(project?.settings);
+  /** A range gesture running now: what it grabbed, and the range it shows until it lands. */
+  let rangeGesture = $state.raw<{
+    kind: RangeKind;
+    drag: RangeDrag;
+    shown: BeatRange | null;
+    /** Pointer x at the press; a press that stays within a few pixels is a click. */
+    startX: number;
+  } | null>(null);
+  const shownRange = (kind: RangeKind): BeatRange | null =>
+    rangeGesture?.kind === kind && rangeGesture.shown
+      ? rangeGesture.shown
+      : ((kind === "loop" ? settings?.loop_range : settings?.punch_range) ?? null);
+  const loopRange = $derived(shownRange("loop"));
+  const punchRange = $derived(shownRange("punch"));
   const playheadX = $derived(beatToX(view, playheadBeat));
   // The selection follows the project: a track or clip that is gone (undo, open) is not selected.
   const trackSelected = (id: number) => selectedTrack === id && tracks.some((t) => t.id === id);
   const liveSelection = $derived(
-    pruneSelection(selection, (id) => project?.clips.has(id) ?? false),
+    pruneSelection(selection, (id) => shownIds.has(id)),
   );
   const selectedClips = $derived(
     [...liveSelection].flatMap((id) => {
@@ -283,9 +338,87 @@
     }
   }
 
-  function onRulerDown(event: PointerEvent) {
+  /** The range the loop or punch gesture would edit, or null when none is stored. */
+  const storedRange = (kind: RangeKind): BeatRange | null =>
+    (kind === "loop" ? settings?.loop_range : settings?.punch_range) ?? null;
+
+  function startRange(kind: RangeKind, event: PointerEvent, grab: RangeDrag["grab"]) {
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const range = storedRange(kind);
+    const anchor = xToBeat(view, event.clientX - rect.left);
+    event.preventDefault();
+    target.setPointerCapture(event.pointerId);
+    rangeGesture = { kind, drag: { grab, origin: range, anchor }, shown: null, startX: event.clientX };
+  }
+
+  function moveRange(event: PointerEvent) {
+    if (!rangeGesture) return;
+    if (!rangeGesture.shown && Math.abs(event.clientX - rangeGesture.startX) < 3) return;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const beat = xToBeat(view, event.clientX - rect.left);
+    rangeGesture = {
+      ...rangeGesture,
+      shown: dragRange(rangeGesture.drag, beat, { signatures, snap, bypass: event.altKey }),
+    };
+  }
+
+  function endRange(event: PointerEvent) {
+    const gesture = rangeGesture;
+    rangeGesture = null;
+    if (!gesture || !settings || event.type === "pointercancel" || !gesture.shown) return;
+    // One undo step for the whole gesture.
+    void run(() => commitRange(commandsApi, settings, gesture.kind, gesture.shown));
+  }
+
+  const clearRange = (kind: RangeKind) =>
+    settings && storedRange(kind) && run(() => commitRange(commandsApi, settings, kind, null));
+
+  /** Grabs the stored range's end or body under the pointer, or a new range when over none. */
+  function grabFor(kind: RangeKind, event: PointerEvent): RangeDrag["grab"] {
+    const range = storedRange(kind);
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return grabAt(
+      range,
+      event.clientX - rect.left,
+      range ? beatToX(view, range.start) : 0,
+      range ? beatToX(view, range.end) : 0,
+    );
+  }
+
+  /**
+   * Click on the ruler places the playhead. Shift+drag makes a new loop range; dragging the
+   * ends or body of the loop bar (the lower strip of the ruler) edits it.
+   */
+  function onRulerDown(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (settings) {
+      if (event.shiftKey) return startRange("loop", event, "create");
+      if (event.clientY - rect.top >= RULER_PX - LOOP_BAR_PX) {
+        const grab = grabFor("loop", event);
+        if (grab !== "create") return startRange("loop", event, grab);
+      }
+    }
     onLocate(Math.max(0, xToBeat(view, event.clientX - rect.left)));
+  }
+
+  /** Whether the pointer is on the stored range's bar (not on empty strip). */
+  function onRange(kind: RangeKind, event: MouseEvent): boolean {
+    const range = storedRange(kind);
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return onBar(
+      range,
+      event.clientX - rect.left,
+      range ? beatToX(view, range.start) : 0,
+      range ? beatToX(view, range.end) : 0,
+    );
+  }
+
+  /** The punch strip: drag on empty space for a new range, on the bar to move or resize it. */
+  function onPunchDown(event: PointerEvent) {
+    if (event.button !== 0 || !settings) return;
+    startRange("punch", event, grabFor("punch", event));
   }
 
   function onKey(event: KeyboardEvent) {
@@ -316,7 +449,7 @@
         break;
       case "select-all":
         event.preventDefault();
-        selection = selectAll(project.clips.keys());
+        selection = selectAll(shownIds);
         break;
       case "deselect":
         if (liveSelection.size > 0) selection = NO_SELECTION;
@@ -338,7 +471,7 @@
           event.preventDefault();
           const doomed = selectedClips;
           selection = NO_SELECTION;
-          void run(() => deleteClips(commandsApi, doomed));
+          void run(() => deleteClipsKeepingTakes(commandsApi, project.clips.values(), doomed));
         }
         break;
     }
@@ -396,19 +529,32 @@
     dragMode = mode;
     if (mode !== "move") {
       dragging = true;
+      // Trimming one take of a group would leave its siblings out of step.
+      if ((mode === "trim-left" || mode === "trim-right") && isLocked(clip, takes)) {
+        lockedTrim = true;
+        return;
+      }
       const target = dragTarget(clip, mode, dx, view, signatures, snap, alt);
       preview = adjustClip(clip, mode, target, tempo, mediaOf(clip));
       return;
     }
-    const minStart = Math.min(...selectedClips.map((c) => c.start));
+    const group = withSiblings(selectedClips, takes);
+    const minStart = Math.min(...group.map((c) => c.start));
     dragging = true;
     dragShift = dragDelta(clip.start, minStart, dx, view, signatures, snap, alt);
-    moving = new Map(selectedClips.map((c) => [c.id, c.start + dragShift]));
+    moving = new Map(group.map((c) => [c.id, c.start + dragShift]));
   }
 
   function onDragEnd(commit: boolean) {
     dragging = false;
     if (dragMode !== "move") {
+      if (lockedTrim) {
+        lockedTrim = false;
+        dragMode = "move";
+        preview = null;
+        onError(CHOOSE_ONE_TAKE);
+        return;
+      }
       const adjusted = preview;
       const mode = dragMode;
       dragMode = "move";
@@ -429,12 +575,15 @@
       return;
     }
     // The clips stay where they were dropped until the move has landed, so they never jump back.
-    void run(() => moveClips(commandsApi, selectedClips, delta)).finally(() => (moving = null));
+    void run(() => moveClips(commandsApi, withSiblings(selectedClips, takes), delta)).finally(() => (moving = null));
   }
 
   const mediaOf = (clip: Clip) =>
     clip.content.type === "audio" ? project?.media_pool.get(clip.content.media) : undefined;
-  const splitTargets = $derived(splittable(selectedClips, playheadBeat, tempo, mediaOf));
+  const hasLockedTake = $derived(selectedClips.some((c) => isLocked(c, takes)));
+  const splitTargets = $derived(
+    hasLockedTake ? [] : splittable(selectedClips, playheadBeat, tempo, mediaOf),
+  );
   const selectedAudio = $derived(selectedClips.filter((c) => c.content.type === "audio"));
   /** The gain every selected audio clip shares, or null when they differ (or none is selected). */
   const sharedGain = $derived.by(() => {
@@ -448,6 +597,7 @@
   });
 
   function splitAtPlayhead() {
+    if (hasLockedTake) return onError(CHOOSE_ONE_TAKE);
     if (splitTargets.length === 0) return;
     void run(async () => {
       const created = await splitClips(commandsApi, selectedClips, playheadBeat, tempo, mediaOf);
@@ -457,6 +607,7 @@
 
   function duplicateSelection() {
     if (selectedClips.length === 0) return;
+    if (hasLockedTake) return onError(CHOOSE_ONE_TAKE);
     void run(async () => {
       selection = new Set(await duplicateClips(commandsApi, selectedClips));
     });
@@ -618,7 +769,7 @@
         height: rect.height,
         scrollTop,
         headerPx: HEADER_PX,
-        topPx: RULER_PX + MARKER_PX,
+        topPx: TOP_PX,
         lanePx: LANE_PX,
       },
       view,
@@ -697,7 +848,7 @@
     <button type="button" onclick={importFile} disabled={!project}>Import audio&hellip;</button>
     <button
       type="button"
-      title="Split the selected clips at the playhead (S)"
+      title={hasLockedTake ? CHOOSE_ONE_TAKE : "Split the selected clips at the playhead (S)"}
       onclick={splitAtPlayhead}
       disabled={splitTargets.length === 0}
     >
@@ -705,9 +856,9 @@
     </button>
     <button
       type="button"
-      title="Copy the selected clips to just after them (Ctrl/Cmd+D)"
+      title={hasLockedTake ? CHOOSE_ONE_TAKE : "Copy the selected clips to just after them (Ctrl/Cmd+D)"}
       onclick={duplicateSelection}
-      disabled={selectedClips.length === 0}
+      disabled={selectedClips.length === 0 || hasLockedTake}
     >
       Duplicate
     </button>
@@ -790,7 +941,29 @@
           <div class="row ruler-row" style:height="{RULER_PX}px">
             <div class="corner" style:width="{HEADER_PX}px"></div>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="ruler" bind:clientWidth={width} onpointerdown={onRulerDown}>
+            <div
+              class="ruler"
+              bind:clientWidth={width}
+              title="Click to place the playhead. Shift+drag sets the loop range; drag the loop bar to edit it, double-click it to clear."
+              onpointerdown={onRulerDown}
+              onpointermove={moveRange}
+              onpointerup={endRange}
+              onpointercancel={endRange}
+              ondblclick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                if (event.clientY - rect.top >= RULER_PX - LOOP_BAR_PX && onRange("loop", event))
+                  clearRange("loop");
+              }}
+            >
+              {#if loopRange}
+                <div
+                  class="range loop"
+                  style:left="{beatToX(view, loopRange.start)}px"
+                  style:width="{(loopRange.end - loopRange.start) * view.pxPerBeat}px"
+                  style:height="{LOOP_BAR_PX}px"
+                  aria-hidden="true"
+                ></div>
+              {/if}
               {#if rulerMode === "bars"}
                 {#each marks as mark (mark.kind + mark.beat)}
                   <div class="mark {mark.kind}" style:left="{mark.x}px">
@@ -803,6 +976,29 @@
                     {#if mark.label}<span>{mark.label}</span>{/if}
                   </div>
                 {/each}
+              {/if}
+            </div>
+          </div>
+          <div class="row punch-row" style:height="{PUNCH_PX}px">
+            <div class="corner marker-corner" style:width="{HEADER_PX}px">Punch</div>
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="punch-strip"
+              title="Drag to set the punch range; drag its ends or body to edit it; double-click to clear it"
+              onpointerdown={onPunchDown}
+              onpointermove={moveRange}
+              onpointerup={endRange}
+              onpointercancel={endRange}
+              ondblclick={(event) => onRange("punch", event) && clearRange("punch")}
+            >
+              {#if punchRange}
+                <div
+                  class="range punch"
+                  class:off={!settings?.punch_enabled}
+                  style:left="{beatToX(view, punchRange.start)}px"
+                  style:width="{(punchRange.end - punchRange.start) * view.pxPerBeat}px"
+                  aria-hidden="true"
+                ></div>
               {/if}
             </div>
           </div>
@@ -860,6 +1056,9 @@
                 armed={armed.has(track.id)}
                 armLocked={recording}
                 onArm={() => run(() => toggleArm(recordApi, armed, track.id))}
+                {inputChannels}
+                onInput={(input) => run(() => commandsApi.edit(setTrackInputCommand(track, input)))}
+                onMonitor={(mode) => run(() => commandsApi.edit(setTrackMonitorCommand(track, mode)))}
                 onSelect={() => selectTrack(track.id)}
                 onRename={(name) => run(() => renameTrack(commandsApi, track, name))}
                 destinations={routeTargets(project, { track: track.id })}
@@ -879,7 +1078,7 @@
             <div class="lane-cell">
               <Lane
                 {track}
-                clips={visibleClips(clipsByTrack.get(track.id) ?? [], view, width, liveSelection)}
+                clips={visibleClips(laneByTrack.get(track.id) ?? [], view, width, liveSelection)}
                 media={project.media_pool}
                 {missing}
                 {view}
@@ -895,6 +1094,14 @@
                 onDrag={onDragClip}
                 {onDragEnd}
                 onOpenClip={openRoll}
+                badgeOf={(clip) => badgeFor(clip, takes)}
+                onTake={(clip, index) =>
+                  run(async () => {
+                    await chooseTake(commandsApi, clip, index);
+                    const next = clip.take ? takes.get(groupKey(clip.track, clip.take.group)) : undefined;
+                    const chosen = next?.takes.find((c) => c.take.index === index);
+                    if (chosen) selection = new Set([chosen.id]);
+                  })}
               />
             </div>
           </div>
@@ -1064,6 +1271,7 @@
     background: var(--panel);
     border-bottom: 1px solid var(--border);
   }
+  .punch-row,
   .marker-row {
     border-top: 1px solid var(--border);
   }
@@ -1114,7 +1322,33 @@
     flex: none;
     border-right: 1px solid var(--border);
   }
+  .punch-strip {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .range {
+    position: absolute;
+    bottom: 0;
+    pointer-events: none;
+    box-sizing: border-box;
+    border-left: 3px solid var(--accent);
+    border-right: 3px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .range.punch {
+    top: 0;
+    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 35%, transparent);
+  }
+  .range.punch.off {
+    opacity: 0.4;
+  }
   .ruler {
+    touch-action: none;
     position: relative;
     flex: 1;
     min-width: 0;

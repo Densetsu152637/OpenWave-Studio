@@ -50,6 +50,11 @@ use super::media::{display_name, import_into};
 use super::{IpcState, blocking, lock};
 use crate::engine::EngineState;
 
+/// Most take writers a loop recording prepares across all armed tracks (each is a thread, a
+/// ring of about 0.4 to 0.8 MB and a file); a track gets at least 2 passes and at most
+/// `MAX_LOOP_TAKES`, so 16 armed tracks keep 4 passes each and 33 or more keep 2.
+const MAX_PREPARED_TAKES: usize = 64;
+
 /// A recording in progress: the engine's handle, the folder holding the take files (deleted
 /// once the takes are in the project) and the project it belongs to.
 pub(super) struct ActiveRecording {
@@ -141,7 +146,13 @@ impl IpcState {
             .tempdir()
             .map_err(|error| format!("could not create a folder for the recording: {error}"))?;
         let looped = settings.loop_range.is_some();
-        let passes = if looped { MAX_LOOP_TAKES } else { 1 };
+        // Every pass needs a writer thread, ring and file up front. Keep the total bounded:
+        // 16 passes for a few tracks, fewer (never below 2) as more tracks are armed.
+        let passes = if looped {
+            (MAX_PREPARED_TAKES / tracks.len().max(1)).clamp(2, MAX_LOOP_TAKES)
+        } else {
+            1
+        };
         let plan = RecordPlan {
             tracks: tracks
                 .into_iter()
@@ -214,7 +225,7 @@ impl IpcState {
                 }
                 if stopped.dropped_passes > 0 {
                     problems.push(format!(
-                        "{} loop pass(es) beyond the {MAX_LOOP_TAKES} takes a recording keeps \
+                        "{} loop pass(es) beyond the takes prepared for each track (at most {MAX_LOOP_TAKES}) \
                          were not recorded",
                         stopped.dropped_passes
                     ));
@@ -300,18 +311,29 @@ impl IpcState {
             return;
         }
         // A loop recording's takes are a group per track: the last pass plays, the others wait.
-        let mut per_track: BTreeMap<TrackId, u32> = BTreeMap::new();
+        let mut frames: BTreeMap<TrackId, Vec<u64>> = BTreeMap::new();
         for (take, _) in &imported {
-            *per_track.entry(take.track).or_default() += 1;
+            frames.entry(take.track).or_default().push(take.frames);
         }
+        let active_pass: BTreeMap<TrackId, usize> = frames
+            .iter()
+            .map(|(track, frames)| (*track, active_pass_index(frames)))
+            .collect();
         let mut groups: BTreeMap<TrackId, (Option<u64>, u32)> = BTreeMap::new();
+        let mut placed: BTreeMap<TrackId, Vec<ClipId>> = BTreeMap::new();
+        let mut pass_of: BTreeMap<TrackId, usize> = BTreeMap::new();
         for (take, file) in &imported {
+            let pass = {
+                let seen = pass_of.entry(take.track).or_default();
+                *seen += 1;
+                *seen - 1
+            };
             let seed = looped.then(|| {
                 let (group, index) = groups.entry(take.track).or_insert((None, 0));
                 TakeSeed {
                     group: *group,
                     index: *index,
-                    active: *index + 1 == per_track[&take.track],
+                    active: pass == active_pass[&take.track],
                 }
             });
             match self.place_take(&mut control, &root, take, file, seed, engine) {
@@ -320,9 +342,15 @@ impl IpcState {
                         let (group, index) = groups.entry(take.track).or_insert((None, 0));
                         group.get_or_insert(clip.0);
                         *index += 1;
+                        placed.entry(take.track).or_default().push(clip);
                     }
                 }
                 Err(error) => problems.push(error),
+            }
+        }
+        for clips in placed.values() {
+            if let Err(error) = ensure_active_take(&mut control, clips, engine) {
+                problems.push(error);
             }
         }
         if has_midi {
@@ -475,6 +503,7 @@ impl IpcState {
                             gain_db: 0.0,
                             fade_in: 0.0,
                             fade_out: 0.0,
+                            warp: None,
                         },
                         take: seed.map(|seed| TakeInfo {
                             group: seed.group.unwrap_or(id),
@@ -488,6 +517,54 @@ impl IpcState {
         )?;
         Ok(ClipId::from(id))
     }
+}
+
+/// The pass of a loop recording that plays: the last one, unless Stop cut it short (it is
+/// shorter than the longest pass), then the last complete pass. `frames` is each pass's length.
+pub(super) fn active_pass_index(frames: &[u64]) -> usize {
+    let longest = frames.iter().copied().max().unwrap_or(0);
+    match frames.last() {
+        Some(&last) if last * 100 < longest * 98 => frames
+            .iter()
+            .rposition(|&f| f * 100 >= longest * 98)
+            .unwrap_or(frames.len() - 1),
+        _ => frames.len().saturating_sub(1),
+    }
+}
+
+/// A loop recording's placed takes (in pass order) need one active take: when the last pass
+/// failed to place, none is, and the recording would be silent, so the last placed one plays.
+pub(super) fn ensure_active_take(
+    control: &mut Control,
+    clips: &[ClipId],
+    engine: &Engine,
+) -> Result<(), String> {
+    let project = control.session().project();
+    let Some(last) = clips.last().and_then(|id| project.clips.get(id)).cloned() else {
+        return Ok(());
+    };
+    let active = clips
+        .iter()
+        .filter_map(|id| project.clips.get(id))
+        .any(|clip| clip.take.is_some_and(|take| take.active));
+    let Some(mut take) = last.take else {
+        return Ok(());
+    };
+    if active {
+        return Ok(());
+    }
+    take.active = true;
+    let mut clip = last;
+    clip.take = Some(take);
+    control.command(
+        UiCommand::Edit {
+            edit: EditCommand::ReplaceClip {
+                clip: Box::new(clip),
+            },
+        },
+        engine,
+    )?;
+    Ok(())
 }
 
 /// Arms or disarms the audio track `track` for recording.
@@ -507,4 +584,22 @@ pub async fn record_start(app: AppHandle, midi_mode: Option<MidiRecordMode>) -> 
         state.record_start_with(engine.engine(), midi_mode)
     })
     .await
+}
+
+#[cfg(test)]
+mod active_pass_tests {
+    use super::active_pass_index;
+
+    #[test]
+    fn the_last_pass_plays_unless_stop_cut_it_short() {
+        assert_eq!(active_pass_index(&[]), 0);
+        assert_eq!(active_pass_index(&[100]), 0);
+        assert_eq!(active_pass_index(&[100, 100, 100]), 2);
+        assert_eq!(active_pass_index(&[100, 100, 50]), 1);
+        assert_eq!(active_pass_index(&[100, 80, 50]), 0);
+        assert_eq!(active_pass_index(&[50, 100]), 1);
+        // Buffer-size jitter does not demote a complete last pass.
+        assert_eq!(active_pass_index(&[480_000, 480_000, 479_992]), 2);
+        assert_eq!(active_pass_index(&[480_000, 480_000, 400_000]), 1);
+    }
 }

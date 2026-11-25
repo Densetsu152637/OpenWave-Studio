@@ -5,6 +5,7 @@
   import type { ClipSelection } from "../arrange/selection";
   import type { TempoMap } from "../arrange/time";
   import { cssColor, type View } from "../arrange/view";
+  import type { TakeBadge } from "../record/takes";
   import type { Clip, MediaItem, Track } from "../ipc/types";
 
   let {
@@ -25,6 +26,8 @@
     onDrag,
     onDragEnd,
     onOpenClip,
+    badgeOf,
+    onTake,
   }: {
     track: Track;
     clips: readonly Clip[];
@@ -53,6 +56,10 @@
     onDragEnd: (commit: boolean) => void;
     /** Double-click on a clip. */
     onOpenClip: (clip: Clip) => void;
+    /** The take badge of a clip, null when it has none. */
+    badgeOf: (clip: Clip) => TakeBadge | null;
+    /** Chooses the take with `index` in the group of `clip`. */
+    onTake: (clip: Clip, index: number) => void;
   } = $props();
 
   /** Pointer travel below which a press is a click, not a drag. */
@@ -127,6 +134,8 @@
       onpointerdown={(event) => press(event, stored)}
       onhandle={(event, mode) => press(event, stored, mode)}
       ondblclick={() => onOpenClip(stored)}
+      badge={badgeOf(stored)}
+      onTake={(index) => onTake(stored, index)}
     />
   {/each}
 </div>

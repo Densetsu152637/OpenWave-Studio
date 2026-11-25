@@ -87,6 +87,8 @@ impl IpcState {
                                 sample_rate: imported.sample_rate,
                                 channels: imported.channels,
                                 frames: imported.frames,
+                                tempo: None,
+                                key: None,
                             },
                         },
                     },

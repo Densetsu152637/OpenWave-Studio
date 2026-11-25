@@ -12,8 +12,9 @@
 //! (the app calls it when the root changes); media that left the project stays cached until then.
 
 pub mod midi;
+pub mod warp;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -34,10 +35,49 @@ pub struct LoadedMedia {
 
 type Key = (PathBuf, u32);
 
+/// Most warped renders kept in memory, and the most bytes they may hold together.
+const MAX_WARPED_ENTRIES: usize = 48;
+const MAX_WARPED_BYTES: usize = 512 << 20;
+/// Most warp cache files kept in a bundle's `cache/` folder (the oldest are deleted).
+const MAX_WARP_FILES: usize = 96;
+
+/// Warped renders in memory, oldest first.
+#[derive(Debug, Default)]
+struct WarpStore {
+    entries: HashMap<u64, Arc<Pcm>>,
+    order: VecDeque<u64>,
+    bytes: usize,
+}
+
+impl WarpStore {
+    fn insert(&mut self, key: u64, pcm: Arc<Pcm>) {
+        if self.entries.contains_key(&key) {
+            return;
+        }
+        self.bytes += pcm_bytes(&pcm);
+        self.entries.insert(key, pcm);
+        self.order.push_back(key);
+        while (self.entries.len() > MAX_WARPED_ENTRIES || self.bytes > MAX_WARPED_BYTES)
+            && self.order.len() > 1
+        {
+            if let Some(old) = self.order.pop_front()
+                && let Some(gone) = self.entries.remove(&old)
+            {
+                self.bytes = self.bytes.saturating_sub(pcm_bytes(&gone));
+            }
+        }
+    }
+}
+
+fn pcm_bytes(pcm: &Pcm) -> usize {
+    pcm.channels.len() * pcm.frames() * 4
+}
+
 /// Loaded media, shared between compiles. Cloning shares the same cache.
 #[derive(Debug, Clone, Default)]
 pub struct SourceCache {
     entries: Arc<Mutex<HashMap<Key, LoadedMedia>>>,
+    warped: Arc<Mutex<WarpStore>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -88,6 +128,43 @@ impl SourceCache {
     /// Drops everything.
     pub fn clear(&self) {
         lock(&self.entries).clear();
+        *lock(&self.warped) = WarpStore::default();
+    }
+
+    /// The warped render with cache key `key` (see [`warp::key`]): from memory, else from the
+    /// file `cache/warp-<key>.wav` under `media_root` when it holds `frames` frames of
+    /// `channels` channels at `rate` (`shape` is `(rate, channels, frames)`), else made by
+    /// `build` (which runs without any lock held) and written there for the next session.
+    /// Writing is best effort: a failure only costs the next session its cache.
+    pub fn warped(
+        &self,
+        media_root: &Path,
+        key: u64,
+        shape: (u32, usize, u64),
+        build: impl FnOnce() -> Pcm,
+    ) -> Arc<Pcm> {
+        if let Some(found) = lock(&self.warped).entries.get(&key) {
+            return Arc::clone(found);
+        }
+        let (rate, channels, frames) = shape;
+        let file = media_root
+            .join("cache")
+            .join(format!("warp-{key:016x}.wav"));
+        let from_disk = load_wav(&file).ok().filter(|pcm| {
+            pcm.sample_rate == rate
+                && pcm.channels.len() == channels
+                && pcm.frames() as u64 == frames
+        });
+        let pcm = Arc::new(match from_disk {
+            Some(pcm) => pcm,
+            None => {
+                let pcm = build();
+                write_warp_file(&file, &pcm);
+                pcm
+            }
+        });
+        lock(&self.warped).insert(key, Arc::clone(&pcm));
+        pcm
     }
 
     /// Number of cached (file, rate) pairs.
@@ -98,5 +175,35 @@ impl SourceCache {
     /// True when nothing is cached.
     pub fn is_empty(&self) -> bool {
         lock(&self.entries).is_empty()
+    }
+}
+
+/// Writes a warp cache file through a temporary file and a rename, then deletes the oldest
+/// warp files beyond [`MAX_WARP_FILES`]. Failures are ignored: the file is only a cache.
+fn write_warp_file(path: &Path, pcm: &Pcm) {
+    let Some(dir) = path.parent() else { return };
+    if fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let temp = path.with_extension("tmp");
+    if ow_media::import::write_wav(&temp, pcm).is_err() || fs::rename(&temp, path).is_err() {
+        let _ = fs::remove_file(&temp);
+        return;
+    }
+    let Ok(read) = fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = read
+        .filter_map(Result::ok)
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("warp-") && name.ends_with(".wav")
+        })
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    if files.len() > MAX_WARP_FILES {
+        files.sort();
+        for (_, old) in &files[..files.len() - MAX_WARP_FILES] {
+            let _ = fs::remove_file(old);
+        }
     }
 }

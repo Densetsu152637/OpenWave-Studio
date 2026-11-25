@@ -3217,6 +3217,7 @@ name = "ow-dsp"
 version = "0.1.0"
 dependencies = [
  "assert_no_alloc",
+ "cc",
 ]
 
 [[package]]
@@ -3287,8 +3288,11 @@ version = "0.1.0"
 dependencies = [
  "assert_no_alloc",
  "hound",
+ "ow-dsp",
  "rtrb",
  "rubato",
+ "serde",
+ "serde_json",
  "sha2 0.10.9",
  "symphonia",
  "tempfile",

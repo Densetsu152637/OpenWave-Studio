@@ -18,6 +18,7 @@ use crate::plan::Buffers;
 pub use crate::transport::{BlockTiming, Transport, TransportCommand};
 pub use runtime::{
     AudioCore, ControlLink, CoreBuilder, MAX_WORKERS, Message, MidiClock, MidiMessage,
+    PreviewSwapError,
     RecordSwapError, SwapError, Telemetry, default_worker_count,
 };
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { cssColor } from "../arrange/view";
-  import type { Bus, Output, Track } from "../ipc/types";
+  import type { Bus, MonitorMode, Output, Track, TrackInput } from "../ipc/types";
+  import { inputId, inputOptions, monitorView, nextMonitor, optionById } from "../record/input";
   import ColorPicker from "./ColorPicker.svelte";
   import StripMixer from "./StripMixer.svelte";
 
@@ -25,6 +26,9 @@
     canMoveDown,
     onMoveUp,
     onMoveDown,
+    inputChannels,
+    onInput,
+    onMonitor,
   }: {
     track: Track;
     selected: boolean;
@@ -52,7 +56,16 @@
     canMoveDown: boolean;
     onMoveUp: () => void;
     onMoveDown: () => void;
+    /** Channels of the open input device; null when there is none. */
+    inputChannels: number | null;
+    /** Called with the chosen input (null is the default). */
+    onInput: (input: TrackInput | null) => void;
+    /** Called with the next monitoring mode when the monitor button is clicked. */
+    onMonitor: (mode: MonitorMode) => void;
   } = $props();
+
+  const inputChoices = $derived(inputOptions(inputChannels, track.input));
+  const monitor = $derived(monitorView(track.monitor));
 
   let draft = $state<string | null>(null);
 
@@ -139,6 +152,34 @@
     </button>
   </div>
   <StripMixer settings={track.strip.settings} {destinations} routable={true} {onVolume} {onPan} {onOutput} />
+  {#if track.kind === "audio"}
+    <div class="row">
+      <select
+        class="input"
+        aria-label="Input"
+        title={inputChannels === null ? "No audio input device is open" : "Input channels to record from"}
+        value={inputId(track.input)}
+        onchange={(event) => {
+          const option = optionById(inputChoices, event.currentTarget.value);
+          if (option) onInput(option.input);
+        }}
+      >
+        {#each inputChoices as option (option.id)}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+      <button
+        type="button"
+        class="monitor"
+        class:on={monitor.lit}
+        aria-label={monitor.title}
+        title={monitor.title}
+        onclick={() => onMonitor(nextMonitor(track.monitor))}
+      >
+        {monitor.label}
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -198,6 +239,18 @@
   .arm,
   .delete {
     padding: 1px 4px;
+  }
+  .input {
+    flex: 1;
+    min-width: 0;
+  }
+  .monitor {
+    padding: 1px 4px;
+    white-space: nowrap;
+  }
+  .monitor.on {
+    background: var(--accent);
+    color: var(--bg);
   }
   .arm.on {
     background: var(--danger);
