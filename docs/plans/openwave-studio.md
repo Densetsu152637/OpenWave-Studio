@@ -406,7 +406,7 @@ Editor non-goals: generative music tools, automation lanes, MIDI learn, a separa
   - Editing operations emit the expected commands: `pnpm vitest run src/lib/arrange/clips`.
   - Clip playback with fades and trims matches the reference via the mock backend: `cargo test -p ow-engine --test audio_clips`.
   - Save and reload of an edited arrangement is identical: covered by `cargo test -p ow-model serde` fixtures added here.
-- Status: pending
+- Status: in progress (2026-11-25)
 - Outcome:
 - Handoff notes: none.
 
