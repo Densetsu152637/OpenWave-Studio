@@ -53,8 +53,7 @@ pub use graph::nodes::{GainNode, MasterNode, OscillatorNode, PanNode, SumNode, T
 pub use graph::{
     AudioCore, ControlLink, CoreBuilder, Graph, GraphError, Inputs, MAX_BLOCK, MAX_WORKERS,
     Message, MidiClock, MidiMessage, Node, NodeId, Outputs, PreviewSwapError, ProcessContext,
-    RecordSwapError,
-    SwapError, Telemetry, default_worker_count,
+    RecordSwapError, SwapError, Telemetry, default_worker_count,
 };
 pub use midi_hub::{
     MIDI_RING_CAPACITY, MIDI_RINGS, MidiHub, MidiInputSelection, MidiPortState, MidiStatus,

@@ -604,3 +604,81 @@ fn same_frame_live_and_clip_events_keep_note_offs_before_note_ons() {
     );
     assert!(log.windows(2).all(|w| w[0].offset <= w[1].offset));
 }
+
+/// A live key tapped within one frame (note-on and note-off stamped alike) is released in the
+/// next block, and a clip note shorter than a sample still gets its off after its on.
+#[test]
+fn a_same_frame_live_tap_and_a_very_short_clip_note_never_stick() {
+    use ow_engine::{CoreBuilder, MidiClock, MidiMessage};
+    static INFO: DeviceInfo =
+        DeviceInfo::new("test.logger2", "Logger", true, &[], || Box::new(Skew));
+    let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    // The clip note is shorter than one sample: the player gives it one.
+    let events = schedule(
+        [&Clip {
+            id: 1.into(),
+            track: 1.into(),
+            name: "c".into(),
+            start: 0.0,
+            length: 1.0,
+            muted: false,
+            content: ClipContent::Midi {
+                notes: vec![Note {
+                    start: 0.001,
+                    length: 1e-9,
+                    key: 50,
+                    velocity: 90,
+                }],
+                controllers: vec![],
+            },
+            take: None,
+        }],
+        &Timeline::default(),
+        RATE,
+    );
+    assert!(events[1].sample > events[0].sample);
+    let mut graph = Graph::new();
+    let node = DeviceNode::instrument(
+        &INFO,
+        Box::new(Logger(std::sync::Arc::clone(&log))),
+        MidiClipPlayer::new(events),
+    )
+    .with_live_input(ow_engine::LiveGate::Always);
+    let node = graph.add_node(Box::new(node));
+    let master = graph.add_node(Box::new(ow_engine::MasterNode::new()));
+    graph.connect(node, 0, master, 0).unwrap();
+    graph.connect(node, 1, master, 1).unwrap();
+    graph.set_master(master).unwrap();
+    let mut builder = CoreBuilder::new().midi_clock(MidiClock::StreamFrames);
+    let mut midi = builder.producer_ring(16);
+    let (mut link, mut core) = builder.build();
+    link.swap_plan(graph.compile(RATE, MAX_BLOCK).unwrap())
+        .unwrap();
+    let stamp = (50.0 * 1e6 / f64::from(RATE)).round() as u64;
+    for status in [0x90, 0x80] {
+        midi.push(Message::MidiIn {
+            message: MidiMessage {
+                status,
+                data1: 61,
+                data2: 90,
+            },
+            timestamp_us: stamp,
+        });
+    }
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+    let mut buffer = vec![0.0_f32; 128];
+    core.process(&mut buffer, 2, None);
+    core.process(&mut buffer, 2, None);
+    let log = log.lock().unwrap();
+    let key = |k: u8| -> Vec<bool> {
+        log.iter()
+            .filter_map(|e| match e.kind {
+                EventKind::NoteOn { key, .. } if key == k => Some(true),
+                EventKind::NoteOff { key } if key == k => Some(false),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(key(61), [true, false], "the tap is released: {log:?}");
+    assert_eq!(key(50), [true, false], "the short clip note ends: {log:?}");
+}

@@ -73,6 +73,11 @@ pub struct DeviceNode {
     /// Keys the live input holds down.
     live_held: [bool; 128],
     live_held_count: u32,
+    /// Keys whose live note-off arrived on the frame of their own note-on: the off is sent at
+    /// frame 0 of the next block, so the note sounds for a moment instead of sticking.
+    live_deferred: [bool; 128],
+    /// Deferred offs that were set in an earlier block and go out in this one.
+    live_due: [bool; 128],
 }
 
 impl DeviceNode {
@@ -118,6 +123,8 @@ impl DeviceNode {
             live_events: Vec::new(),
             live_held: [false; 128],
             live_held_count: 0,
+            live_deferred: [false; 128],
+            live_due: [false; 128],
         }
     }
 
@@ -193,7 +200,13 @@ impl Node for DeviceNode {
             0x80 | 0x90 if self.live_held[usize::from(key)] => {
                 self.live_held[usize::from(key)] = false;
                 self.live_held_count -= 1;
-                if self.live_events.len() < MAX_LIVE_EVENTS {
+                let same_frame = self.live_events.iter().any(|e| {
+                    e.offset >= offset
+                        && matches!(e.kind, EventKind::NoteOn { key: k, .. } if k == key)
+                });
+                if same_frame {
+                    self.live_deferred[usize::from(key)] = true;
+                } else if self.live_events.len() < MAX_LIVE_EVENTS {
                     self.live_events.push(Event::note_off(offset, key));
                 }
             }
@@ -207,6 +220,14 @@ impl Node for DeviceNode {
         if let Some(player) = &mut self.player {
             player.generate(&ctx.timing, &mut self.events);
         }
+        for key in 0..128_u8 {
+            if self.live_due[usize::from(key)] && self.live_events.len() < MAX_LIVE_EVENTS {
+                self.live_events.push(Event::note_off(0, key));
+            }
+        }
+        // What was deferred while this block was being prepared is due in the next one.
+        self.live_due = self.live_deferred;
+        self.live_deferred = [false; 128];
         if self.live_held_count > 0 && self.live.as_ref().is_some_and(|gate| !gate.is_open()) {
             self.release_live();
         }
