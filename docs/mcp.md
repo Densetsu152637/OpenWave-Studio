@@ -44,7 +44,7 @@ Every tool returns structured content (JSON) and a short text summary. Argument 
 | `edit` | One or more `EditCommand`s, exactly the commands the UI sends. Several commands are one transaction and one undo step; if one is refused, none is applied. Answers a summary of the model changes. |
 | `alloc_ids` | Reserves entity ids. New tracks, buses, clips, devices and markers need ids that no other entity has; reserve them first. |
 | `undo`, `redo` | Step through history. |
-| `transport` | `play`, `stop`, `locate` (to a beat), `status` (audio state, position in frames and beats, whether it is moving). |
+| `transport` | `play`, `stop`, `locate` (to a beat), `status` (audio state, position in frames and beats, `moving`, true while playing or counting in; `counting_in` and `recording` tell them apart). |
 | `project` | `new`, `open`, `save`, `save_as` (a `.owave` bundle directory). |
 | `import_audio` | Decodes an audio file into the media pool and answers the media id; a clip that references it is added with `edit`. |
 | `record` | `arm` or disarm an audio track, `start` and `stop` recording. The takes become clips when recording stops. |

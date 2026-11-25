@@ -327,7 +327,7 @@ tools! {
     Redo(NoArgs) = "redo",
         "Reapply the latest undone step.";
     Transport(TransportArgs) = "transport",
-        "Control playback: play, stop, locate to a position in beats, or status (engine and audio device state, position in frames and beats, whether the position is moving). Playback is audible on the user's audio device.";
+        "Control playback: play, stop, locate to a position in beats, or status (engine and audio device state, position in frames and beats, `moving`, true while playing or counting in; `counting_in` and `recording` tell them apart). Playback is audible on the user's audio device.";
     Project(ProjectArgs) = "project",
         "Project files: new, open and save, or save_as (a project is a `.owave` bundle directory). new and open discard unsaved changes, so they need discard_changes=true when the project is dirty (get_project shows dirty). save_as onto an existing path needs overwrite=true. This reads and writes the user's files with the user's own file access.";
     ImportAudio(ImportAudioArgs) = "import_audio",
