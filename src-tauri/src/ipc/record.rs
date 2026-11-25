@@ -1,13 +1,15 @@
-//! Audio recording (`record_set_arm`, `record_start`, and recording's half of `transport_stop`).
+//! Audio and MIDI recording (`record_set_arm`, `record_start`, and recording's half of
+//! `transport_stop`).
 //!
-//! Arming is session state: a set of audio track ids in the [`Control`](super::control::Control)
+//! Arming is session state: a set of audio and MIDI track ids in the [`Control`](super::control::Control)
 //! shown through the mirror (`history.armedTracks`), never saved, never an undo step and never
 //! dirty. `record_start` creates one take file per armed track in a private temporary folder
 //! (so saving or switching projects cannot disturb it), hands the record tap to the audio
 //! thread and starts the transport ([`Engine::start_recording`]). Stopping goes through
 //! [`IpcState::transport_stop`]: it ends the recording, then imports each take into the media
 //! root like `media_import` does (content hash into `audio/`, peaks built and registered) and
-//! adds `AddMedia` and `AddClip` for every take inside one transaction named "Record". A take
+//! adds `AddMedia` and `AddClip` for every take (and the clips of MIDI tracks, below) inside one
+//! transaction named "Record". A take
 //! starts at the recording start minus the stream's round-trip latency (see
 //! `ow_engine::record`), converted to beats with the project's tempo map.
 //!
@@ -19,17 +21,28 @@
 //! track's loop recording are added as clips that share a take group (`Clip::take`); the last
 //! pass is the active take and the others are silent until `SetActiveTake` chooses one.
 //!
+//! MIDI. Every armed MIDI track records every message of the connected (non control-surface)
+//! MIDI inputs, with no audio input needed; the armed track also plays them through its
+//! instrument while armed. The engine returns the messages with their timeline samples
+//! ([`ow_engine::MidiTakes`]); each becomes beats through the tempo map, notes are paired
+//! ([`ow_model::midi::notes_from_events`]) and [`MidiRecordMode`] decides what happens to the
+//! clips already on the track ([`ow_model::midi::plan_recording`]): `replace` (the default), `overdub`
+//! or `loop-merge`. The mode is an argument of `record_start`, not a project setting. The
+//! recorded position is the moment the message arrived (no latency compensation).
+//!
 //! Plain methods on [`IpcState`] (testable with a mock backend and no window); the commands at
 //! the end only run them on the blocking pool.
 
 use std::collections::BTreeMap;
 
 use ow_engine::{
-    Engine, FinishedTake, MAX_LOOP_TAKES, RecordPlan, Recording, TrackTakes, TransportCommand,
+    Engine, FinishedTake, MAX_LOOP_TAKES, MidiTakes, RecordPlan, Recording, TrackTakes,
+    TransportCommand,
 };
 use ow_ipc::{EditCommand, UiCommand};
 use ow_media::import::Imported;
-use ow_model::{Clip, ClipContent, ClipId, InputChannels, TakeInfo, TrackId};
+use ow_model::midi::{MidiRecordMode, RecordedEvent, RecordedPass, plan_recording};
+use ow_model::{Clip, ClipContent, ClipId, InputChannels, TakeInfo, TrackId, TrackKind};
 use tauri::{AppHandle, Manager};
 
 use super::control::Control;
@@ -45,6 +58,8 @@ pub(super) struct ActiveRecording {
     epoch: u64,
     /// The recording loops, so its takes are one take group per track.
     looped: bool,
+    /// What MIDI recording does to the clips already on the track.
+    midi_mode: MidiRecordMode,
 }
 
 /// Where a take sits in its group when it becomes a clip.
@@ -56,8 +71,8 @@ struct TakeSeed {
 }
 
 impl IpcState {
-    /// Arms or disarms an audio track for recording. Refused while recording and for a track
-    /// that is not an audio track.
+    /// Arms or disarms an audio or MIDI track for recording. Refused while recording and for a
+    /// track that does not exist.
     pub fn record_set_arm(&self, track: u64, armed: bool) -> Result<(), String> {
         if lock(&self.recording).is_some() {
             return Err("stop recording before changing which tracks are armed".into());
@@ -74,16 +89,28 @@ impl IpcState {
     }
 
     /// Starts recording on every armed track from the current position: the takes are written
-    /// as the transport plays and become clips when the transport stops.
+    /// as the transport plays and become clips when the transport stops. MIDI tracks use the
+    /// default [`MidiRecordMode`] (`replace`).
     pub fn record_start(&self, engine: &Engine) -> Result<(), String> {
+        self.record_start_with(engine, None)
+    }
+
+    /// Like [`record_start`](Self::record_start); `midi_mode` says what recording on a MIDI
+    /// track does to the clips already there (default `replace`).
+    pub fn record_start_with(
+        &self,
+        engine: &Engine,
+        midi_mode: Option<MidiRecordMode>,
+    ) -> Result<(), String> {
         let mut slot = lock(&self.recording);
         if slot.is_some() {
             return Err("already recording".into());
         }
-        let (tracks, settings, epoch) = {
+        let (tracks, midi_tracks, settings, epoch) = {
             let control = lock(&self.control);
             let project = control.session().project();
             let armed = control.armed_audio_tracks();
+            let midi_tracks = control.armed_midi_tracks();
             let tracks: Vec<(TrackId, Option<(u16, u16)>)> = armed
                 .into_iter()
                 .map(|id| {
@@ -99,10 +126,15 @@ impl IpcState {
                     (id, input)
                 })
                 .collect();
-            (tracks, project.settings.clone(), control.epoch())
+            (
+                tracks,
+                midi_tracks,
+                project.settings.clone(),
+                control.epoch(),
+            )
         };
-        if tracks.is_empty() {
-            return Err("arm an audio track to record on first".into());
+        if tracks.is_empty() && midi_tracks.is_empty() {
+            return Err("arm an audio or MIDI track to record on first".into());
         }
         let dir = tempfile::Builder::new()
             .prefix("openwave-take-")
@@ -121,6 +153,7 @@ impl IpcState {
                         .collect(),
                 })
                 .collect(),
+            midi_tracks,
             loop_beats: settings.loop_range.map(|range| (range.start, range.end)),
             punch_beats: settings
                 .punch_range
@@ -136,6 +169,7 @@ impl IpcState {
             dir,
             epoch,
             looped,
+            midi_mode: midi_mode.unwrap_or_default(),
         });
         Ok(())
     }
@@ -158,6 +192,7 @@ impl IpcState {
             dir,
             epoch,
             looped,
+            midi_mode,
         } = active;
         let mut problems = Vec::new();
         match engine.stop_recording(recording) {
@@ -191,7 +226,19 @@ impl IpcState {
                         "the disk could not keep up and part of the recording is missing".into(),
                     );
                 }
-                self.add_takes(takes, epoch, looped, engine, &mut problems);
+                if stopped.midi.dropped_events > 0 {
+                    problems.push(format!(
+                        "{} MIDI message(s) could not be recorded",
+                        stopped.midi.dropped_events
+                    ));
+                }
+                self.add_takes(
+                    takes,
+                    stopped.midi,
+                    (epoch, looped, midi_mode),
+                    engine,
+                    &mut problems,
+                );
             }
             Err(error) => problems.push(error.to_string()),
         }
@@ -207,17 +254,19 @@ impl IpcState {
         ))
     }
 
-    /// Imports the takes and adds them to the project in one transaction. Failures are
-    /// appended to `problems`; whatever succeeded is kept, and the transaction is always ended.
+    /// Imports the takes and adds them, and the MIDI clips, to the project in one transaction.
+    /// Failures are appended to `problems`; whatever succeeded is kept, and the transaction is
+    /// always ended.
     fn add_takes(
         &self,
         takes: Vec<FinishedTake>,
-        epoch: u64,
-        looped: bool,
+        midi: MidiTakes,
+        (epoch, looped, midi_mode): (u64, bool, MidiRecordMode),
         engine: &Engine,
         problems: &mut Vec<String>,
     ) {
-        if takes.is_empty() {
+        let has_midi = midi.passes.iter().any(|pass| !pass.events.is_empty());
+        if takes.is_empty() && !has_midi {
             return;
         }
         let mut control = lock(&self.control);
@@ -240,7 +289,7 @@ impl IpcState {
                 Err(error) => problems.push(format!("{}: {error}", take.path.display())),
             }
         }
-        if imported.is_empty() {
+        if imported.is_empty() && !has_midi {
             return;
         }
         let begin = UiCommand::Begin {
@@ -276,9 +325,106 @@ impl IpcState {
                 Err(error) => problems.push(error),
             }
         }
+        if has_midi {
+            self.place_midi(&mut control, &midi, midi_mode, looped, engine, problems);
+        }
         // Commit what was added, even when a take failed on the way.
         if let Err(error) = control.command(UiCommand::End, engine) {
             problems.push(error);
+        }
+    }
+
+    /// Turns the recorded MIDI into clips on every MIDI track that was armed (inside the open
+    /// "Record" transaction), by the rules of `mode` ([`plan_recording`]).
+    fn place_midi(
+        &self,
+        control: &mut Control,
+        midi: &MidiTakes,
+        mode: MidiRecordMode,
+        looped: bool,
+        engine: &Engine,
+        problems: &mut Vec<String>,
+    ) {
+        let (rate, passes) = {
+            let project = control.session().project();
+            let rate = project.settings.sample_rate;
+            let beats = |sample: f64| project.tempo_map.samples_to_beats(sample.max(0.0), rate);
+            let passes: Vec<RecordedPass> = midi
+                .passes
+                .iter()
+                .map(|pass| RecordedPass {
+                    start: beats(pass.start_sample as f64),
+                    end: beats(pass.end_sample as f64),
+                    events: pass
+                        .events
+                        .iter()
+                        .map(|event| RecordedEvent {
+                            beat: beats(event.sample as f64),
+                            bytes: event.bytes,
+                        })
+                        .collect(),
+                })
+                .collect();
+            (rate, passes)
+        };
+        let _ = rate;
+        for track_id in &midi.tracks {
+            let (track, existing) = {
+                let project = control.session().project();
+                let Some(track) = project
+                    .tracks
+                    .iter()
+                    .find(|t| t.id == *track_id && t.kind == TrackKind::Midi)
+                else {
+                    problems
+                        .push("a recorded MIDI track was deleted; its notes were not added".into());
+                    continue;
+                };
+                let existing: Vec<Clip> = project
+                    .clips
+                    .values()
+                    .filter(|c| c.track == track.id)
+                    .cloned()
+                    .collect();
+                (track.clone(), existing)
+            };
+            let name = display_name(&track.name);
+            let mut alloc = || -> Result<ClipId, String> {
+                let reply = control.command(UiCommand::AllocIds { count: 1 }, engine)?;
+                reply
+                    .ids
+                    .first()
+                    .map(|id| ClipId::from(*id))
+                    .ok_or_else(|| "no clip id was reserved".to_string())
+            };
+            let plan = match plan_recording(
+                &existing, track.id, &name, &passes, mode, looped, &mut alloc,
+            ) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    problems.push(error);
+                    continue;
+                }
+            };
+            let edits = plan
+                .remove
+                .into_iter()
+                .map(|id| EditCommand::RemoveClip { id })
+                .chain(
+                    plan.replace
+                        .into_iter()
+                        .map(|clip| EditCommand::ReplaceClip {
+                            clip: Box::new(clip),
+                        }),
+                )
+                .chain(plan.add.into_iter().map(|clip| EditCommand::AddClip {
+                    clip: Box::new(clip),
+                }));
+            for edit in edits {
+                if let Err(error) = control.command(UiCommand::Edit { edit }, engine) {
+                    problems.push(error);
+                }
+            }
         }
     }
 
@@ -350,13 +496,15 @@ pub async fn record_set_arm(app: AppHandle, track: u64, armed: bool) -> Result<(
     blocking(move || app.state::<IpcState>().record_set_arm(track, armed)).await
 }
 
-/// Starts recording on the armed tracks; stop with `transport_stop`.
+/// Starts recording on the armed tracks; stop with `transport_stop`. `midi_mode` is
+/// `"replace"` (the default), `"overdub"` or `"loop-merge"`: what recording on a MIDI track does
+/// to the clips already there.
 #[tauri::command]
-pub async fn record_start(app: AppHandle) -> Result<(), String> {
+pub async fn record_start(app: AppHandle, midi_mode: Option<MidiRecordMode>) -> Result<(), String> {
     blocking(move || {
         let state = app.state::<IpcState>();
         let engine = app.state::<EngineState>();
-        state.record_start(engine.engine())
+        state.record_start_with(engine.engine(), midi_mode)
     })
     .await
 }

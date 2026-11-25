@@ -272,6 +272,48 @@ pub struct MediaImportReply {
     pub channels: u16,
 }
 
+/// What `midi_import` answers: what the file became in the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MidiImportReply {
+    /// Tracks the import created (empty when it went onto an existing track).
+    #[ts(type = "Array<number>")]
+    pub tracks: Vec<u64>,
+    /// The clips added, one per track of the file that holds notes or control changes.
+    #[ts(type = "Array<number>")]
+    pub clips: Vec<u64>,
+    /// Whether the file's tempo changes replaced the project's tempo map.
+    pub tempo_applied: bool,
+}
+
+/// What `midi_export` answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MidiExportReply {
+    /// The file written.
+    pub path: String,
+    /// Tracks in the file (not counting its tempo track).
+    pub tracks: u32,
+    /// Notes in the file.
+    pub notes: u32,
+}
+
+/// What `midi_edit` answers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MidiEditReply {
+    /// The clip that was edited.
+    #[ts(type = "number")]
+    pub clip: u64,
+    /// Notes in the clip before the edit.
+    pub notes_before: u32,
+    /// Notes in the clip after it (fewer when a transpose moved notes out of range).
+    pub notes_after: u32,
+}
+
 /// What a command answers: the sequence number after it (unchanged when the command did not
 /// change anything) and, for `alloc_ids`, the reserved ids.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

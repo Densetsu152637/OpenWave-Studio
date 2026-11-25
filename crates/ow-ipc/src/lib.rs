@@ -53,8 +53,8 @@ pub use devices::{
     PluginScanSummary, device_descriptors,
 };
 pub use dto::{
-    CommandReply, HistoryState, MAX_ALLOC_IDS, MediaImportReply, ModelPatch, PatchOp, Snapshot,
-    UiCommand,
+    CommandReply, HistoryState, MAX_ALLOC_IDS, MediaImportReply, MidiEditReply, MidiExportReply,
+    MidiImportReply, ModelPatch, PatchOp, Snapshot, UiCommand,
 };
 pub use mirror::{Gap, Mirror, diff};
 pub use session::{Outcome, Session};

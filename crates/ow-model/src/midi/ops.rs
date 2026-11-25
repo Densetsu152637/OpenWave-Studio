@@ -11,6 +11,7 @@ use crate::model::Note;
 
 /// What [`legato`] stretches each note up to.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LegatoMode {
@@ -23,6 +24,7 @@ pub enum LegatoMode {
 
 /// One note operation, as the MCP tool `midi_edit` and the piano roll name them.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum MidiEdit {
@@ -46,6 +48,7 @@ pub enum MidiEdit {
     /// Random, repeatable timing and velocity changes. See [`humanize`].
     Humanize {
         /// The same seed gives the same result.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
         seed: u64,
         /// Largest start shift in beats, either direction (default 0.02).
         #[serde(default = "default_timing")]
@@ -84,6 +87,17 @@ fn default_velocity() -> u8 {
 }
 
 impl MidiEdit {
+    /// The undo-menu name of the operation.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Quantize { .. } => "Quantize",
+            Self::Legato { .. } => "Legato",
+            Self::Humanize { .. } => "Humanize",
+            Self::Transpose { .. } => "Transpose",
+            Self::VelocityScale { .. } | Self::VelocitySet { .. } => "Change velocity",
+        }
+    }
+
     /// Applies the operation to `notes`, or only to the notes at the indices in `selection`.
     /// Out-of-range and repeated indices are ignored. The result keeps the order of `notes`
     /// (without removed notes).
@@ -238,7 +252,7 @@ fn unit(state: &mut u64) -> f64 {
 
 fn transpose_note(note: &Note, semitones: i32) -> Option<Note> {
     let key = i64::from(note.key) + i64::from(semitones);
-    (0..=127).contains(&key).then(|| Note {
+    (0..=127).contains(&key).then_some(Note {
         key: key as u8,
         ..*note
     })

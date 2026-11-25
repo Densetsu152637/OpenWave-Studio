@@ -5,6 +5,8 @@
 //!   and the functions behind them. Every operation is deterministic; humanize takes a seed.
 //! * [`capture`]: turns recorded MIDI events into notes and controllers, cuts a range out of a
 //!   clip's content (record `replace`) and merges notes (record `overdub`).
+//! * [`record`]: what a recording does to the track: new clips, cut clips, merged notes, for the
+//!   three record modes.
 //! * [`file`]: Standard MIDI Files (`midly`): import a `.mid` into per-track notes and export
 //!   tracks back. Works on bytes; reading and writing the file is the caller's job.
 //!
@@ -14,12 +16,14 @@
 pub mod capture;
 pub mod file;
 pub mod ops;
+pub mod record;
 
 pub use capture::{MidiPiece, RecordedEvent, carve, merge_notes, notes_from_events};
 pub use file::{ExportTrack, ImportedMidi, ImportedTrack, MidiFileError, export, import};
 pub use ops::{
     LegatoMode, MidiEdit, humanize, legato, quantize, scale_velocity, set_velocity, transpose,
 };
+pub use record::{MidiRecordMode, RecordedPass, RecordingClips, plan_recording};
 
 /// Shortest note a capture or an edit produces, in beats (1/960 of a quarter note).
 pub const MIN_NOTE_LENGTH: f64 = 1.0 / 960.0;

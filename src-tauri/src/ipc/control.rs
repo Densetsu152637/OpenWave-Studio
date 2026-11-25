@@ -183,17 +183,18 @@ impl Control {
         self.epoch
     }
 
-    /// Arms or disarms an audio track for recording. Session state: no undo step, no dirty
-    /// flag; the UI sees it through the mirror's `history.armedTracks`.
+    /// Arms or disarms an audio or MIDI track for recording. Session state: no undo step, no
+    /// dirty flag; the UI sees it through the mirror's `history.armedTracks`. An armed MIDI
+    /// track plays live MIDI input through its instrument (the engine reads the same flags).
     pub(super) fn set_armed(&mut self, track: u64, armed: bool) -> Result<(), String> {
-        let is_audio = self
+        let exists = self
             .session
             .project()
             .tracks
             .iter()
-            .any(|t| t.id == TrackId(track) && t.kind == TrackKind::Audio);
-        if armed && !is_audio {
-            return Err("only an audio track can be armed for recording".into());
+            .any(|t| t.id == TrackId(track));
+        if armed && !exists {
+            return Err("only an audio or MIDI track can be armed for recording".into());
         }
         let mut next: Vec<u64> = self.session.armed_tracks().to_vec();
         next.retain(|id| *id != track);
@@ -232,14 +233,26 @@ impl Control {
             .collect()
     }
 
-    /// Disarms tracks an edit removed (or turned into something that cannot record).
+    /// The armed tracks that still exist as MIDI tracks, in project order.
+    pub(super) fn armed_midi_tracks(&self) -> Vec<TrackId> {
+        let armed = self.session.armed_tracks();
+        self.session
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Midi && armed.contains(&t.id.0))
+            .map(|t| t.id)
+            .collect()
+    }
+
+    /// Disarms tracks an edit removed.
     fn prune_armed(&mut self) {
         let live: Vec<u64> = self
             .session
             .project()
             .tracks
             .iter()
-            .filter(|t| t.kind == TrackKind::Audio)
+            .filter(|t| matches!(t.kind, TrackKind::Audio | TrackKind::Midi))
             .map(|t| t.id.0)
             .collect();
         let kept: Vec<u64> = self
