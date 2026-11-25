@@ -332,8 +332,18 @@ fn mvp_record_with_a_loop_adds_one_take_per_pass_and_the_last_one_plays() {
     });
     state.record_set_arm(armed.0, true).unwrap();
     state.record_start(&engine).unwrap();
-    // At least four 62 ms passes of real time.
-    std::thread::sleep(Duration::from_millis(400));
+    // Wait for the loop to wrap five times (so at least four passes are complete), however
+    // slowly a loaded machine runs the paced mock device. Missed polls only wait longer.
+    let mut wraps = 0;
+    let mut last = engine.telemetry_bank().position();
+    wait_until("five loop passes", || {
+        let now = engine.telemetry_bank().position();
+        if now < last {
+            wraps += 1;
+        }
+        last = now;
+        wraps >= 5
+    });
     state.transport_stop(&engine).unwrap();
 
     let snapshot = ui.sync(&state);
