@@ -210,7 +210,7 @@
     >
       {#each badge.choices as choice (choice.index)}
         <option value={choice.index} selected={choice.active}>
-          {choice.active ? badge.label : choice.label}
+          {choice.active ? (boxWidth < 96 ? `${badge.position}/${badge.count}` : badge.label) : choice.label}
         </option>
       {/each}
     </select>
@@ -302,8 +302,8 @@
   .take {
     position: absolute;
     bottom: 1px;
-    left: 8px;
-    max-width: calc(100% - 16px);
+    left: 2px;
+    max-width: calc(100% - 4px);
     padding: 0 2px;
     font-size: 10px;
     line-height: 14px;

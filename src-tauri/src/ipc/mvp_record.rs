@@ -350,14 +350,21 @@ fn mvp_record_with_a_loop_adds_one_take_per_pass_and_the_last_one_plays() {
         group, takes[0].id.0,
         "the group is named after its first clip"
     );
+    // The last pass plays, unless Stop cut it short: then the last complete one does.
+    let longest = takes.iter().map(|c| c.length).fold(0.0, f64::max);
+    let last_full = takes
+        .iter()
+        .rposition(|c| c.length >= longest - 1e-9)
+        .unwrap();
+    let expected = if takes.last().unwrap().length < longest - 1e-9 {
+        last_full
+    } else {
+        takes.len() - 1
+    };
     for (index, clip) in takes.iter().enumerate() {
         let info = clip.take.expect("every clip is a take");
         assert_eq!((info.group, info.index), (group, index as u32));
-        assert_eq!(
-            info.active,
-            index + 1 == takes.len(),
-            "only the last pass plays"
-        );
+        assert_eq!(info.active, index == expected, "only one pass plays");
     }
     // The model holds that invariant (a second active take would be refused).
     assert!(

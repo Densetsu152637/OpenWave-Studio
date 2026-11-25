@@ -101,6 +101,7 @@
     deleteClipsKeepingTakes,
     dragRange,
     grabAt,
+    groupKey,
     laneClips,
     setTrackInputCommand,
     setTrackMonitorCommand,
@@ -245,6 +246,8 @@
     for (const [track, list] of clipsByTrack) byTrack.set(track, laneClips(list));
     return byTrack;
   });
+  /** The clips the lanes draw (inactive takes are hidden): only these can be selected. */
+  const shownIds = $derived(new Set([...laneByTrack.values()].flatMap((list) => list.map((c) => c.id))));
   const settings = $derived(project?.settings);
   /** A range gesture running now: what it grabbed, and the range it shows until it lands. */
   let rangeGesture = $state.raw<{
@@ -264,7 +267,7 @@
   // The selection follows the project: a track or clip that is gone (undo, open) is not selected.
   const trackSelected = (id: number) => selectedTrack === id && tracks.some((t) => t.id === id);
   const liveSelection = $derived(
-    pruneSelection(selection, (id) => project?.clips.has(id) ?? false),
+    pruneSelection(selection, (id) => shownIds.has(id)),
   );
   const selectedClips = $derived(
     [...liveSelection].flatMap((id) => {
@@ -394,6 +397,15 @@
     onLocate(Math.max(0, xToBeat(view, event.clientX - rect.left)));
   }
 
+  /** Whether the pointer is on the stored range's bar (not on empty strip). */
+  function onRange(kind: RangeKind, event: MouseEvent): boolean {
+    const range = storedRange(kind);
+    if (!range) return false;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    return x >= beatToX(view, range.start) - 6 && x <= beatToX(view, range.end) + 6;
+  }
+
   /** The punch strip: drag on empty space for a new range, on the bar to move or resize it. */
   function onPunchDown(event: PointerEvent) {
     if (event.button !== 0 || !settings) return;
@@ -428,7 +440,7 @@
         break;
       case "select-all":
         event.preventDefault();
-        selection = selectAll(project.clips.keys());
+        selection = selectAll(shownIds);
         break;
       case "deselect":
         if (liveSelection.size > 0) selection = NO_SELECTION;
@@ -912,7 +924,8 @@
               onpointercancel={endRange}
               ondblclick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
-                if (event.clientY - rect.top >= RULER_PX - LOOP_BAR_PX && loopRange) clearRange("loop");
+                if (event.clientY - rect.top >= RULER_PX - LOOP_BAR_PX && onRange("loop", event))
+                  clearRange("loop");
               }}
             >
               {#if loopRange}
@@ -949,7 +962,7 @@
               onpointermove={moveRange}
               onpointerup={endRange}
               onpointercancel={endRange}
-              ondblclick={() => clearRange("punch")}
+              ondblclick={(event) => onRange("punch", event) && clearRange("punch")}
             >
               {#if punchRange}
                 <div
@@ -1055,7 +1068,13 @@
                 {onDragEnd}
                 onOpenClip={openRoll}
                 badgeOf={(clip) => badgeFor(clip, takes)}
-                onTake={(clip, index) => run(() => chooseTake(commandsApi, clip, index))}
+                onTake={(clip, index) =>
+                  run(async () => {
+                    await chooseTake(commandsApi, clip, index);
+                    const next = clip.take ? takes.get(groupKey(clip.track, clip.take.group)) : undefined;
+                    const chosen = next?.takes.find((c) => c.take.index === index);
+                    if (chosen) selection = new Set([chosen.id]);
+                  })}
               />
             </div>
           </div>

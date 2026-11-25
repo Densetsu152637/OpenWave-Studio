@@ -262,19 +262,29 @@ impl IpcState {
             return;
         }
         // A loop recording's takes are a group per track: the last pass plays, the others wait.
-        let mut per_track: BTreeMap<TrackId, u32> = BTreeMap::new();
+        let mut frames: BTreeMap<TrackId, Vec<u64>> = BTreeMap::new();
         for (take, _) in &imported {
-            *per_track.entry(take.track).or_default() += 1;
+            frames.entry(take.track).or_default().push(take.frames);
         }
+        let active_pass: BTreeMap<TrackId, usize> = frames
+            .iter()
+            .map(|(track, frames)| (*track, active_pass_index(frames)))
+            .collect();
         let mut groups: BTreeMap<TrackId, (Option<u64>, u32)> = BTreeMap::new();
         let mut placed: BTreeMap<TrackId, Vec<ClipId>> = BTreeMap::new();
+        let mut pass_of: BTreeMap<TrackId, usize> = BTreeMap::new();
         for (take, file) in &imported {
+            let pass = {
+                let seen = pass_of.entry(take.track).or_default();
+                *seen += 1;
+                *seen - 1
+            };
             let seed = looped.then(|| {
                 let (group, index) = groups.entry(take.track).or_insert((None, 0));
                 TakeSeed {
                     group: *group,
                     index: *index,
-                    active: *index + 1 == per_track[&take.track],
+                    active: pass == active_pass[&take.track],
                 }
             });
             match self.place_take(&mut control, &root, take, file, seed, engine) {
@@ -362,6 +372,19 @@ impl IpcState {
     }
 }
 
+/// The pass of a loop recording that plays: the last one, unless Stop cut it short (it is
+/// shorter than the longest pass), then the last complete pass. `frames` is each pass's length.
+pub(super) fn active_pass_index(frames: &[u64]) -> usize {
+    let longest = frames.iter().copied().max().unwrap_or(0);
+    match frames.last() {
+        Some(&last) if last < longest => frames
+            .iter()
+            .rposition(|&f| f == longest)
+            .unwrap_or(frames.len() - 1),
+        _ => frames.len().saturating_sub(1),
+    }
+}
+
 /// A loop recording's placed takes (in pass order) need one active take: when the last pass
 /// failed to place, none is, and the recording would be silent, so the last placed one plays.
 pub(super) fn ensure_active_take(
@@ -412,4 +435,19 @@ pub async fn record_start(app: AppHandle) -> Result<(), String> {
         state.record_start(engine.engine())
     })
     .await
+}
+
+#[cfg(test)]
+mod active_pass_tests {
+    use super::active_pass_index;
+
+    #[test]
+    fn the_last_pass_plays_unless_stop_cut_it_short() {
+        assert_eq!(active_pass_index(&[]), 0);
+        assert_eq!(active_pass_index(&[100]), 0);
+        assert_eq!(active_pass_index(&[100, 100, 100]), 2);
+        assert_eq!(active_pass_index(&[100, 100, 50]), 1);
+        assert_eq!(active_pass_index(&[100, 80, 50]), 0);
+        assert_eq!(active_pass_index(&[50, 100]), 1);
+    }
 }

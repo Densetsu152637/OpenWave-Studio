@@ -12,7 +12,9 @@ import {
   dragRange,
   fitsDevice,
   grabAt,
+  inputChannelCount,
   inputOptions,
+  onBar,
   laneClips,
   monitorView,
   nextMonitor,
@@ -208,5 +210,57 @@ describe("stop notices", () => {
       "Recording stopped, with problems: 2 loop pass(es) were not recorded",
     );
     expect(stopNotice("the audio engine is not running", false)).toBe("the audio engine is not running");
+  });
+});
+
+describe("review fixes", () => {
+  it("never creates a range before beat 0", () => {
+    const drag = { grab: "create" as const, origin: null, anchor: 3 };
+    expect(dragRange(drag, -5, ctx("1"))).toEqual({ start: 0, end: 3 });
+    expect(dragRange({ ...drag, anchor: -2 }, -4, ctx("1"))).toBeNull();
+  });
+  it("hits the bar only on the range, with the grab margin", () => {
+    const range = { start: 1, end: 2 };
+    expect(onBar(range, 150, 100, 200)).toBe(true);
+    expect(onBar(range, 95, 100, 200)).toBe(true);
+    expect(onBar(range, 300, 100, 200)).toBe(false);
+    expect(onBar(null, 150, 100, 200)).toBe(false);
+  });
+  it("selection candidates (lane clips) exclude inactive takes", () => {
+    const clips = [take(1, 1, 0, false), take(2, 1, 1, true)];
+    expect(new Set(laneClips(clips).map((c) => c.id))).toEqual(new Set([2]));
+  });
+  it("commitRange does nothing when clearing an absent range, and clears punch off", async () => {
+    const { api, calls } = recorder();
+    expect(await commitRange(api, settings, "punch", null)).toBe(false);
+    expect(calls).toEqual([]);
+    const set = { ...settings, punch_range: { start: 1, end: 2 }, punch_enabled: true };
+    expect(await commitRange(api, set, "punch", null)).toBe(true);
+    expect(calls).toEqual(["begin:Set punch range", "set_settings", "end"]);
+  });
+  it("counts the input device's channels, or none", () => {
+    const device = (id: string, inputs: number, def = false) => ({
+      id,
+      name: id,
+      isDefaultOutput: false,
+      isDefaultInput: def,
+      maxOutputChannels: 2,
+      maxInputChannels: inputs,
+      sampleRates: [],
+      minBufferFrames: null,
+      maxBufferFrames: null,
+    });
+    const lists = (devices: ReturnType<typeof device>[]) => ({
+      backends: [{ id: "wasapi", label: "W", devices, error: null }],
+      midiInputs: [],
+      midiError: null,
+      defaultDevice: "default",
+    });
+    const audio = { backend: "", inputDevice: null };
+    expect(inputChannelCount(lists([device("a", 0), device("b", 4, true)]), audio)).toBe(4);
+    expect(inputChannelCount(lists([device("a", 0, true)]), audio)).toBeNull();
+    expect(inputChannelCount(lists([]), audio)).toBeNull();
+    expect(inputChannelCount(lists([device("a", 8), device("b", 2, true)]), { ...audio, inputDevice: "a" })).toBe(8);
+    expect(inputChannelCount(lists([device("b", 2, true)]), { ...audio, inputDevice: "gone" })).toBe(2);
   });
 });
