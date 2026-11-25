@@ -419,7 +419,7 @@ Editor non-goals: generative music tools, automation lanes, MIDI learn, a separa
   - Loopback through the mock backend (known latency) places a recorded impulse within 1 sample of its expected position: `cargo test -p ow-engine --test record_loopback`.
   - Sustained recording: the mock backend runs 16 input tracks for 10 simulated minutes at 64 frames with the disk writer active and reports zero ring overruns: `cargo test -p ow-engine --test record_loopback sustained --release`.
   - macOS microphone (manual): on a macOS machine that has never run OpenWave, the first record press with the ad-hoc signed build shows the system microphone prompt naming OpenWave Studio; after allowing, a 5 s recording from the built-in microphone peaks above -60 dBFS. `codesign -d --entitlements -` on the app shows `com.apple.security.device.audio-input` and `plutil -p` on its Info.plist shows `NSMicrophoneUsageDescription`. Record in Outcome, including whether a later update re-prompted.
-- Status: pending
+- Status: in progress (2026-11-25; split by root into 14a model/engine/control/MCP and 14b UI)
 - Outcome:
 - Handoff notes: offer a manual latency offset in preferences.
 
