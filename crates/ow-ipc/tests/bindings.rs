@@ -13,8 +13,9 @@ use std::path::Path;
 use common::{action, run};
 use ow_ipc::{
     AnalysisReport, AnalysisRequest, CommandReply, DeviceDescriptor, ExportOptions, ExportResult,
-    HistoryState, MediaImportReply, ModelPatch, PatchOp, PluginScanSummary, Project, Session,
-    Snapshot, UiCommand,
+    HistoryState, LibraryEntryInfo, LibraryPreviewReply, LibraryQuery, LibraryScanAction,
+    LibraryScanStatus, LibrarySearchReply, MediaImportReply, ModelPatch, PatchOp,
+    PluginScanSummary, Project, Session, Snapshot, UiCommand,
 };
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
@@ -52,6 +53,12 @@ fn export_bindings() {
     AnalysisReport::export_all(&cfg).unwrap();
     ExportOptions::export_all(&cfg).unwrap();
     ExportResult::export_all(&cfg).unwrap();
+    LibraryEntryInfo::export_all(&cfg).unwrap();
+    LibraryQuery::export_all(&cfg).unwrap();
+    LibrarySearchReply::export_all(&cfg).unwrap();
+    LibraryScanAction::export_all(&cfg).unwrap();
+    LibraryScanStatus::export_all(&cfg).unwrap();
+    LibraryPreviewReply::export_all(&cfg).unwrap();
 }
 
 #[derive(Serialize)]

@@ -105,6 +105,82 @@ pub struct ImportAudioArgs {
     pub path: String,
 }
 
+/// What `library_scan` does.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryScanAction {
+    /// Scan the library folders and wait for the result (the default).
+    #[default]
+    Scan,
+    /// Report the running scan's progress, or the last scan's result.
+    Status,
+    /// Stop the running scan.
+    Cancel,
+}
+
+/// Arguments of `library_scan`.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryScanArgs {
+    /// What to do; `scan` when omitted.
+    #[serde(default)]
+    pub action: LibraryScanAction,
+    /// For `scan`: analyse every file again, also those unchanged since the last scan.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// Arguments of `library_search`.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibrarySearchArgs {
+    /// Words that must each appear in the file name, folder or tags.
+    #[serde(default)]
+    pub text: Option<String>,
+    /// Tags that must all be present (tags come from folder and file names).
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Lowest tempo in beats per minute.
+    #[serde(default)]
+    pub bpm_min: Option<f64>,
+    /// Highest tempo in beats per minute.
+    #[serde(default)]
+    pub bpm_max: Option<f64>,
+    /// Also accept files at half or double a tempo inside the range.
+    #[serde(default)]
+    pub include_half_double: bool,
+    /// Required key, such as `Am`, `F#`, `C#min` or `Ebmajor` (a bare note is major).
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Most files to list (default 50, at most 500); `matched` always reports the total.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// What `library_preview` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPreviewAction {
+    /// Play the file through the output in the project's tempo.
+    Start,
+    /// Stop the preview.
+    Stop,
+}
+
+/// Arguments of `library_preview`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryPreviewArgs {
+    /// Start or stop.
+    pub action: LibraryPreviewAction,
+    /// For `start`: the absolute path of a file listed by `library_search`.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// For `start`: pitch shift in semitones (default 0).
+    #[serde(default)]
+    pub semitones: Option<f64>,
+}
+
 /// What `record` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -332,6 +408,12 @@ tools! {
         "Project files: new, open and save, or save_as (a project is a `.owave` bundle directory). new and open discard unsaved changes, so they need discard_changes=true when the project is dirty (get_project shows dirty). save_as onto an existing path needs overwrite=true. This reads and writes the user's files with the user's own file access.";
     ImportAudio(ImportAudioArgs) = "import_audio",
         "Decode an audio file, convert it to the project's sample rate and add it to the media pool. Answers the media id; place it on the timeline by adding an audio clip that references the media id with the edit tool. The same content is not added twice.";
+    LibraryScan(LibraryScanArgs) = "library_scan",
+        "Scan the loop and sample library: the folders listed in the preferences (audio_settings set `{\"paths\":{\"libraryDirs\":[\"/absolute/folder\"]}}`) are read recursively and every WAV, AIFF, FLAC, Ogg and MP3 file is analysed for tempo, key and length (unchanged files come from a cache unless force is true). Tags come from folder and file names. action `status` reports a running scan's progress or the last result, `cancel` stops it. Search the result with library_search.";
+    LibrarySearch(LibrarySearchArgs) = "library_search",
+        "Search the scanned loop and sample library by words, tags, tempo range (bpm_min, bpm_max, optionally also half and double time) and key. Answers each file's absolute path, tempo (`bpm`, from the file name or detected), key, length and tags. Add a file to the project with import_audio (answers the media with its detected tempo) and an edit that adds a clip whose audio content has `warp` {mode: follow_tempo, source_bpm, markers: [], transpose_semitones: 0}.";
+    LibraryPreview(LibraryPreviewArgs) = "library_preview",
+        "Play a file of the library through the audio output, stretched to the project's tempo, so the user hears it in time with the project (start with a path from library_search, stop ends it). One preview plays at a time; a new one replaces it.";
     Record(RecordArgs) = "record",
         "Record audio: arm or disarm an audio track, start recording on the armed tracks from the current position, stop. The takes become clips when recording stops. Needs an audio input device (see audio_settings). The project decides how: the settings' loop_range makes every loop pass a take (clips with `take` set; the last pass plays, choose another with the edit set_active_take), punch_enabled with punch_range records only inside the range, and count_in_bars counts in first. A track records the input channels of its `input` (edit set_track_input) and can be heard while it records (edit set_track_monitor).";
     Analyze(AnalyzeArgs) = "analyze",

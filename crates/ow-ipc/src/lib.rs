@@ -39,6 +39,7 @@
 pub mod analysis;
 pub mod devices;
 pub mod dto;
+pub mod library;
 pub mod mirror;
 pub mod peaks;
 pub mod session;
@@ -55,6 +56,10 @@ pub use devices::{
 pub use dto::{
     CommandReply, HistoryState, MAX_ALLOC_IDS, MediaImportReply, ModelPatch, PatchOp, Snapshot,
     UiCommand,
+};
+pub use library::{
+    LibraryEntryInfo, LibraryKey, LibraryPreviewReply, LibraryQuery, LibraryScanAction,
+    LibraryScanStatus, LibrarySearchReply,
 };
 pub use mirror::{Gap, Mirror, diff};
 pub use session::{Outcome, Session};

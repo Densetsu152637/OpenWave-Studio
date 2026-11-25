@@ -35,6 +35,7 @@ pub mod analysis;
 pub mod bridge;
 pub mod control;
 pub mod export;
+pub mod library;
 pub mod media;
 pub mod peaks;
 pub mod project;
@@ -78,6 +79,8 @@ pub struct IpcState {
     builds: Mutex<Vec<JoinHandle<std::io::Result<()>>>>,
     /// The recording in progress, if any (see [`record`]).
     recording: Mutex<Option<record::ActiveRecording>>,
+    /// The loop library: the last index, the running scan (see [`library`]).
+    library: Mutex<library::LibraryState>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -105,6 +108,7 @@ impl IpcState {
             peaks: peaks::PeakStore::default(),
             builds: Mutex::new(Vec::new()),
             recording: Mutex::new(None),
+            library: Mutex::new(library::LibraryState::default()),
         }
     }
 }
@@ -252,6 +256,82 @@ pub async fn media_import(app: AppHandle, path: String) -> Result<MediaImportRep
         state.media_import(Path::new(&path), engine.engine())
     })
     .await
+}
+
+/// Scans the library folders of the settings (`force`: analyse every file again), waits for the
+/// result. Progress comes from `library_scan_status`, `library_scan_cancel` stops it.
+#[tauri::command]
+pub async fn library_scan(
+    app: AppHandle,
+    force: bool,
+) -> Result<ow_ipc::LibraryScanStatus, String> {
+    blocking(move || {
+        let (roots, cache) = library_setup(&app);
+        app.state::<IpcState>().library_scan(&roots, &cache, force)
+    })
+    .await
+}
+
+/// Progress of the running library scan, or the result of the last one.
+#[tauri::command]
+pub async fn library_scan_status(app: AppHandle) -> Result<ow_ipc::LibraryScanStatus, String> {
+    blocking(move || Ok(app.state::<IpcState>().library_status())).await
+}
+
+/// Stops the running library scan; answers whether one was running.
+#[tauri::command]
+pub async fn library_scan_cancel(app: AppHandle) -> Result<bool, String> {
+    blocking(move || Ok(app.state::<IpcState>().library_cancel())).await
+}
+
+/// Searches the library index (the last scan, or its cache before the first one).
+#[tauri::command]
+pub async fn library_search(
+    app: AppHandle,
+    query: ow_ipc::LibraryQuery,
+) -> Result<ow_ipc::LibrarySearchReply, String> {
+    blocking(move || {
+        let (_, cache) = library_setup(&app);
+        Ok(app.state::<IpcState>().library_search(&query, &cache))
+    })
+    .await
+}
+
+/// Plays a library file in the project's tempo through the engine (`semitones`: pitch shift).
+#[tauri::command]
+pub async fn library_preview(
+    app: AppHandle,
+    path: String,
+    semitones: Option<f64>,
+) -> Result<ow_ipc::LibraryPreviewReply, String> {
+    blocking(move || {
+        let engine = app.state::<EngineState>();
+        app.state::<IpcState>().library_preview(
+            engine.engine(),
+            Path::new(&path),
+            semitones.unwrap_or(0.0),
+        )
+    })
+    .await
+}
+
+/// Stops the library preview.
+#[tauri::command]
+pub async fn library_preview_stop(app: AppHandle) -> Result<(), String> {
+    blocking(move || {
+        let engine = app.state::<EngineState>();
+        app.state::<IpcState>()
+            .library_preview_stop(engine.engine());
+        Ok(())
+    })
+    .await
+}
+
+/// The library folders of the settings and the file the index is cached in.
+fn library_setup(app: &AppHandle) -> (Vec<std::path::PathBuf>, std::path::PathBuf) {
+    let dirs = app.state::<EngineState>().preferences().paths.library_dirs;
+    let cache = library::index_cache_path(&app.state::<crate::paths::Paths>().cache_dir);
+    (library::roots_of(&dirs), cache)
 }
 
 /// Renders the project to a WAV file at `path`; returns the path written.

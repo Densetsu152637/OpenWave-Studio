@@ -36,7 +36,8 @@ use ow_ipc::{
 use ow_mcp::listener::{McpListener, announce_disabled};
 use ow_mcp::tools::{
     AnalyzeArgs, AudioAction, AudioSettingsArgs, EditArgs, EditorAction, ExportWavArgs,
-    ImportAudioArgs, PluginEditorArgs, ProjectAction, ProjectArgs, RecordAction, RecordArgs,
+    ImportAudioArgs, LibraryPreviewAction, LibraryPreviewArgs, LibraryScanAction, LibraryScanArgs,
+    LibrarySearchArgs, PluginEditorArgs, ProjectAction, ProjectArgs, RecordAction, RecordArgs,
     TransportAction, TransportArgs,
 };
 use ow_mcp::{Server, ToolBackend, ToolCall, ToolError, ToolOutput, endpoint};
@@ -65,6 +66,11 @@ pub trait Host: Send + Sync + 'static {
     fn plugins(&self) -> &Plugins;
     /// Tells the UI that the plugin list changed. The default does nothing (no UI in tests).
     fn plugins_changed(&self) {}
+    /// The folder the app keeps caches in (the library index). The default is a folder in the
+    /// system's temporary directory, for tests.
+    fn cache_dir(&self) -> std::path::PathBuf {
+        std::env::temp_dir().join("openwave-studio-cache")
+    }
 }
 
 /// The host in the running app: Tauri's managed state.
@@ -81,6 +87,10 @@ impl Host for AppHost {
 
     fn plugins(&self) -> &Plugins {
         self.0.state::<Plugins>().inner()
+    }
+
+    fn cache_dir(&self) -> std::path::PathBuf {
+        self.0.state::<Paths>().cache_dir.clone()
     }
 
     fn plugins_changed(&self) {
@@ -133,6 +143,9 @@ impl ToolBackend for AppBackend {
             ToolCall::Transport(args) => self.transport(&args),
             ToolCall::Project(args) => self.project(&args),
             ToolCall::ImportAudio(args) => self.import_audio(&args),
+            ToolCall::LibraryScan(args) => self.library_scan(&args),
+            ToolCall::LibrarySearch(args) => self.library_search(&args),
+            ToolCall::LibraryPreview(args) => self.library_preview(&args),
             ToolCall::Record(args) => self.record(&args),
             ToolCall::Analyze(args) => self.analyze(args),
             ToolCall::ExportWav(args) => self.export_wav(args),
@@ -534,6 +547,114 @@ impl AppBackend {
         Ok(ToolOutput::new(to_json(&reply)?, summary))
     }
 
+    fn library_scan(&self, args: &LibraryScanArgs) -> Result<ToolOutput, String> {
+        let ipc = self.ipc();
+        let status = match args.action {
+            LibraryScanAction::Scan => {
+                let dirs = self.engine_state().preferences().paths.library_dirs;
+                let roots = crate::ipc::library::roots_of(&dirs);
+                let cache = crate::ipc::library::index_cache_path(&self.host.cache_dir());
+                ipc.library_scan(&roots, &cache, args.force)?
+            }
+            LibraryScanAction::Status => ipc.library_status(),
+            LibraryScanAction::Cancel => {
+                let was_running = ipc.library_cancel();
+                let mut status = ipc.library_status();
+                status.cancelled |= was_running;
+                status
+            }
+        };
+        let summary = if status.scanning {
+            format!(
+                "Scanning: {} of {} files done, {} in the library so far.",
+                status.done, status.total, status.entries
+            )
+        } else {
+            format!(
+                "{} files in the library ({} analysed, {} from the cache, {} could not be analysed){}.",
+                status.entries,
+                status.analysed,
+                status.cached,
+                status.failed,
+                if status.cancelled {
+                    "; the scan was stopped"
+                } else {
+                    ""
+                }
+            )
+        };
+        Ok(ToolOutput::new(to_json(&status)?, summary))
+    }
+
+    fn library_search(&self, args: &LibrarySearchArgs) -> Result<ToolOutput, String> {
+        let key = match args.key.as_deref() {
+            Some(text) => {
+                let key = ow_media::library::LibraryKey::parse(text).ok_or_else(|| {
+                    format!("\"{text}\" is not a key; try Am, F#, C#min or Ebmajor")
+                })?;
+                Some(ow_ipc::LibraryKey {
+                    tonic: key.tonic,
+                    minor: key.minor,
+                })
+            }
+            None => None,
+        };
+        let query = ow_ipc::LibraryQuery {
+            text: args.text.clone().unwrap_or_default(),
+            tags: args.tags.clone(),
+            bpm_min: args.bpm_min,
+            bpm_max: args.bpm_max,
+            include_half_double: args.include_half_double,
+            key,
+            limit: args.limit.unwrap_or(50).clamp(1, 500),
+        };
+        let cache = crate::ipc::library::index_cache_path(&self.host.cache_dir());
+        let reply = self.ipc().library_search(&query, &cache);
+        let summary = if reply.total == 0 {
+            "The library is empty: add folders (audio_settings set paths.libraryDirs) and run library_scan.".to_owned()
+        } else {
+            format!(
+                "{} of {} files match; listing {}.",
+                reply.matched,
+                reply.total,
+                reply.entries.len()
+            )
+        };
+        Ok(ToolOutput::new(to_json(&reply)?, summary))
+    }
+
+    fn library_preview(&self, args: &LibraryPreviewArgs) -> Result<ToolOutput, String> {
+        let engine = self.engine_state().engine();
+        match args.action {
+            LibraryPreviewAction::Start => {
+                let path = args.path.as_deref().ok_or("start needs `path`")?;
+                let reply = self.ipc().library_preview(
+                    engine,
+                    Path::new(path),
+                    args.semitones.unwrap_or(0.0),
+                )?;
+                let summary = match (reply.source_bpm, reply.target_bpm) {
+                    (Some(from), Some(to)) => format!(
+                        "Playing {:.1} s, stretched from {from:.1} to {to:.1} bpm.",
+                        reply.seconds
+                    ),
+                    _ => format!(
+                        "Playing {:.1} s as recorded (no tempo known).",
+                        reply.seconds
+                    ),
+                };
+                Ok(ToolOutput::new(to_json(&reply)?, summary))
+            }
+            LibraryPreviewAction::Stop => {
+                self.ipc().library_preview_stop(engine);
+                Ok(ToolOutput::new(
+                    json!({"playing": false}),
+                    "Preview stopped.",
+                ))
+            }
+        }
+    }
+
     fn record(&self, args: &RecordArgs) -> Result<ToolOutput, String> {
         let engine = self.engine_state().engine();
         let ipc = self.ipc();
@@ -803,6 +924,12 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("project_open", "project"),
     ("project_save", "project"),
     ("media_import", "import_audio"),
+    ("library_scan", "library_scan"),
+    ("library_scan_status", "library_scan"),
+    ("library_scan_cancel", "library_scan"),
+    ("library_search", "library_search"),
+    ("library_preview", "library_preview"),
+    ("library_preview_stop", "library_preview"),
     ("export_wav", "export_wav"),
     ("export_mix", "export_wav"),
     ("analyze", "analyze"),
@@ -1435,6 +1562,65 @@ mod tests {
                     "export_wav",
                     json!({"path": out.to_string_lossy(), "overwrite": true}),
                 )
+                .await;
+        });
+    }
+
+    #[test]
+    fn mcp_scans_searches_and_previews_the_loop_library() {
+        let fixture = Fixture::start();
+        let library = fixture.work.path().join("loops");
+        std::fs::create_dir_all(library.join("Drums")).unwrap();
+        write_tone(&library.join("Drums/90bpm_tone_Am.wav"), 0.4);
+        write_tone(&library.join("Drums/140bpm_other.wav"), 0.4);
+        block_on(async {
+            let mut client = fixture.client().await;
+            // Nothing to scan before folders are chosen.
+            let none = client.call_error("library_scan", json!({})).await;
+            assert!(none.contains("libraryDirs"), "{none}");
+            client
+                .call(
+                    "audio_settings",
+                    json!({"action": "set", "preferences": {"paths": {"libraryDirs": [library.to_string_lossy()]}}}),
+                )
+                .await;
+            let scanned = client.call("library_scan", json!({})).await;
+            assert_eq!(scanned["entries"], 2);
+            assert_eq!(scanned["scanning"], false);
+            let status = client
+                .call("library_scan", json!({"action": "status"}))
+                .await;
+            assert_eq!(status["entries"], 2);
+
+            let slow = client.call("library_search", json!({"bpm_max": 100})).await;
+            assert_eq!(slow["matched"], 1);
+            assert_eq!(slow["entries"][0]["name"], "90bpm_tone_Am.wav");
+            assert_eq!(slow["entries"][0]["bpm"], 90.0);
+            assert_eq!(
+                slow["entries"][0]["key"],
+                json!({"tonic": 9, "minor": true})
+            );
+            let by_key = client.call("library_search", json!({"key": "Am"})).await;
+            assert_eq!(by_key["matched"], 1);
+            let by_text = client
+                .call("library_search", json!({"text": "other", "limit": 1}))
+                .await;
+            assert_eq!(by_text["entries"][0]["bpm"], 140.0);
+            let bad = client
+                .call_error("library_search", json!({"key": "H"}))
+                .await;
+            assert!(bad.contains("not a key"), "{bad}");
+
+            // Only files of the library can be previewed, and stopping needs nothing.
+            let outside = client
+                .call_error(
+                    "library_preview",
+                    json!({"action": "start", "path": fixture.work.path().join("x.wav").to_string_lossy()}),
+                )
+                .await;
+            assert!(outside.contains("not in the library"), "{outside}");
+            client
+                .call("library_preview", json!({"action": "stop"}))
                 .await;
         });
     }

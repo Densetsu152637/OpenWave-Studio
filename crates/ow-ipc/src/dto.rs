@@ -8,7 +8,7 @@
 
 use ow_model::ids::{BusId, ClipId, DeviceId, LaneId, MarkerId, MediaId, PatternId, TrackId};
 use ow_model::{
-    AutomationLane, Bus, Clip, Device, EditCommand, Marker, MediaItem, Pattern, Project,
+    AutomationLane, Bus, Clip, Device, EditCommand, KeyInfo, Marker, MediaItem, Pattern, Project,
     ProjectSettings, Strip, Track,
 };
 use serde::{Deserialize, Serialize};
@@ -256,7 +256,7 @@ pub struct Snapshot {
 
 /// What `media_import` answers: the media item the file became (an existing one when the same
 /// content was imported before). The file is stored at the project rate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct MediaImportReply {
@@ -270,6 +270,10 @@ pub struct MediaImportReply {
     pub sample_rate: u32,
     /// Channel count.
     pub channels: u16,
+    /// Tempo detected in the audio (beats per minute), when it has a clear beat.
+    pub tempo: Option<f64>,
+    /// Key detected in the audio.
+    pub key: Option<KeyInfo>,
 }
 
 /// What a command answers: the sequence number after it (unchanged when the command did not

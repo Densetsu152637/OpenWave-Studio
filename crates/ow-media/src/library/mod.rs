@@ -38,6 +38,7 @@ use std::time::UNIX_EPOCH;
 use ow_dsp::analysis::{detect_key, detect_tempo, mono_mixdown};
 use serde::{Deserialize, Serialize};
 
+use crate::Pcm;
 use crate::import::{ImportLimits, decode_file};
 
 pub use preview::{PreviewError, preview_entry, preview_in_tempo, warp_target_frames};
@@ -369,6 +370,43 @@ fn blank(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> Lib
     }
 }
 
+/// The tempo and key found in a piece of audio.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Analysis {
+    /// Tempo in beats per minute (rounded to 0.01), when the detection was at least
+    /// [`MIN_TEMPO_CONFIDENCE`] sure.
+    pub bpm: Option<f64>,
+    /// How sure the tempo detection was, 0 to 1.
+    pub bpm_confidence: Option<f64>,
+    /// The key, when one was found.
+    pub key: Option<LibraryKey>,
+    /// How sure the key detection was, 0 to 1.
+    pub key_confidence: Option<f64>,
+}
+
+/// Detects the tempo and key of `pcm` on a mono mixdown (the same analysis a scan and an
+/// import run). Takes time proportional to the audio (at most the first two minutes are
+/// looked at); control threads only.
+pub fn analyse_pcm(pcm: &Pcm) -> Analysis {
+    let views: Vec<&[f32]> = pcm.channels.iter().map(Vec::as_slice).collect();
+    let mono = mono_mixdown(&views);
+    let mut found = Analysis::default();
+    if let Some(tempo) = detect_tempo(&mono, pcm.sample_rate)
+        && tempo.confidence >= MIN_TEMPO_CONFIDENCE
+    {
+        found.bpm = Some((tempo.bpm * 100.0).round() / 100.0);
+        found.bpm_confidence = Some(tempo.confidence);
+    }
+    if let Some(key) = detect_key(&mono, pcm.sample_rate) {
+        found.key = Some(LibraryKey {
+            tonic: key.tonic,
+            minor: key.mode == ow_dsp::analysis::Mode::Minor,
+        });
+        found.key_confidence = Some(key.confidence);
+    }
+    found
+}
+
 /// Decodes and analyses one file into an entry without tags.
 fn analyse(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> LibraryEntry {
     let mut entry = blank(path, size, modified_ms, options);
@@ -388,21 +426,11 @@ fn analyse(path: &Path, size: u64, modified_ms: u64, options: &ScanOptions) -> L
             entry.sample_rate = pcm.sample_rate;
             entry.channels = u16::try_from(pcm.channels.len()).unwrap_or(u16::MAX);
             entry.duration_seconds = pcm.frames() as f64 / f64::from(pcm.sample_rate.max(1));
-            let views: Vec<&[f32]> = pcm.channels.iter().map(Vec::as_slice).collect();
-            let mono = mono_mixdown(&views);
-            if let Some(tempo) = detect_tempo(&mono, pcm.sample_rate)
-                && tempo.confidence >= MIN_TEMPO_CONFIDENCE
-            {
-                entry.bpm_detected = Some((tempo.bpm * 100.0).round() / 100.0);
-                entry.bpm_confidence = Some(tempo.confidence);
-            }
-            if let Some(key) = detect_key(&mono, pcm.sample_rate) {
-                entry.key_detected = Some(LibraryKey {
-                    tonic: key.tonic,
-                    minor: key.mode == ow_dsp::analysis::Mode::Minor,
-                });
-                entry.key_confidence = Some(key.confidence);
-            }
+            let found = analyse_pcm(&pcm);
+            entry.bpm_detected = found.bpm;
+            entry.bpm_confidence = found.bpm_confidence;
+            entry.key_detected = found.key;
+            entry.key_confidence = found.key_confidence;
         }
     }
     entry
