@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import ClipView from "./ClipView.svelte";
   import type { ClipSelection } from "../arrange/selection";
   import type { TempoMap } from "../arrange/time";
@@ -51,6 +52,12 @@
   const DRAG_THRESHOLD_PX = 3;
 
   let drag: { id: number; startX: number; moved: boolean; additive: boolean } | null = null;
+
+  // A lane scrolled out of the rendered rows mid-drag loses its pointer capture: cancel the drag.
+  onDestroy(() => {
+    if (drag?.moved) onDragEnd(false);
+    drag = null;
+  });
 
   function press(event: PointerEvent, clip: Clip) {
     if (event.button !== 0) return;
@@ -110,6 +117,7 @@
 
 <style>
   .lane {
+    box-sizing: border-box;
     position: relative;
     overflow: hidden;
     border-bottom: 1px solid var(--border);

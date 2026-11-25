@@ -141,6 +141,7 @@
   let moving = $state.raw<ReadonlyMap<number, number> | null>(null);
   /** The pointer travel's beat shift of the drag running now. */
   let dragShift = 0;
+  let dragging = false;
   /** Scroll position and height of the track area, for rendering only the tracks in view. */
   let scrollTop = $state(0);
   let scrollHeight = $state(600);
@@ -361,11 +362,13 @@
 
   function onDragClip(clip: Clip, dx: number, alt: boolean) {
     const minStart = Math.min(...selectedClips.map((c) => c.start));
+    dragging = true;
     dragShift = dragDelta(clip.start, minStart, dx, view, signatures, snap, alt);
     moving = new Map(selectedClips.map((c) => [c.id, c.start + dragShift]));
   }
 
   function onDragEnd(commit: boolean) {
+    dragging = false;
     const delta = dragShift;
     dragShift = 0;
     if (!commit || delta === 0) {
@@ -476,6 +479,11 @@
     }
   }
 
+  // The scroller is a new element whenever the project opens: read its position, not the old one.
+  $effect(() => {
+    if (scroller) scrollTop = scroller.scrollTop;
+  });
+
   onMount(() => {
     const reload = () =>
       loadDescriptors()
@@ -514,7 +522,13 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<!-- A drag whose lane vanished never sees its pointer-up; this cancels it (a normal drop has
+     already ended the drag in the lane, which runs first). -->
+<svelte:window
+  onkeydown={onKey}
+  onpointerup={() => dragging && onDragEnd(false)}
+  onpointercancel={() => dragging && onDragEnd(false)}
+/>
 
 <main class="arrangement" aria-label="Arrangement">
   <div class="toolbar">
@@ -964,6 +978,7 @@
     color: var(--muted);
   }
   .bus-lane {
+    box-sizing: border-box;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
   }

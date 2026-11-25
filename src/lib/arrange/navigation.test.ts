@@ -393,3 +393,24 @@ describe("piano roll and fixed shortcuts", () => {
     expect(listed.every((a) => a.fixed)).toBe(true);
   });
 });
+
+describe("virtualization boundaries", () => {
+  it("handles an empty list and a scroll position above the first row", () => {
+    expect(visibleRows(0, 600, 88, 0)).toEqual({ first: 0, last: 0 });
+    expect(visibleRows(-200, 100, 88, 50, 0)).toEqual({ first: 0, last: 0 });
+    expect(visibleRows(-200, 400, 88, 50, 0)).toEqual({ first: 0, last: 3 });
+  });
+
+  it("includes a row that is just touched by the viewport edge only through overscan", () => {
+    expect(visibleRows(88, 88, 88, 10, 0)).toEqual({ first: 1, last: 2 });
+    expect(visibleRows(100, 88, 88, 10, 0)).toEqual({ first: 1, last: 3 });
+  });
+
+  it("treats clips that only touch the view edges as hidden", () => {
+    const v = { originBeat: 10, pxPerBeat: 10 };
+    const edge = [clipAt(1, 6), clipAt(2, 30), clipAt(3, 29.9), clipAt(4, 6.1)];
+    // Visible beats: 10 to 30; clip 1 ends at 10, clip 2 starts at 30.
+    expect(visibleClips(edge, v, 200).map((c) => c.id)).toEqual([3, 4]);
+    expect(visibleClips([], v, 200)).toEqual([]);
+  });
+});
