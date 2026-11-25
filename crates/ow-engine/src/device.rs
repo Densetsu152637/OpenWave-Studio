@@ -220,6 +220,8 @@ impl Node for DeviceNode {
         if let Some(player) = &mut self.player {
             player.generate(&ctx.timing, &mut self.events);
         }
+        // Ordering contract: offs that fell due from an earlier block are pushed here, before
+        // the merge and sort below, so at frame 0 they come before any note-on of the same key.
         for key in 0..128_u8 {
             if self.live_due[usize::from(key)] && self.live_events.len() < MAX_LIVE_EVENTS {
                 self.live_events.push(Event::note_off(0, key));

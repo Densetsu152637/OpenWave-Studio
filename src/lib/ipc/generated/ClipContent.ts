@@ -3,6 +3,7 @@ import type { Controller } from "./Controller";
 import type { MediaId } from "./MediaId";
 import type { Note } from "./Note";
 import type { PatternId } from "./PatternId";
+import type { Warp } from "./Warp";
 
 /**
  * What a clip plays.
@@ -27,7 +28,11 @@ fade_in: number,
 /**
  * Fade-out length in beats.
  */
-fade_out: number, } | { "type": "midi", 
+fade_out: number, 
+/**
+ * Time-stretch settings (format version 3); `None` plays the file as it is.
+ */
+warp?: Warp | null, } | { "type": "midi", 
 /**
  * Notes.
  */

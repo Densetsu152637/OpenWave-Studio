@@ -682,3 +682,51 @@ fn a_same_frame_live_tap_and_a_very_short_clip_note_never_stick() {
     assert_eq!(key(61), [true, false], "the tap is released: {log:?}");
     assert_eq!(key(50), [true, false], "the short clip note ends: {log:?}");
 }
+
+/// The deferred off of a same-frame tap meets a new note-on of the same key at frame 0 of the
+/// next block: the key retriggers (off, then on) instead of staying silent.
+#[test]
+fn a_deferred_live_off_comes_before_a_note_on_at_frame_zero_of_the_next_block() {
+    use ow_engine::{CoreBuilder, MidiClock, MidiMessage};
+    static INFO: DeviceInfo =
+        DeviceInfo::new("test.logger3", "Logger", true, &[], || Box::new(Skew));
+    let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut graph = Graph::new();
+    let node = DeviceNode::instrument(
+        &INFO,
+        Box::new(Logger(std::sync::Arc::clone(&log))),
+        MidiClipPlayer::new(vec![]),
+    )
+    .with_live_input(ow_engine::LiveGate::Always);
+    let node = graph.add_node(Box::new(node));
+    let master = graph.add_node(Box::new(ow_engine::MasterNode::new()));
+    graph.connect(node, 0, master, 0).unwrap();
+    graph.connect(node, 1, master, 1).unwrap();
+    graph.set_master(master).unwrap();
+    let mut builder = CoreBuilder::new().midi_clock(MidiClock::StreamFrames);
+    let mut midi = builder.producer_ring(16);
+    let (mut link, mut core) = builder.build();
+    link.swap_plan(graph.compile(RATE, MAX_BLOCK).unwrap())
+        .unwrap();
+    let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(RATE)).round() as u64;
+    // Blocks of 64 frames: a tap on frame 50, then the key pressed again on frame 64.
+    for (frame, status) in [(50, 0x90), (50, 0x80), (64, 0x90)] {
+        midi.push(Message::MidiIn {
+            message: MidiMessage {
+                status,
+                data1: 61,
+                data2: 90,
+            },
+            timestamp_us: stamp(frame),
+        });
+    }
+    let mut buffer = vec![0.0_f32; 128];
+    core.process(&mut buffer, 2, None);
+    core.process(&mut buffer, 2, None);
+    let log = log.lock().unwrap();
+    let kinds: Vec<(u32, bool)> = log
+        .iter()
+        .map(|e| (e.offset, matches!(e.kind, EventKind::NoteOn { .. })))
+        .collect();
+    assert_eq!(kinds, [(50, true), (0, false), (0, true)], "{log:?}");
+}
