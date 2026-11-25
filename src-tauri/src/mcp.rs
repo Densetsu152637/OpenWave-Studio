@@ -397,8 +397,8 @@ impl AppBackend {
     }
 
     /// The engine status and the transport position. With `measure_motion` also whether the
-    /// transport is playing: the engine publishes no play flag, so the position must advance in
-    /// two consecutive samples by about the time that passed (a locate is a jump, not playing).
+    /// transport is playing or counting in, from the flags the audio thread publishes (a locate
+    /// while stopped is not playing).
     /// With `target_beats` (after a locate) it waits up to about 100 ms for the engine to reach
     /// that position, and reports the requested target when it has not yet.
     fn transport_state(&self, measure_motion: bool, target_beats: Option<f64>) -> (Value, String) {
@@ -423,23 +423,10 @@ impl AppBackend {
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
-        let moving = measure_motion.then(|| {
-            const STEP: Duration = Duration::from_millis(30);
-            let expected = f64::from(rate) * STEP.as_secs_f64();
-            let advanced = |from: u64, to: u64| {
-                let delta = to.wrapping_sub(from) as f64;
-                to > from && delta > expected * 0.3 && delta < expected * 3.0
-            };
-            let first = bank.position();
-            std::thread::sleep(STEP);
-            let second = bank.position();
-            std::thread::sleep(STEP);
-            let third = bank.position();
-            advanced(first, second) && advanced(second, third)
-        });
         let position = bank.position();
         let beats = requested.unwrap_or_else(|| tempo.samples_to_beats(position as f64, rate));
         let status = engine_state.status();
+        let moving = measure_motion.then_some(status.moving || status.counting_in);
         let summary = format!(
             "Position {beats:.3} beats{}; audio {}{}.",
             if confirmed {
@@ -461,6 +448,8 @@ impl AppBackend {
                 "position_confirmed": confirmed,
                 "sample_rate": rate,
                 "moving": moving,
+                "counting_in": status.counting_in,
+                "recording": status.recording,
                 "engine": to_json(&status).unwrap_or(Value::Null),
             }),
             summary,

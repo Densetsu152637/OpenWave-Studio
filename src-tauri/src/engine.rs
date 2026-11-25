@@ -172,7 +172,11 @@ impl EngineState {
             AudioState::Failed => ("failed", 0, 0),
         };
         let info = audio.info.as_ref();
-        let flags = self.engine.telemetry_bank().transport_flags();
+        let flags = if matches!(audio.state, AudioState::Running) {
+            self.engine.telemetry_bank().transport_flags()
+        } else {
+            0
+        };
         let error = match (&audio.state, &audio.error) {
             (AudioState::Recovering { attempt, max }, reason) => Some(format!(
                 "Reconnecting the audio device (attempt {} of {max}){}",

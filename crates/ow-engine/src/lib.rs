@@ -416,7 +416,12 @@ impl Engine {
     /// State of the audio device: running, recovering after a failure, or failed, with the
     /// opened device and format and the last error.
     pub fn audio_status(&self) -> AudioStatus {
-        self.supervisor.status()
+        let status = self.supervisor.status();
+        // A stream that is down plays nothing; the audio thread cannot clear its last flags.
+        if !matches!(status.state, ow_io::AudioState::Running) {
+            self.bank.set_transport_flags(0);
+        }
+        status
     }
 
     /// Switches device, backend, sample rate or buffer size. Audio stops briefly while the old

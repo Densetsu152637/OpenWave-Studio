@@ -159,6 +159,8 @@
       recording = next.recording;
     } catch (error) {
       status = { ...offlineStatus, error: String(error) };
+      playing = false;
+      recording = false;
     }
   }
 
