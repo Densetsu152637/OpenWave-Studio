@@ -393,6 +393,7 @@ fn plan_for(track: TrackId, paths: Vec<PathBuf>) -> RecordPlan {
             input: None,
             paths,
         }],
+        midi_tracks: Vec::new(),
         loop_beats: None,
         punch_beats: None,
         count_in_bars: 0,
@@ -797,6 +798,7 @@ fn sustained_recording_of_16_tracks_for_10_minutes_overruns_no_ring() {
                 paths: vec![work.path().join(format!("take-{i}.wav"))],
             })
             .collect(),
+        midi_tracks: Vec::new(),
         loop_beats: None,
         punch_beats: None,
         count_in_bars: 0,

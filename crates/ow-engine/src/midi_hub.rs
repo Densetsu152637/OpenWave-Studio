@@ -7,8 +7,10 @@
 //! surfaces share the dedicated control-surface ring behind a mutex that only MIDI threads take;
 //! the audio thread never locks anything.
 //!
-//! Messages are addressed to one target node (the engine's default; later stages replace it with
-//! the armed track's instrument). Overflow drops the newest message and is counted.
+//! A control surface's messages are addressed to one target node. Every other input sends
+//! [`Message::MidiIn`](crate::graph::Message): the audio core places it on the block by its
+//! timestamp and hands it to the armed tracks' instruments and to the MIDI recorder. Overflow
+//! drops the newest message and is counted.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -212,6 +214,7 @@ impl MidiHub {
     ) -> Result<Box<dyn MidiInputConnection>, ow_io::IoError> {
         let counters = Arc::clone(&self.counters);
         let slot = Arc::clone(slot);
+        let control_surface = wanted.control_surface;
         let handler = move |event: MidiEvent| {
             counters.events.fetch_add(1, Ordering::Relaxed);
             counters.last.store(
@@ -221,16 +224,25 @@ impl MidiHub {
                     | u32::from(event.data2()),
                 Ordering::Relaxed,
             );
-            let pushed = lock(&slot.sender).push(Message::Midi {
-                node: target,
-                message: MidiMessage {
-                    status: event.status(),
-                    data1: event.data1(),
-                    data2: event.data2(),
-                },
-                // Sample-accurate placement inside the block arrives with the MIDI recording
-                // stage; today messages apply at the start of the next cycle.
-                offset: 0,
+            let message = MidiMessage {
+                status: event.status(),
+                data1: event.data1(),
+                data2: event.data2(),
+            };
+            let pushed = lock(&slot.sender).push(if control_surface {
+                // A control surface's messages go to one node and apply at the next cycle.
+                Message::Midi {
+                    node: target,
+                    message,
+                    offset: 0,
+                }
+            } else {
+                // Notes and controllers for the armed tracks and the recorder, placed on the
+                // block by the time they were received.
+                Message::MidiIn {
+                    message,
+                    timestamp_us: event.timestamp_us,
+                }
             });
             if !pushed {
                 counters.dropped.fetch_add(1, Ordering::Relaxed);

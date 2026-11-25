@@ -9,6 +9,13 @@
 //! input samples are replaced with silence on the way in, so one bad sample cannot poison an
 //! effect's filter or feedback memory.
 //!
+//! Live MIDI input. An instrument built with [`DeviceNode::with_live_input`] also plays the
+//! notes a person plays: the plan hands it each input message ([`Node::on_live_midi`]) with the
+//! frame of the coming block it belongs to, and it merges them with the clip events in frame
+//! order. They sound while its [`LiveGate`] is open (the track is armed, or monitoring is on) and
+//! a note that is still held when the gate closes is released. Everything is preallocated, so
+//! this adds no allocation or lock to the audio thread.
+//!
 //! Parameters are fixed when the node is built from the model's device; `Node::set_param`
 //! forwards a live value (clamped to the descriptor's range) for callers that want to change one
 //! without a recompile.
@@ -19,13 +26,37 @@
 //! go through the plugin instance's own queue, which survives the recompile that replaces this
 //! node.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use ow_dsp::{Device, DeviceInfo, Event};
 
 use crate::clips::midi::MidiClipPlayer;
-use crate::graph::{Node, ProcessContext};
+use crate::graph::{MidiMessage, Node, ProcessContext};
 
 /// Most note events one block can carry into a device; more are dropped.
 pub const MAX_EVENTS_PER_BLOCK: usize = 4096;
+
+/// Most live note events one block holds for a device; more are dropped.
+const MAX_LIVE_EVENTS: usize = 512;
+
+/// When an instrument plays live MIDI input.
+#[derive(Debug, Clone)]
+pub enum LiveGate {
+    /// Always.
+    Always,
+    /// While the flag is set (the track is armed for recording).
+    Armed(Arc<AtomicBool>),
+}
+
+impl LiveGate {
+    fn is_open(&self) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Armed(flag) => flag.load(Ordering::Relaxed),
+        }
+    }
+}
 
 /// A built-in device running as a node.
 pub struct DeviceNode {
@@ -37,6 +68,11 @@ pub struct DeviceNode {
     left: Vec<f32>,
     right: Vec<f32>,
     events: Vec<Event>,
+    live: Option<LiveGate>,
+    live_events: Vec<Event>,
+    /// Keys the live input holds down.
+    live_held: [bool; 128],
+    live_held_count: u32,
 }
 
 impl DeviceNode {
@@ -78,7 +114,30 @@ impl DeviceNode {
             left: Vec::new(),
             right: Vec::new(),
             events: Vec::new(),
+            live: None,
+            live_events: Vec::new(),
+            live_held: [false; 128],
+            live_held_count: 0,
         }
+    }
+
+    /// Makes an instrument node play live MIDI input while `gate` is open.
+    pub fn with_live_input(mut self, gate: LiveGate) -> Self {
+        self.live = Some(gate);
+        self
+    }
+
+    /// Releases every key the live input holds, at frame 0.
+    fn release_live(&mut self) {
+        for key in 0..128_u8 {
+            if self.live_held[usize::from(key)] {
+                self.live_held[usize::from(key)] = false;
+                if self.live_events.len() < MAX_LIVE_EVENTS {
+                    self.live_events.push(Event::note_off(0, key));
+                }
+            }
+        }
+        self.live_held_count = 0;
     }
 }
 
@@ -105,7 +164,41 @@ impl Node for DeviceNode {
         self.left = vec![0.0; max_block];
         self.right = vec![0.0; max_block];
         self.events = Vec::with_capacity(MAX_EVENTS_PER_BLOCK);
+        self.live_events = Vec::with_capacity(MAX_LIVE_EVENTS);
         self.device.prepare(sample_rate as f32, max_block);
+    }
+
+    fn accepts_live_midi(&self) -> bool {
+        self.live.is_some()
+    }
+
+    fn on_live_midi(&mut self, offset: u32, message: MidiMessage) {
+        let Some(gate) = &self.live else {
+            return;
+        };
+        let open = gate.is_open();
+        let key = message.data1 & 0x7F;
+        match message.status & 0xF0 {
+            0x90 if message.data2 > 0 => {
+                if open && self.live_events.len() < MAX_LIVE_EVENTS {
+                    if !self.live_held[usize::from(key)] {
+                        self.live_held[usize::from(key)] = true;
+                        self.live_held_count += 1;
+                    }
+                    self.live_events
+                        .push(Event::note_on(offset, key, message.data2));
+                }
+            }
+            // A note-off always passes for a key the input holds, gate or not.
+            0x80 | 0x90 if self.live_held[usize::from(key)] => {
+                self.live_held[usize::from(key)] = false;
+                self.live_held_count -= 1;
+                if self.live_events.len() < MAX_LIVE_EVENTS {
+                    self.live_events.push(Event::note_off(offset, key));
+                }
+            }
+            _ => {}
+        }
     }
 
     fn process(&mut self, ctx: &mut ProcessContext<'_>) {
@@ -113,6 +206,18 @@ impl Node for DeviceNode {
         self.events.clear();
         if let Some(player) = &mut self.player {
             player.generate(&ctx.timing, &mut self.events);
+        }
+        if self.live_held_count > 0 && self.live.as_ref().is_some_and(|gate| !gate.is_open()) {
+            self.release_live();
+        }
+        if !self.live_events.is_empty() {
+            for event in self.live_events.drain(..) {
+                if self.events.len() < self.events.capacity() {
+                    self.events.push(event);
+                }
+            }
+            // Clip and live events interleave by frame; an unstable sort never allocates.
+            self.events.sort_unstable_by_key(|event| event.offset);
         }
         if self.inputs == 2 {
             // A NaN or infinity would stay in an effect's feedback state for good, so a

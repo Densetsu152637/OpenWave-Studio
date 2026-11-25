@@ -1005,3 +1005,99 @@ fn the_mix_stages_and_the_limiter_are_allocation_free() {
     }
     assert!(heard > 0.05, "the mix sounded: {heard}");
 }
+
+/// Live MIDI input under the allocation guard: messages stamped on the stream's frame clock reach
+/// an armed MIDI track's synth (a flip of the arming flag in the middle releases held keys) and
+/// the MIDI half of the record tap across loop wraps, with nothing allocated or freed.
+#[test]
+fn live_midi_input_and_the_midi_tap_are_allocation_free() {
+    let mut editor = Editor::new(Project::new("live midi"));
+    let track = editor.alloc_id().unwrap();
+    let synth = editor.alloc_id().unwrap();
+    editor
+        .apply(EditCommand::InsertTrack {
+            index: 0,
+            bundle: Box::new(Owned {
+                item: Track {
+                    id: track,
+                    name: "Keys".into(),
+                    color: 0,
+                    kind: TrackKind::Midi,
+                    strip: Strip::default(),
+                    instrument: Some(synth),
+                    input: None,
+                    monitor: Default::default(),
+                },
+                clips: vec![],
+                devices: vec![ow_model::Device {
+                    id: synth,
+                    kind: "builtin.synth".into(),
+                    name: "Synth".into(),
+                    enabled: true,
+                    params: Default::default(),
+                    state: vec![],
+                    sidechain: None,
+                }],
+                lanes: vec![],
+            }),
+        })
+        .unwrap();
+    let ctx = CompileContext::default();
+    let armed = ctx.armed.clone();
+    armed.set(track, true);
+    let compiled =
+        compile_project_metered(editor.project(), &ctx, SAMPLE_RATE, MAX_BLOCK, None).unwrap();
+
+    let mut core_builder = builder().midi_clock(ow_engine::MidiClock::StreamFrames);
+    let mut midi = core_builder.producer_ring(1024);
+    let (mut link, mut core) = core_builder.build();
+    link.swap_timeline(compiled.timeline).unwrap();
+    link.swap_plan(compiled.plan).unwrap();
+    let (sender, mut recorded) = ow_engine::producer_ring(1 << 14);
+    let (set, shared) = ow_engine::RecordSet::new(vec![], 0);
+    link.swap_record(set.with_midi(sender)).unwrap();
+    assert!(link.send(Message::Transport(TransportCommand::SetLoop {
+        enabled: true,
+        start_beats: 0.0,
+        end_beats: 1.0,
+    })));
+    assert!(link.send(Message::Transport(TransportCommand::SetRecordArm(true))));
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+
+    let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(SAMPLE_RATE)).round() as u64;
+    let mut buffer = vec![0.0_f32; 64 * 2];
+    let mut heard = 0.0_f32;
+    for cycle in 0..2000_u64 {
+        if cycle % 500 == 250 {
+            // Disarm while keys are held, then arm again.
+            armed.set(track, false);
+        } else if cycle % 500 == 0 {
+            armed.set(track, true);
+        }
+        let key = 36 + (cycle % 48) as u8;
+        for (frame, status, data2) in [(cycle * 64 + 10, 0x90, 100), (cycle * 64 + 70, 0x80, 0)] {
+            midi.push(Message::MidiIn {
+                message: MidiMessage {
+                    status,
+                    data1: key,
+                    data2,
+                },
+                timestamp_us: stamp(frame),
+            });
+        }
+        core.process(&mut buffer, 2, None);
+        heard = buffer.iter().fold(heard, |m, s| m.max(s.abs()));
+        assert!(buffer.iter().all(|s| s.is_finite()));
+    }
+    assert!(heard > 0.05, "the armed synth played the input: {heard}");
+    assert!(shared.midi_passes() > 3, "the loop wrapped while recording");
+    assert!(link.send(Message::EndRecording));
+    core.process(&mut buffer, 2, None);
+    assert!(shared.done());
+    link.collect_retired();
+    let mut events = 0;
+    while recorded.pop().is_some() {
+        events += 1;
+    }
+    assert!(events > 1000, "{events} messages recorded");
+}

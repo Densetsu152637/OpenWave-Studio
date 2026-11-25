@@ -34,6 +34,7 @@ fn engine(drive: MockDrive) -> (Engine, MockBackend) {
             poll_interval: Duration::from_millis(5),
         },
         midi_inputs: Vec::new(),
+        midi_clock: Default::default(),
     };
     let midi: Arc<dyn MidiBackend> = Arc::new(MockMidiBackend::new([] as [&str; 0]));
     (Engine::with_backends(registry, midi, config), backend)

@@ -41,6 +41,7 @@ fn engine(drive: MockDrive, midi: &MockMidiBackend) -> (Engine, MockBackend) {
             poll_interval: Duration::from_millis(5),
         },
         midi_inputs: Vec::new(),
+        midi_clock: Default::default(),
     };
     let midi: Arc<dyn MidiBackend> = Arc::new(midi.clone());
     (Engine::with_backends(registry, midi, config), backend)

@@ -12,7 +12,7 @@ use assert_no_alloc::assert_no_alloc;
 
 use super::NodeId;
 use crate::plan::RenderPlan;
-use crate::record::RecordSet;
+use crate::record::{PendingMidi, RecordSet};
 use crate::rings::{ProducerRing, RingSender, producer_ring};
 use crate::sched::AbortOnPanic;
 use crate::sched::denormal::DenormalGuard;
@@ -28,6 +28,31 @@ const TIMELINE_QUEUE: usize = 4;
 /// Capacity of the record-set ring (and, plus two, of its retire ring): at most one recording is
 /// live, so a few slots are plenty.
 const RECORD_QUEUE: usize = 2;
+
+/// Most live MIDI messages the core holds between receiving them and their block.
+const MIDI_PENDING: usize = 4096;
+
+/// How far (in seconds) a live MIDI message's timestamp may lie before and after the start of the
+/// cycle that receives it; a stamp further away is placed at the nearest limit (a bad clock must
+/// not park a message for ever).
+const MIDI_WINDOW_PAST: i64 = 2;
+const MIDI_WINDOW_FUTURE_MS: i64 = 500;
+
+/// The clock the audio thread uses to place the timestamps of live MIDI input.
+///
+/// A message carries the time it was received. The core reads the clock at the start of every
+/// cycle and places a message at the stream frame `cycle_start_frame + (stamp - clock) * rate`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MidiClock {
+    /// The wall clock the MIDI layer stamps messages with ([`ow_io::now_micros`]). Placement is
+    /// as accurate as the handler thread's wake-up after the hardware event.
+    #[default]
+    Wall,
+    /// Time is the stream's own frame counter divided by the sample rate, so a message stamped
+    /// `frame * 1e6 / rate` lands on exactly that stream frame however late it is delivered.
+    /// For tests driven through the mock backend.
+    StreamFrames,
+}
 
 /// Sample rate assumed for the block timing of a cycle that has no plan (only the frame
 /// positions matter to the record tap, not the rate).
@@ -75,6 +100,15 @@ pub enum Message {
     /// Finish the recording in progress: the audio thread pushes no more frames to it and hands
     /// it back to the control thread (see [`crate::record`]). Harmless when none is running.
     EndRecording,
+    /// Live MIDI input from a (non control-surface) port: reaches the instruments of armed
+    /// tracks and the record tap, placed on the block by `timestamp_us` (see [`MidiClock`]).
+    MidiIn {
+        /// The message.
+        message: MidiMessage,
+        /// Time the MIDI layer received it, in microseconds on [`ow_io::now_micros`]'s clock
+        /// (or the test's, with [`MidiClock::StreamFrames`]).
+        timestamp_us: u64,
+    },
     /// Deliver MIDI to a node.
     Midi {
         /// Target node.
@@ -216,6 +250,7 @@ pub struct CoreBuilder {
     rings: Vec<ProducerRing<Message>>,
     pool: PoolConfig,
     timeline: Timeline,
+    clock: MidiClock,
 }
 
 impl CoreBuilder {
@@ -229,7 +264,14 @@ impl CoreBuilder {
             rings: Vec::new(),
             pool: PoolConfig::default(),
             timeline: Timeline::default(),
+            clock: MidiClock::default(),
         }
+    }
+
+    /// The clock that places live MIDI timestamps (default [`MidiClock::Wall`]).
+    pub fn midi_clock(mut self, clock: MidiClock) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// Number of DSP worker threads that help the callback thread run each cycle (the user's
@@ -350,6 +392,11 @@ impl CoreBuilder {
                 transport: TransportState::new(),
                 telemetry,
                 pool,
+                clock: self.clock,
+                stream_frames: 0,
+                cycle_us: 0,
+                midi_pending: Vec::with_capacity(MIDI_PENDING),
+                midi_seq: 0,
             },
         )
     }
@@ -490,6 +537,14 @@ pub struct AudioCore {
     transport: TransportState,
     telemetry: Arc<Telemetry>,
     pool: Pool,
+    clock: MidiClock,
+    /// Frames rendered since the core was built.
+    stream_frames: u64,
+    /// The clock's reading at the start of the cycle.
+    cycle_us: u64,
+    /// Live MIDI messages placed on the stream frame counter, sorted by frame, until their block.
+    midi_pending: Vec<PendingMidi>,
+    midi_seq: u64,
 }
 
 impl AudioCore {
@@ -538,7 +593,21 @@ impl AudioCore {
         self.swap_pending_plan();
         self.swap_pending_timeline();
         self.swap_pending_record();
+        let rate = self
+            .current
+            .as_deref()
+            .map_or(NO_PLAN_RATE, |plan| plan.data().sample_rate);
+        self.cycle_us = match self.clock {
+            MidiClock::Wall => ow_io::now_micros(),
+            MidiClock::StreamFrames => {
+                (self.stream_frames as f64 * 1e6 / f64::from(rate.max(1))) as u64
+            }
+        };
         self.drain_rings();
+        if self.midi_pending.len() > 1 {
+            self.midi_pending
+                .sort_unstable_by_key(|event| (event.frame, event.seq));
+        }
         self.flush_record();
         out.fill(0.0);
         let channels = channels.max(1);
@@ -571,10 +640,20 @@ impl AudioCore {
                 // No plan: silence, but keep the transport moving (and the recording running).
                 let frames = total - done;
                 let block = self.transport.begin_block(frames);
+                let chunk_start = self.stream_frames;
+                let ready = self
+                    .midi_pending
+                    .partition_point(|event| event.frame < (chunk_start + frames as u64) as i64);
                 if let Some(set) = self.record.as_deref_mut() {
                     let timing = BlockTiming::new(block, &self.timeline, NO_PLAN_RATE);
-                    set.tap(timing, chunk_of(done, frames));
+                    set.tap(
+                        timing,
+                        chunk_of(done, frames),
+                        (chunk_start, &self.midi_pending[..ready]),
+                    );
                 }
+                self.midi_pending.drain(..ready);
+                self.stream_frames += frames as u64;
                 self.transport.end_block(&block, &self.timeline);
                 break;
             };
@@ -582,10 +661,22 @@ impl AudioCore {
             let frames = (total - done).min(data.max_block);
             let block = self.transport.begin_block(frames);
             let chunk = chunk_of(done, frames);
+            let chunk_start = self.stream_frames;
+            // The live MIDI messages of this chunk: to the record tap, and to the nodes that
+            // play them (between cycles, like every message into the plan).
+            let ready = self
+                .midi_pending
+                .partition_point(|event| event.frame < (chunk_start + frames as u64) as i64);
             if let Some(set) = self.record.as_deref_mut() {
                 let timing = BlockTiming::new(block, &self.timeline, data.sample_rate);
-                set.tap(timing, chunk);
+                set.tap(timing, chunk, (chunk_start, &self.midi_pending[..ready]));
             }
+            for event in &self.midi_pending[..ready] {
+                let offset = (event.frame - chunk_start as i64).clamp(0, frames as i64 - 1);
+                // SAFETY: audio thread, between cycles (no node runs yet).
+                unsafe { data.live_midi(offset as u32, event.message) };
+            }
+            self.midi_pending.drain(..ready);
             // SAFETY: this is the audio thread and the previous cycle of this plan finished
             // (no node runs); `self.timeline` is replaced only between cycles, so it outlives
             // this one.
@@ -613,6 +704,7 @@ impl AudioCore {
             }
             done += frames;
             self.transport.end_block(&block, &self.timeline);
+            self.stream_frames += frames as u64;
         }
         self.telemetry
             .position
@@ -714,8 +806,15 @@ impl AudioCore {
             telemetry,
             timeline,
             record,
+            midi_pending,
+            midi_seq,
+            stream_frames,
+            cycle_us,
             ..
         } = self;
+        let rate = current
+            .as_deref()
+            .map_or(NO_PLAN_RATE, |plan| plan.data().sample_rate);
         for ring in rings.iter_mut() {
             while let Some(message) = ring.pop() {
                 let routed = match message {
@@ -723,6 +822,29 @@ impl AudioCore {
                     Message::SetParam { node, param, value } => current
                         .as_deref()
                         .is_some_and(|plan| unsafe { plan.data().set_param(node, param, value) }),
+                    Message::MidiIn {
+                        message,
+                        timestamp_us,
+                    } => {
+                        let behind_us = *cycle_us as i128 - i128::from(timestamp_us);
+                        let delta = (-(behind_us as f64) * f64::from(rate) / 1e6).round() as i64;
+                        let window = (
+                            -MIDI_WINDOW_PAST * i64::from(rate),
+                            MIDI_WINDOW_FUTURE_MS * i64::from(rate) / 1000,
+                        );
+                        let frame = *stream_frames as i64 + delta.clamp(window.0, window.1);
+                        if midi_pending.len() < midi_pending.capacity() {
+                            midi_pending.push(PendingMidi {
+                                frame,
+                                seq: *midi_seq,
+                                message,
+                            });
+                            *midi_seq += 1;
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     Message::Midi { node, message, .. } => current
                         .as_deref()
                         .is_some_and(|plan| unsafe { plan.data().midi(node, message) }),
