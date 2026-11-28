@@ -1281,3 +1281,37 @@ fn the_built_in_synthesizers_are_allocation_free_in_the_cycle() {
         assert!(heard > 0.02, "{kind} played the input: {heard}");
     }
 }
+
+/// Ordering a full block of events (clip capacity, reversed, with many same-frame controller
+/// changes) neither allocates nor reorders same-frame controller changes.
+#[test]
+fn ordering_a_full_block_of_events_is_allocation_free() {
+    use ow_dsp::Event;
+    use ow_engine::MAX_EVENTS_PER_BLOCK;
+    let mut events: Vec<Event> = (0..MAX_EVENTS_PER_BLOCK as u32)
+        .rev()
+        .map(|i| match i % 4 {
+            0 => Event::note_on(i / 8, (i % 128) as u8, 100),
+            1 => Event::note_off(i / 8, (i % 128) as u8),
+            // Alternating pedal values: arrival order must survive.
+            _ => Event::control_change(i / 8, 64, if i % 8 < 4 { 127 } else { 0 }),
+        })
+        .collect();
+    let arrival: Vec<Event> = events
+        .iter()
+        .copied()
+        .filter(|e| matches!(e.kind, ow_dsp::EventKind::ControlChange { .. }))
+        .collect();
+    let mut scratch = Vec::with_capacity(MAX_EVENTS_PER_BLOCK);
+    assert_no_alloc::assert_no_alloc(|| ow_engine::device::order_events(&mut events, &mut scratch));
+    assert!(events.windows(2).all(|w| w[0].offset <= w[1].offset));
+    // Per frame, the controller changes appear in the order they arrived.
+    let sorted: Vec<Event> = events
+        .iter()
+        .copied()
+        .filter(|e| matches!(e.kind, ow_dsp::EventKind::ControlChange { .. }))
+        .collect();
+    let mut expected = arrival;
+    expected.sort_by_key(|e| e.offset); // stable
+    assert_eq!(sorted, expected);
+}

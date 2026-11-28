@@ -37,8 +37,16 @@ use crate::graph::{MidiMessage, Node, ProcessContext};
 /// Most note events one block can carry into a device; more are dropped.
 pub const MAX_EVENTS_PER_BLOCK: usize = 4096;
 
-/// Most live note events one block holds for a device; more are dropped.
-const MAX_LIVE_EVENTS: usize = 512;
+/// Most live events one block holds for a device.
+///
+/// Note-ons and controller changes stop at [`LIVE_SOFT_LIMIT`]; the rest is reserved for
+/// note-offs, which are never dropped: a block holds at most `LIVE_SOFT_LIMIT` note-ons, so at
+/// most that many offs plus the 128 keys held from earlier blocks, 128 deferred offs due now,
+/// and 128 offs of a gate closing, all below this size.
+const MAX_LIVE_EVENTS: usize = 1024;
+
+/// Live note-ons and controller changes are accepted while fewer than this many events wait.
+const LIVE_SOFT_LIMIT: usize = 512;
 
 /// When an instrument plays live MIDI input.
 #[derive(Debug, Clone)]
@@ -68,11 +76,15 @@ pub struct DeviceNode {
     left: Vec<f32>,
     right: Vec<f32>,
     events: Vec<Event>,
+    /// Keyed copies of `events` for the allocation-free sort.
+    sort_scratch: Vec<(u64, Event)>,
     live: Option<LiveGate>,
     live_events: Vec<Event>,
     /// Keys the live input holds down.
     live_held: [bool; 128],
     live_held_count: u32,
+    /// The live input has sent a sustain pedal down that no lift has followed.
+    live_pedal: bool,
     /// Keys whose live note-off arrived on the frame of their own note-on: the off is sent at
     /// frame 0 of the next block, so the note sounds for a moment instead of sticking.
     live_deferred: [bool; 128],
@@ -119,10 +131,12 @@ impl DeviceNode {
             left: Vec::new(),
             right: Vec::new(),
             events: Vec::new(),
+            sort_scratch: Vec::new(),
             live: None,
             live_events: Vec::new(),
             live_held: [false; 128],
             live_held_count: 0,
+            live_pedal: false,
             live_deferred: [false; 128],
             live_due: [false; 128],
         }
@@ -134,8 +148,14 @@ impl DeviceNode {
         self
     }
 
-    /// Releases every key the live input holds, at frame 0.
+    /// Releases every key the live input holds, and lifts a forwarded sustain pedal, at frame 0.
     fn release_live(&mut self) {
+        if self.live_pedal {
+            self.live_pedal = false;
+            if self.live_events.len() < MAX_LIVE_EVENTS {
+                self.live_events.push(Event::control_change(0, 64, 0));
+            }
+        }
         for key in 0..128_u8 {
             if self.live_held[usize::from(key)] {
                 self.live_held[usize::from(key)] = false;
@@ -148,25 +168,28 @@ impl DeviceNode {
     }
 }
 
-/// Orders events by frame. At one frame control changes come first (and keep their arrival
-/// order, so a pedal down then up at one frame ends up), then note-offs, then note-ons (so a key
-/// retriggers); notes of one kind are fixed by key and velocity so their order never depends on
-/// arrival. An insertion sort: stable, in place and allocation-free (the clip events arrive
-/// sorted and the few live events are merged in, so it moves little).
-fn sort_events(events: &mut [Event]) {
-    fn key(event: &Event) -> (u32, u8, u8, u8) {
-        match event.kind {
-            EventKind::ControlChange { .. } => (event.offset, 0, 0, 0),
-            EventKind::NoteOff { key } => (event.offset, 1, key, 0),
-            EventKind::NoteOn { key, velocity } => (event.offset, 2, key, velocity),
-        }
+/// Orders events by frame, in place and without allocating: at one frame control changes come
+/// first and keep their arrival order (so a pedal down then up at one frame ends up), then
+/// note-offs, then note-ons (so a key retriggers); notes of one kind are fixed by key and
+/// velocity, so their order never depends on arrival.
+///
+/// `scratch` holds a keyed copy of the events and must have room for all of them (the node's is
+/// sized for [`MAX_EVENTS_PER_BLOCK`]); the sort is `O(n log n)`.
+pub fn order_events(events: &mut [Event], scratch: &mut Vec<(u64, Event)>) {
+    assert!(scratch.capacity() >= events.len(), "sort scratch too small");
+    scratch.clear();
+    for (index, event) in events.iter().enumerate() {
+        // Key bits: offset (32), class (2: control, off, on), then arrival or key and velocity.
+        let (class, low) = match event.kind {
+            EventKind::ControlChange { .. } => (0_u64, index as u64 & 0x3FFF_FFFF),
+            EventKind::NoteOff { key } => (1, u64::from(key) << 8),
+            EventKind::NoteOn { key, velocity } => (2, u64::from(key) << 8 | u64::from(velocity)),
+        };
+        scratch.push((u64::from(event.offset) << 32 | class << 30 | low, *event));
     }
-    for i in 1..events.len() {
-        let mut j = i;
-        while j > 0 && key(&events[j - 1]) > key(&events[j]) {
-            events.swap(j - 1, j);
-            j -= 1;
-        }
+    scratch.sort_unstable_by_key(|(key, _)| *key);
+    for (slot, (_, event)) in events.iter_mut().zip(scratch.iter()) {
+        *slot = *event;
     }
 }
 
@@ -193,6 +216,7 @@ impl Node for DeviceNode {
         self.left = vec![0.0; max_block];
         self.right = vec![0.0; max_block];
         self.events = Vec::with_capacity(MAX_EVENTS_PER_BLOCK);
+        self.sort_scratch = Vec::with_capacity(MAX_EVENTS_PER_BLOCK);
         self.live_events = Vec::with_capacity(MAX_LIVE_EVENTS);
         self.device.prepare(sample_rate as f32, max_block);
     }
@@ -209,7 +233,7 @@ impl Node for DeviceNode {
         let key = message.data1 & 0x7F;
         match message.status & 0xF0 {
             0x90 if message.data2 > 0 => {
-                if open && self.live_events.len() < MAX_LIVE_EVENTS {
+                if open && self.live_events.len() < LIVE_SOFT_LIMIT {
                     if !self.live_held[usize::from(key)] {
                         self.live_held[usize::from(key)] = true;
                         self.live_held_count += 1;
@@ -236,7 +260,16 @@ impl Node for DeviceNode {
             // always passes so a pedal held when the gate closed cannot stick.
             0xB0 => {
                 let value = message.data2 & 0x7F;
-                if (open || (key == 64 && value < 64)) && self.live_events.len() < MAX_LIVE_EVENTS {
+                let lift = key == 64 && value < 64;
+                let room = if open && !lift {
+                    LIVE_SOFT_LIMIT
+                } else {
+                    MAX_LIVE_EVENTS
+                };
+                if (open || lift) && self.live_events.len() < room {
+                    if key == 64 {
+                        self.live_pedal = value >= 64;
+                    }
                     self.live_events
                         .push(Event::control_change(offset, key, value));
                 }
@@ -261,16 +294,25 @@ impl Node for DeviceNode {
         // What was deferred while this block was being prepared is due in the next one.
         self.live_due = self.live_deferred;
         self.live_deferred = [false; 128];
-        if self.live_held_count > 0 && self.live.as_ref().is_some_and(|gate| !gate.is_open()) {
+        if (self.live_held_count > 0 || self.live_pedal)
+            && self.live.as_ref().is_some_and(|gate| !gate.is_open())
+        {
             self.release_live();
         }
         if !self.live_events.is_empty() {
+            // Live events always fit: if the clip events leave too little room, the tail of the
+            // block's clip events is what gives way.
+            let room = self
+                .events
+                .capacity()
+                .saturating_sub(self.live_events.len());
+            self.events.truncate(room);
             for event in self.live_events.drain(..) {
                 if self.events.len() < self.events.capacity() {
                     self.events.push(event);
                 }
             }
-            sort_events(&mut self.events);
+            order_events(&mut self.events, &mut self.sort_scratch);
         }
         if self.inputs == 2 {
             // A NaN or infinity would stay in an effect's feedback state for good, so a
@@ -318,14 +360,14 @@ mod tests {
     fn same_frame_control_changes_keep_their_arrival_order() {
         // Pedal down then up at one frame stays down-then-up, however the values compare.
         let mut events = [cc(10, 64, 127), cc(10, 64, 0)];
-        sort_events(&mut events);
+        order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(events, [cc(10, 64, 127), cc(10, 64, 0)]);
         let mut events = [cc(10, 64, 0), cc(10, 64, 127)];
-        sort_events(&mut events);
+        order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(events, [cc(10, 64, 0), cc(10, 64, 127)]);
         // Repeated CC1 at one frame: the last arrival stays last.
         let mut events = [cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)];
-        sort_events(&mut events);
+        order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(events, [cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)]);
     }
 
@@ -338,7 +380,7 @@ mod tests {
             Event::note_on(3, 61, 90),
             Event::note_on(7, 59, 80),
         ];
-        sort_events(&mut events);
+        order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(
             events,
             [
