@@ -188,10 +188,11 @@ impl DeviceNode {
     }
 }
 
-/// Orders events by frame, in place and without allocating: at one frame control changes come
-/// first and keep their arrival order (so a pedal down then up at one frame ends up), then
-/// note-offs, then note-ons (so a key retriggers); notes of one kind are fixed by key and
-/// velocity, so their order never depends on arrival.
+/// Orders events by frame, in place and without allocating: at one frame control changes and
+/// note-offs come first, in arrival order (so a pedal lift, the note-offs of a locate and the
+/// pedal-down chased after them stay in that order, and a pedal down then up at one frame ends
+/// up), then note-ons (so a key retriggers); note-ons are fixed by key and velocity, so their
+/// order never depends on arrival.
 ///
 /// `scratch` holds a keyed copy of the events; the node's is as large as its event buffer. Should
 /// it be smaller than `events` (it never is for the node) the surplus is trimmed first, as
@@ -201,11 +202,12 @@ pub fn order_events(events: &mut Vec<Event>, scratch: &mut Vec<(u64, Event)>) {
     trim_events(events, excess);
     scratch.clear();
     for (index, event) in events.iter().enumerate() {
-        // Key bits: offset (32), class (2: control, off, on), then arrival or key and velocity.
+        // Key bits: offset (32), class (2: control or off, on), then arrival or key and velocity.
         let (class, low) = match event.kind {
-            EventKind::ControlChange { .. } => (0_u64, index as u64 & 0x3FFF_FFFF),
-            EventKind::NoteOff { key } => (1, u64::from(key) << 8),
-            EventKind::NoteOn { key, velocity } => (2, u64::from(key) << 8 | u64::from(velocity)),
+            EventKind::ControlChange { .. } | EventKind::NoteOff { .. } => {
+                (0_u64, index as u64 & 0x3FFF_FFFF)
+            }
+            EventKind::NoteOn { key, velocity } => (1, u64::from(key) << 8 | u64::from(velocity)),
         };
         scratch.push((u64::from(event.offset) << 32 | class << 30 | low, *event));
     }
@@ -540,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_orders_control_changes_then_note_offs_then_note_ons() {
+    fn a_frame_orders_control_changes_and_note_offs_by_arrival_then_note_ons() {
         let mut events = vec![
             Event::note_on(7, 60, 100),
             Event::note_off(7, 60),
@@ -553,10 +555,33 @@ mod tests {
             events,
             [
                 Event::note_on(3, 61, 90),
-                cc(7, 64, 127),
                 Event::note_off(7, 60),
+                cc(7, 64, 127),
                 Event::note_on(7, 59, 80),
                 Event::note_on(7, 60, 100),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_release_then_a_chased_pedal_down_keeps_that_order_at_one_frame() {
+        // What the clip player sends at a loop wrap: lift, note-offs, then the chased pedal.
+        let mut events = vec![
+            Event::note_on(0, 72, 90), // a live note-on in the same block
+            cc(0, 64, 0),
+            Event::note_off(0, 60),
+            Event::note_off(0, 64),
+            cc(0, 64, 127),
+        ];
+        order_events(&mut events, &mut Vec::with_capacity(16));
+        assert_eq!(
+            events,
+            [
+                cc(0, 64, 0),
+                Event::note_off(0, 60),
+                Event::note_off(0, 64),
+                cc(0, 64, 127),
+                Event::note_on(0, 72, 90),
             ]
         );
     }

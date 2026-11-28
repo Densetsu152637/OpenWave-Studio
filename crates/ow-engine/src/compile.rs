@@ -72,7 +72,7 @@ use ow_plugin_host::{PluginCache, PluginDevice, decode_state, is_plugin_kind};
 
 use ow_ipc::TelemetryBank;
 
-use crate::clips::midi::{MidiClipPlayer, schedule};
+use crate::clips::midi::{MidiClipPlayer, schedule, schedule_controllers};
 use crate::clips::{SourceCache, warp};
 use crate::device::{DeviceNode, LiveGate};
 use crate::graph::clip::{ClipPlacement, ClipSourceNode};
@@ -942,6 +942,13 @@ fn add_instrument(
             env.sample_rate,
         )
     };
+    let controllers = || {
+        schedule_controllers(
+            project.clips.values().filter(|c| c.track == track.id),
+            env.timeline,
+            env.sample_rate,
+        )
+    };
     // A MIDI track plays what is played live while it is armed (monitor `on`: always).
     let gate = match track.monitor {
         MonitorMode::On => LiveGate::Always,
@@ -955,13 +962,16 @@ fn add_instrument(
             env.sample_rate,
             env.max_block,
         )?;
-        DeviceNode::hosted_instrument(hosted, MidiClipPlayer::new(events()))
+        DeviceNode::hosted_instrument(
+            hosted,
+            MidiClipPlayer::new(events()).with_controllers(controllers()),
+        )
     } else {
         let info = ow_dsp::find(&device.kind).filter(|info| info.instrument)?;
         DeviceNode::instrument(
             info,
             make_device(info, device, env.sample_rate, env.max_block),
-            MidiClipPlayer::new(events()),
+            MidiClipPlayer::new(events()).with_controllers(controllers()),
         )
     }
     .with_live_input(gate);
