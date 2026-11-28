@@ -64,6 +64,11 @@ pub struct ScheduledCc {
 /// expression, sustain pedal and filter cutoff.
 pub const CHASED: [u8; 6] = [1, 7, 10, 11, 64, 74];
 
+/// What a chased controller goes back to when the clip has no event of it before the new
+/// position (and the player had sent one): the MIDI default. The pedal's rest is the lift the
+/// release already sends.
+const REST: [u8; 6] = [0, 100, 64, 127, 0, 64];
+
 /// The controller events of `clips` (MIDI clips only, muted clips are silent) at `sample_rate`,
 /// sorted by sample; events at one sample keep the order of the clips and of the model. An event
 /// at or after its clip's end is dropped.
@@ -72,7 +77,8 @@ pub fn schedule_controllers<'a>(
     timeline: &Timeline,
     sample_rate: u32,
 ) -> Vec<ScheduledCc> {
-    let mut events = Vec::new();
+    // The bool marks a pedal lift added at a clip's end.
+    let mut events: Vec<(ScheduledCc, bool)> = Vec::new();
     for clip in clips {
         let ClipContent::Midi { controllers, .. } = &clip.content else {
             continue;
@@ -81,21 +87,40 @@ pub fn schedule_controllers<'a>(
             continue;
         }
         let clip_end = clip.start + clip.length;
+        let mut pedal_down = false;
         for cc in controllers {
             let beat = clip.start + cc.beat;
             if beat >= clip_end || cc.controller > 127 || cc.value > 127 {
                 continue;
             }
-            events.push(ScheduledCc {
-                sample: timeline.beat_to_sample_index(beat, sample_rate),
-                controller: cc.controller,
-                value: cc.value,
-            });
+            if cc.controller == 64 {
+                pedal_down = cc.value >= 64;
+            }
+            events.push((
+                ScheduledCc {
+                    sample: timeline.beat_to_sample_index(beat, sample_rate),
+                    controller: cc.controller,
+                    value: cc.value,
+                },
+                false,
+            ));
+        }
+        // A pedal the clip leaves down is lifted where the clip ends (before the note-offs of
+        // notes cut there, and before a following clip's own events), so nothing rings on.
+        if pedal_down {
+            events.push((
+                ScheduledCc {
+                    sample: timeline.beat_to_sample_index(clip_end, sample_rate),
+                    controller: 64,
+                    value: 0,
+                },
+                true,
+            ));
         }
     }
-    // Stable: equal samples keep the order they were added in.
-    events.sort_by_key(|e| e.sample);
-    events
+    // Stable: equal samples keep the order they were added in, lifts first.
+    events.sort_by_key(|(e, lift)| (e.sample, !lift));
+    events.into_iter().map(|(e, _)| e).collect()
 }
 
 /// The note events of `clips` (MIDI clips only; audio and pattern clips are ignored, muted clips
@@ -147,6 +172,11 @@ pub fn schedule<'a>(
 pub struct MidiClipPlayer {
     events: Vec<ScheduledEvent>,
     controllers: Vec<ScheduledCc>,
+    /// Per [`CHASED`] controller, the indices into `controllers` of its events (ascending
+    /// samples), built when the controllers are set so a chase only binary-searches.
+    chased: [Vec<u32>; CHASED.len()],
+    /// Per [`CHASED`] controller, a value was sent since it was last at rest.
+    sent: [bool; CHASED.len()],
     /// A sustain pedal-down was sent and not yet lifted.
     pedal: bool,
     /// The timeline sample the next span is expected to start at; `None` while stopped.
@@ -162,6 +192,8 @@ impl MidiClipPlayer {
         Self {
             events,
             controllers: Vec::new(),
+            chased: Default::default(),
+            sent: [false; CHASED.len()],
             pedal: false,
             expected: None,
             held: [0; 128],
@@ -171,6 +203,12 @@ impl MidiClipPlayer {
     /// Plays `controllers` (as [`schedule_controllers`] returns them) along with the notes.
     pub fn with_controllers(mut self, controllers: Vec<ScheduledCc>) -> Self {
         debug_assert!(controllers.windows(2).all(|w| w[0].sample <= w[1].sample));
+        self.chased = Default::default();
+        for (index, cc) in controllers.iter().enumerate() {
+            if let Some(slot) = CHASED.iter().position(|c| *c == cc.controller) {
+                self.chased[slot].push(index as u32);
+            }
+        }
         self.controllers = controllers;
         self
     }
@@ -249,26 +287,26 @@ impl MidiClipPlayer {
         if controller == 64 {
             self.pedal = value >= 64;
         }
+        if let Some(slot) = CHASED.iter().position(|c| *c == controller) {
+            self.sent[slot] = true;
+        }
         push(out, Event::control_change(offset, controller, value));
     }
 
     /// Re-sends, at `offset`, the last value before timeline sample `start` of each controller in
-    /// [`CHASED`] that has one.
+    /// [`CHASED`]; one the player had sent but that has no event before `start` goes back to
+    /// its rest value (the pedal's rest is the lift the release sends).
     fn chase(&mut self, start: u64, offset: u32, out: &mut Vec<Event>) {
-        let before = self.controllers.partition_point(|c| c.sample < start);
-        let mut seen = [false; CHASED.len()];
-        let mut missing = CHASED.len();
-        for index in (0..before).rev() {
-            let cc = self.controllers[index];
-            let Some(slot) = CHASED.iter().position(|c| *c == cc.controller) else {
-                continue;
-            };
-            if !seen[slot] {
-                seen[slot] = true;
+        for slot in 0..CHASED.len() {
+            let list = &self.chased[slot];
+            let before = list.partition_point(|&i| self.controllers[i as usize].sample < start);
+            if before > 0 {
+                let cc = self.controllers[list[before - 1] as usize];
                 self.send_controller(offset, cc.controller, cc.value, out);
-                missing -= 1;
-                if missing == 0 {
-                    break;
+            } else if self.sent[slot] {
+                self.sent[slot] = false;
+                if CHASED[slot] != 64 {
+                    push(out, Event::control_change(offset, CHASED[slot], REST[slot]));
                 }
             }
         }

@@ -1119,3 +1119,175 @@ fn a_locate_chases_the_last_controller_values_before_the_new_position() {
     assert!(after.contains(&cc_kind(64, 127)), "{after:?}");
     assert!(!after.contains(&cc_kind(1, 10)));
 }
+
+#[test]
+fn a_pedal_the_clip_leaves_down_is_lifted_at_the_clip_end() {
+    let project = project_with(120.0, |track| {
+        vec![Clip {
+            content: ClipContent::Midi {
+                notes: vec![note(0.0, 1.0, 60)],
+                controllers: vec![ow_model::Controller {
+                    beat: 0.0,
+                    controller: 64,
+                    value: 127,
+                }],
+            },
+            ..midi_clip(100, track, 0.0, 1.0, vec![])
+        }]
+    });
+    let timeline = Timeline::new(
+        project.tempo_map.clone(),
+        project.time_signature_map.clone(),
+    );
+    let scheduled = schedule_controllers(project.clips.values(), &timeline, RATE);
+    assert_eq!(scheduled, [cc_at(0, 64, 127), cc_at(BEAT, 64, 0)]);
+    // The note ends with the clip and the pedal is lifted there: after the short release the
+    // synth is silent, which a pedal held for good would prevent.
+    let rendered = render(&project, 3 * BEAT as usize, 4096);
+    assert!(rendered[1_000..BEAT as usize].iter().any(|s| s.abs() > 0.1));
+    assert!(
+        rendered[BEAT as usize + 12_000..]
+            .iter()
+            .all(|s| s.abs() < 1e-4),
+        "silent after the clip end"
+    );
+}
+
+#[test]
+fn a_clip_end_lift_goes_before_a_following_clips_pedal_down() {
+    let pedal = |beat: f64, value: u8| ow_model::Controller {
+        beat,
+        controller: 64,
+        value,
+    };
+    let project = project_with(120.0, |track| {
+        vec![
+            Clip {
+                content: ClipContent::Midi {
+                    notes: vec![],
+                    controllers: vec![pedal(0.0, 127)],
+                },
+                ..midi_clip(101, track, 1.0, 1.0, vec![])
+            },
+            // Starts where the first ends and presses the pedal at its first sample.
+            Clip {
+                content: ClipContent::Midi {
+                    notes: vec![],
+                    controllers: vec![pedal(0.0, 127)],
+                },
+                ..midi_clip(100, track, 2.0, 1.0, vec![])
+            },
+        ]
+    });
+    let timeline = Timeline::new(
+        project.tempo_map.clone(),
+        project.time_signature_map.clone(),
+    );
+    let scheduled = schedule_controllers(project.clips.values(), &timeline, RATE);
+    let at_end: Vec<_> = scheduled.iter().filter(|e| e.sample == 2 * BEAT).collect();
+    assert_eq!(
+        at_end.iter().map(|e| e.value).collect::<Vec<_>>(),
+        [0, 127],
+        "{scheduled:?}"
+    );
+}
+
+/// At a loop wrap the player sends a pedal lift, the note-offs and the chased pedal-down; a live
+/// note-on in the same block must not reorder them (the previous lap's notes would sustain).
+#[test]
+fn a_wrap_that_chases_the_pedal_down_still_releases_the_previous_laps_notes() {
+    use ow_engine::{CoreBuilder, MidiClock, MidiMessage};
+    static INFO: DeviceInfo =
+        DeviceInfo::new("test.logger", "Logger", true, &[], || Box::new(Skew));
+    let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    // Pedal down at sample 0; note 60 crosses the loop end (24 000 samples).
+    let player = MidiClipPlayer::new(vec![on(100, 60), off(40_000, 60)])
+        .with_controllers(vec![cc_at(0, 64, 127)]);
+    let mut graph = Graph::new();
+    let node = DeviceNode::instrument(&INFO, Box::new(Logger(std::sync::Arc::clone(&log))), player)
+        .with_live_input(ow_engine::LiveGate::Always);
+    let node = graph.add_node(Box::new(node));
+    let master = graph.add_node(Box::new(ow_engine::MasterNode::new()));
+    graph.connect(node, 0, master, 0).unwrap();
+    graph.connect(node, 1, master, 1).unwrap();
+    graph.set_master(master).unwrap();
+    let mut builder = CoreBuilder::new().midi_clock(MidiClock::StreamFrames);
+    let mut midi = builder.producer_ring(16);
+    let (mut link, mut core) = builder.build();
+    link.swap_plan(graph.compile(RATE, MAX_BLOCK).unwrap())
+        .unwrap();
+    // A live note-on stamped at the wrap frame itself.
+    midi.push(Message::MidiIn {
+        message: MidiMessage {
+            status: 0x90,
+            data1: 72,
+            data2: 90,
+        },
+        timestamp_us: (24_000.0_f64 * 1e6 / f64::from(RATE)).round() as u64,
+    });
+    assert!(link.send(Message::Transport(TransportCommand::SetLoop {
+        enabled: true,
+        start_beats: 0.0,
+        end_beats: 1.0,
+    })));
+    assert!(link.send(Message::Transport(TransportCommand::Play)));
+    // 128-frame blocks: the wrap at frame 24 000 is block 187, frame 64.
+    let mut buffer = vec![0.0_f32; 256];
+    for _ in 0..190 {
+        core.process(&mut buffer, 2, None);
+    }
+    let log = log.lock().unwrap();
+    let at_wrap: Vec<EventKind> = log
+        .iter()
+        .filter(|e| e.offset == 64)
+        .map(|e| e.kind)
+        .collect();
+    assert_eq!(
+        at_wrap,
+        [
+            cc_kind(64, 0),
+            EventKind::NoteOff { key: 60 },
+            cc_kind(64, 127),
+            EventKind::NoteOn {
+                key: 72,
+                velocity: 90
+            },
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn a_locate_restores_the_rest_value_of_a_controller_the_new_position_has_no_event_for() {
+    let player = MidiClipPlayer::new(vec![]).with_controllers(vec![
+        cc_at(2_000, 1, 80),
+        cc_at(2_000, 74, 10),
+        cc_at(3_000, 11, 30),
+    ]);
+    let log = log_events(
+        player,
+        vec![Message::Transport(TransportCommand::Play)],
+        8_000,
+        100,
+        |renderer| {
+            // Back to the start: before every event.
+            assert!(renderer.send(Message::Transport(TransportCommand::Locate(0))));
+        },
+    );
+    let after: Vec<_> = log
+        .iter()
+        .filter(|(f, _)| *f >= 4_000)
+        .map(|(_, k)| *k)
+        .collect();
+    for rest in [cc_kind(1, 0), cc_kind(74, 64), cc_kind(11, 127)] {
+        assert!(after.contains(&rest), "{rest:?} in {after:?}");
+    }
+    // Controllers the clip never sent are not touched.
+    assert!(!after.iter().any(|k| matches!(
+        k,
+        EventKind::ControlChange {
+            controller: 7 | 10,
+            ..
+        }
+    )));
+}
