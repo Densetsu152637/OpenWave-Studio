@@ -1107,16 +1107,6 @@ fn build_strip(
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn warp_threads_leave_a_core_to_the_audio_callback() {
-        assert_eq!(super::warp_threads(0), 1);
-        assert_eq!(super::warp_threads(1), 1);
-        assert_eq!(super::warp_threads(2), 1);
-        assert_eq!(super::warp_threads(3), 2);
-        assert_eq!(super::warp_threads(5), 4);
-        assert_eq!(super::warp_threads(64), super::MAX_WARP_THREADS);
-    }
-
     use ow_ipc::TelemetryBank;
     use ow_model::{
         AuxSend, Bus, Clip, ClipContent, Device, EditCommand, Editor, MediaItem, Owned, Strip,
@@ -1129,6 +1119,16 @@ mod tests {
 
     const RATE: u32 = 48_000;
     const FRAMES: usize = 24_000;
+
+    #[test]
+    fn warp_threads_leave_a_core_to_the_audio_callback() {
+        assert_eq!(super::warp_threads(0), 1);
+        assert_eq!(super::warp_threads(1), 1);
+        assert_eq!(super::warp_threads(2), 1);
+        assert_eq!(super::warp_threads(3), 2);
+        assert_eq!(super::warp_threads(5), 4);
+        assert_eq!(super::warp_threads(64), super::MAX_WARP_THREADS);
+    }
 
     /// A media folder holding `audio/m.wav`: a mono 440 Hz sine of amplitude 0.2, one second.
     fn media_dir() -> (tempfile::TempDir, CompileContext) {

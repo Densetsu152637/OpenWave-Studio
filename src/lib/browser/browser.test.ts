@@ -396,6 +396,11 @@ describe("warp markers", () => {
     expect(warpOutOfRange(audioClip(), tempo(25), 48_000)).toBe(false);
   });
 
+  it("cuts ramps like the engine (MAX_SEGMENTS / 2 = 1024 pieces)", async () => {
+    const { MAX_RAMP_PIECES } = await import("./markers");
+    expect(MAX_RAMP_PIECES).toBe(1024);
+  });
+
   it("flags a short stretch beyond 4x between tempo changes", async () => {
     const { warpOutOfRange } = await import("./markers");
     const clip = warped(0, 120); // beats 4 to 20

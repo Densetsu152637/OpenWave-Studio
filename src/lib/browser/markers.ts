@@ -12,8 +12,12 @@ import type { Clip, Warp } from "../ipc/types";
 /** The stretcher's range: the ratio of output to input duration, either way. */
 export const WARP_RATIO_LIMIT = 4;
 
-/** The most pieces a ramp is cut into (the engine uses 1024 for a long clip). */
-const MAX_RAMP_PIECES = 1024;
+/**
+ * The most pieces a ramp is cut into. Keep in sync with `MAX_SEGMENTS / 2` in
+ * `crates/ow-engine/src/clips/warp.rs`, whose ramp step is `max(1, length / (MAX_SEGMENTS / 2))`
+ * beats, as used below.
+ */
+export const MAX_RAMP_PIECES = 1024;
 
 /** The source frame at clip-local `beat`. */
 export function sourceFrameAt(
