@@ -687,8 +687,18 @@
       ]);
     });
 
-  const editClipContent = (clip: Clip, change: ClipEdit) =>
-    run(() => commandsApi.edit(replaceContentCommand(clip, change)));
+  /** Replaces a MIDI clip's content by id (the roll may have moved on to another clip by now). */
+  async function editClipContent(id: number, change: ClipEdit): Promise<boolean> {
+    const clip = project?.clips.get(id);
+    if (!clip) return true;
+    try {
+      await commandsApi.edit(replaceContentCommand(clip, change));
+      return true;
+    } catch (error) {
+      onError(String(error));
+      return false;
+    }
+  }
 
   const setParam = (device: { id: number }, param: ParamDescriptorDto, value: number) =>
     run(() => commandsApi.edit(setParamCommand(device, param, value)));
@@ -1274,10 +1284,10 @@
             clip={rollClip}
             color={rollTrack.color}
             {signatures}
-            onEdit={(change) => editClipContent(rollClip, change)}
-            onMidiEdit={async (edit, notes) => {
+            onEdit={editClipContent}
+            onMidiEdit={async (id, edit, notes) => {
               try {
-                return await midiEdit(rollClip.id, edit, notes);
+                return await midiEdit(id, edit, notes);
               } catch (error) {
                 onError(String(error));
                 return undefined;

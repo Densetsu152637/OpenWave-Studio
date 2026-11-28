@@ -1,23 +1,25 @@
 /**
- * Serializes whole-state edits. The piano roll replaces the clip's content on every edit, so
- * two edits must never be built from the same stale clip. While one edit is being sent (and its
- * result is landing), further states are not sent: only the latest is kept and goes out as one
- * follow-up when the previous one is done. Three rapid nudges therefore send the first at once
- * and the third (which already contains the second) afterwards.
+ * Serializes whole-state edits, one queue entry per target (a clip id). The piano roll replaces
+ * a clip's content on every edit, so two edits must never be built from the same stale clip.
+ * While one edit is being sent (and its result is landing) further states are not sent: per
+ * target only the latest is kept and goes out as one follow-up. Three rapid nudges therefore
+ * send the first at once and the third (which already contains the second) afterwards. States
+ * for different targets never replace each other, so switching clips loses nothing.
  */
-export class EditQueue<T> {
+export class EditQueue<K, T> {
   private sending = false;
-  private dirty = false;
-  private latest: T | undefined;
+  private pending = new Map<K, T>();
   private waiters: (() => void)[] = [];
 
   /**
-   * `send` delivers one state and resolves when it is acknowledged and applied; `onIdle` runs
-   * when nothing is left to send.
+   * `send` delivers one state to its target and resolves when it is applied; resolving to
+   * `false` or throwing means it was refused, which drops that target's waiting follow-up (it
+   * was built on content that never arrived) and calls `onFail`. `onIdle` runs when nothing is
+   * left to send.
    */
   constructor(
-    private readonly send: (state: T) => Promise<void>,
-    private readonly onIdle: () => void = () => {},
+    private readonly send: (key: K, state: T) => Promise<boolean | void>,
+    private readonly hooks: { onIdle?: () => void; onFail?: (key: K) => void } = {},
   ) {}
 
   /** True while a state is being sent or waits to be. */
@@ -25,13 +27,9 @@ export class EditQueue<T> {
     return this.sending;
   }
 
-  /** Queues `state` as the newest; it replaces any state still waiting. */
-  push(state: T): void {
-    this.latest = state;
-    if (this.sending) {
-      this.dirty = true;
-      return;
-    }
+  /** Queues `state` as the newest for `key`; it replaces any state still waiting for `key`. */
+  push(key: K, state: T): void {
+    this.pending.set(key, state);
     void this.drain();
   }
 
@@ -41,20 +39,28 @@ export class EditQueue<T> {
   }
 
   private async drain(): Promise<void> {
+    if (this.sending) return;
     this.sending = true;
     try {
-      do {
-        this.dirty = false;
+      while (this.pending.size > 0) {
+        const [key, state] = this.pending.entries().next().value as [K, T];
+        this.pending.delete(key);
+        let ok = true;
         try {
-          await this.send(this.latest as T);
+          ok = (await this.send(key, state)) !== false;
         } catch {
-          // The sender reports its own failures; the queue goes on with what is newest.
+          ok = false;
         }
-      } while (this.dirty);
+        if (!ok) {
+          this.pending.delete(key);
+          this.hooks.onFail?.(key);
+        }
+      }
     } finally {
       this.sending = false;
     }
-    this.onIdle();
-    for (const resolve of this.waiters.splice(0)) resolve();
+    this.hooks.onIdle?.();
+    // `onIdle` may have queued more; its drain resolves the waiters when it ends.
+    if (!this.sending) for (const resolve of this.waiters.splice(0)) resolve();
   }
 }

@@ -338,40 +338,116 @@ describe("keys and commands", () => {
 });
 
 describe("edit queue", () => {
-  it("sends the first edit at once and folds rapid ones into a single follow-up", async () => {
+  /** A sender whose first call blocks until released. */
+  function blocked<K, T>() {
+    const sent: [K, T][] = [];
     let release!: () => void;
-    const sent: Note[][] = [];
-    const queue = new EditQueue<Note[]>(async (state) => {
-      sent.push(state);
+    const send = async (key: K, state: T) => {
+      sent.push([key, state]);
       if (sent.length === 1) await new Promise<void>((resolve) => (release = resolve));
-    });
+    };
+    return { sent, send, release: () => release() };
+  }
+
+  it("sends the first edit at once and folds rapid ones into a single follow-up", async () => {
+    const b = blocked<number, Note[]>();
+    const queue = new EditQueue<number, Note[]>(b.send);
     // Three nudges of one grid step, each built from the latest state shown.
     let shown: Note[] = [n(0, 1, 60)];
     for (let i = 0; i < 3; i++) {
-      const moved = moveNotes(shown, [0], 0, GRID, 0, GRID, CLIP)!;
-      shown = moved.notes;
-      queue.push(shown);
+      shown = moveNotes(shown, [0], 0, GRID, 0, GRID, CLIP)!.notes;
+      queue.push(1, shown);
     }
-    expect(sent).toHaveLength(1);
+    expect(b.sent).toHaveLength(1);
     expect(queue.busy).toBe(true);
-    release();
+    b.release();
     await queue.idle();
-    expect(sent).toHaveLength(2);
-    expect(sent[1]![0]!.start).toBe(0.75);
+    expect(b.sent).toHaveLength(2);
+    expect(b.sent[1]![1][0]!.start).toBe(0.75);
     expect(queue.busy).toBe(false);
   });
 
-  it("keeps going after a failed send and reports idle once", async () => {
+  it("sends each state to its own clip when the target switches", async () => {
+    const b = blocked<number, string>();
+    const queue = new EditQueue<number, string>(b.send);
+    queue.push(1, "a1");
+    queue.push(1, "a2"); // folded into one follow-up for clip 1
+    queue.push(2, "b1"); // another clip: never replaces clip 1's state
+    b.release();
+    await queue.idle();
+    expect(b.sent).toEqual([
+      [1, "a1"],
+      [1, "a2"],
+      [2, "b1"],
+    ]);
+  });
+
+  it("drops the waiting follow-up of a refused send and reports it, others still go out", async () => {
+    const failed: number[] = [];
+    const sent: [number, string][] = [];
+    let release!: () => void;
+    const queue = new EditQueue<number, string>(
+      async (key, state) => {
+        sent.push([key, state]);
+        if (sent.length === 1) {
+          await new Promise<void>((resolve) => (release = resolve));
+          return false;
+        }
+      },
+      { onFail: (key) => failed.push(key) },
+    );
+    queue.push(1, "a1");
+    queue.push(1, "a2"); // built on a1, which is refused
+    queue.push(2, "b1");
+    release();
+    await queue.idle();
+    expect(sent).toEqual([
+      [1, "a1"],
+      [2, "b1"],
+    ]);
+    expect(failed).toEqual([1]);
+  });
+
+  it("treats a thrown send like a refusal and keeps going", async () => {
+    const failed: number[] = [];
     let idle = 0;
-    const queue = new EditQueue<number>(
+    const queue = new EditQueue<number, number>(
       async () => {
         throw new Error("refused");
       },
-      () => idle++,
+      { onIdle: () => idle++, onFail: (k) => failed.push(k) },
     );
-    queue.push(1);
+    queue.push(1, 1);
     await queue.idle();
+    expect(failed).toEqual([1]);
     expect(idle).toBe(1);
+    expect(queue.busy).toBe(false);
+  });
+
+  it("resolves every idle waiter once, and a push during onIdle is sent before they resolve", async () => {
+    const sent: number[] = [];
+    let pushed = false;
+    const queue: EditQueue<number, number> = new EditQueue<number, number>(
+      async (_, state) => {
+        sent.push(state);
+      },
+      {
+        onIdle: () => {
+          if (!pushed) {
+            pushed = true;
+            queue.push(1, 2);
+          }
+        },
+      },
+    );
+    queue.push(1, 1);
+    const order: string[] = [];
+    const a = queue.idle().then(() => order.push(`a${sent.length}`));
+    const b = queue.idle().then(() => order.push(`b${sent.length}`));
+    await Promise.all([a, b]);
+    expect(sent).toEqual([1, 2]);
+    expect(order).toEqual(["a2", "b2"]);
+    await expect(queue.idle()).resolves.toBeUndefined();
   });
 });
 

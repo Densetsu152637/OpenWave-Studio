@@ -92,9 +92,9 @@
     color: number;
     signatures: SignatureMap;
     /** Replaces the clip's notes and/or controller events (one undo step). */
-    onEdit: (change: ClipEdit) => unknown;
+    onEdit: (clip: number, change: ClipEdit) => Promise<boolean | void>;
     /** Runs a note operation on the notes at these indices (all when null). */
-    onMidiEdit: (edit: MidiEdit, notes: number[] | null) => Promise<MidiEditReply | undefined>;
+    onMidiEdit: (clip: number, edit: MidiEdit, notes: number[] | null) => Promise<MidiEditReply | undefined>;
     onClose: () => void;
   } = $props();
 
@@ -212,26 +212,64 @@
     }
   });
 
-  /** Waits until `done()` holds, at most `limit` milliseconds. */
-  async function until(done: () => boolean, limit: number) {
-    for (let waited = 0; !done() && waited < limit; waited += 20) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+  /** Callbacks of `until`, run whenever the clip's stored content changes. */
+  const patchWaiters = new Set<() => void>();
+  $effect(() => {
+    void stored;
+    void storedCc;
+    for (const wake of [...patchWaiters]) wake();
+    // The queue is idle: whatever changed the clip now (undo, MCP, an operation) is the truth.
+    if (!queue.busy && optimistic) optimistic = null;
+  });
+
+  /** Resolves true once `done()` holds (checked when the clip changes), false after `limit` ms. */
+  function until(done: () => boolean, limit: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (done()) return resolve(true);
+      const finish = (result: boolean) => {
+        clearTimeout(timer);
+        patchWaiters.delete(wake);
+        resolve(result);
+      };
+      const wake = () => done() && finish(true);
+      const timer = setTimeout(() => finish(false), limit);
+      patchWaiters.add(wake);
+    });
   }
 
-  const queue = new EditQueue<Content>(
-    async (state) => {
+  /** Which clips' last edit was seen arriving in the project, until the queue goes idle. */
+  const landed = new Map<number, boolean>();
+
+  const queue = new EditQueue<number, Content>(
+    async (target, state) => {
       const baseNotes = stored;
       const baseControllers = storedCc;
       // Both halves are sent, so an edit of one never reverts an earlier edit of the other.
-      await onEdit({ notes: state.notes, controllers: state.controllers });
-      await until(() => stored !== baseNotes || storedCc !== baseControllers, 400);
+      const accepted = await onEdit(target, { notes: state.notes, controllers: state.controllers });
+      if (accepted === false) return false;
+      const seen = await until(
+        () => clip.id !== target || stored !== baseNotes || storedCc !== baseControllers,
+        1000,
+      );
+      landed.set(target, seen);
+      return true;
     },
-    () => {
-      const mine = optimistic;
-      setTimeout(() => {
-        if (optimistic === mine && !queue.busy) optimistic = null;
-      }, 400);
+    {
+      onIdle: () => {
+        const mine = optimistic;
+        if (landed.get(clip.id) === true) optimistic = null;
+        else {
+          // The patch was not seen: keep the result shown for a moment, then trust the clip.
+          setTimeout(() => {
+            if (optimistic === mine && !queue.busy) optimistic = null;
+          }, 400);
+        }
+        landed.clear();
+      },
+      // A refused edit never arrived: show the clip as it is.
+      onFail: (target) => {
+        if (target === clip.id) optimistic = null;
+      },
     },
   );
 
@@ -243,7 +281,7 @@
     if (!notes && !controllers) return;
     const next = { notes: notes ?? committed, controllers: controllers ?? committedCc };
     optimistic = next;
-    queue.push(next);
+    queue.push(clip.id, next);
   }
 
   function surfacePoint(target: HTMLElement | undefined, event: { clientX: number; clientY: number }) {
@@ -400,10 +438,13 @@
   /** Runs a note operation on the selection (the whole clip when nothing is selected). */
   async function runOp(edit: MidiEdit) {
     // Edits still on their way come first, so the indices below name the same notes there.
+    const target = clip.id;
     await queue.idle();
+    optimistic = null;
+    if (clip.id !== target) return;
     const before = stored;
     const indices = indicesOf(committed, selectedSet);
-    const reply = await onMidiEdit(edit, indices.length > 0 ? indices : null);
+    const reply = await onMidiEdit(target, edit, indices.length > 0 ? indices : null);
     if (indices.length === 0 || !reply) return;
     // Operations keep the order of the notes, so the same positions are the same notes (unless
     // a transpose dropped some, then the selection ends).
