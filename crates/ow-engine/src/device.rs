@@ -432,7 +432,7 @@ mod tests {
 
     /// The pedal value the device ends up with after the node orders its pending live events.
     fn final_pedal(node: &mut DeviceNode) -> Option<u8> {
-        let mut events: Vec<Event> = node.live_events.drain(..).collect();
+        let mut events = std::mem::take(&mut node.live_events);
         order_events(&mut events, &mut Vec::with_capacity(64));
         events.iter().rev().find_map(|e| match e.kind {
             EventKind::ControlChange {
