@@ -86,7 +86,7 @@ export function midiEdit(
   );
 }
 
-export const undo =(transport?: IpcTransport) => ipcCommand({ type: "undo" }, transport);
+export const undo = (transport?: IpcTransport) => ipcCommand({ type: "undo" }, transport);
 export const redo = (transport?: IpcTransport) => ipcCommand({ type: "redo" }, transport);
 export const cancelTransaction = (transport?: IpcTransport) =>
   ipcCommand({ type: "cancel" }, transport);

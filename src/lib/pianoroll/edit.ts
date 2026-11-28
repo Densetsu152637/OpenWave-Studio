@@ -1,6 +1,6 @@
 import type { Note } from "../ipc/types";
 import { KEYS, snapNearest } from "./grid";
-import { noteId, sortNotes } from "./notes";
+import { idsOfPicked, noteIds, sortNotes } from "./notes";
 
 /**
  * Edits of a group of notes (the selection) as pure functions: each takes the clip's notes and
@@ -17,13 +17,13 @@ const EPS = 1e-9;
 
 /** The ids a selection of `indices` of `notes` has. */
 export const idsAt = (notes: readonly Note[], indices: readonly number[]): string[] =>
-  indices.flatMap((i) => (notes[i] ? [noteId(notes[i]!)] : []));
+  noteIds(notes).filter((_, i) => indices.includes(i));
 
 /** The indices in `notes` of the notes whose ids are in `selection` (ascending). */
 export function indicesOf(notes: readonly Note[], selection: ReadonlySet<string>): number[] {
   const out: number[] = [];
-  notes.forEach((n, i) => {
-    if (selection.has(noteId(n))) out.push(i);
+  noteIds(notes).forEach((id, i) => {
+    if (selection.has(id)) out.push(i);
   });
   return out;
 }
@@ -80,10 +80,8 @@ export function moveNotes(
   const moved = picked.map((n) => ({ ...n, start: n.start + beats, key: n.key + keys }));
   const staying = notes.filter((_, i) => copy || !chosen.has(i));
   if (moved.some((m) => staying.some((s) => overlaps(m, s)))) return null;
-  return {
-    notes: sortNotes([...staying, ...moved]),
-    selected: moved.map(noteId),
-  };
+  const sorted = sortNotes([...staying, ...moved]);
+  return { notes: sorted, selected: idsOfPicked(sorted, new Set(moved)) };
 }
 
 /** The first start of a note on `key` at or after `from`, skipping index `skip`. */
@@ -150,7 +148,7 @@ export function resizeNotes(
   if (!changed) return null;
   const resized = new Set(indices.map((i) => out[i]!));
   const sorted = sortNotes(out);
-  return { notes: sorted, selected: sorted.filter((n) => resized.has(n)).map(noteId) };
+  return { notes: sorted, selected: idsOfPicked(sorted, resized) };
 }
 
 /**
@@ -180,7 +178,8 @@ export function duplicateNotes(
     all.push(copy);
   }
   if (copies.length === 0) return null;
-  return { notes: sortNotes(all), selected: copies.map(noteId) };
+  const sorted = sortNotes(all);
+  return { notes: sorted, selected: idsOfPicked(sorted, new Set(copies)) };
 }
 
 /** The notes without those at `indices`. */
@@ -190,7 +189,7 @@ export function deleteNotes(notes: readonly Note[], indices: readonly number[]):
 }
 
 /** Every note id. */
-export const allIds = (notes: readonly Note[]): string[] => notes.map(noteId);
+export const allIds = (notes: readonly Note[]): string[] => noteIds(notes);
 
 /**
  * Sets the velocity of the grabbed note `anchor` to `velocity` and scales the other notes at

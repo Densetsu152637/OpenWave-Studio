@@ -1,7 +1,7 @@
 import type { Note } from "../ipc/types";
-import { idsAt, indicesOf, moveNotes, resizeNotes } from "./edit";
+import { indicesOf, moveNotes, resizeNotes } from "./edit";
 import { type RollView, hitTest, noteRect, pointToCell } from "./grid";
-import { addNote, noteId } from "./notes";
+import { addNote, idsOfPicked, noteIds } from "./notes";
 
 /** What a press on empty space does: draw a note, or start a selection rectangle. */
 export type Tool = "draw" | "select";
@@ -76,7 +76,7 @@ export function press(
   const cell = pointToCell(view, x, y);
   if (hit) {
     const note = notes[hit.index]!;
-    const id = noteId(note);
+    const id = noteIds(notes)[hit.index]!;
     if (shift) {
       const next = new Set(selection);
       if (next.has(id)) {
@@ -104,7 +104,7 @@ export function press(
     const note = added.find(
       (n) => n.key === cell.key && n.start <= cell.beat + 1e-9 && n.start + n.length > cell.beat - 1e-9,
     )!;
-    return { type: "add", notes: added, selection: [noteId(note)] };
+    return { type: "add", notes: added, selection: idsOfPicked(added, new Set([note])) };
   }
   const base = shift ? [...selection] : [];
   return {
@@ -180,7 +180,8 @@ export function marqueeIds(notes: readonly Note[], view: RollView, m: Marquee): 
     const r = noteRect(view, n);
     return r.x < right && r.x + r.width > left && r.y < bottom && r.y + r.height > top;
   });
-  return [...new Set([...m.base, ...idsAt(hits, hits.map((_, i) => i))])];
+  const picked = new Set(hits);
+  return [...new Set([...m.base, ...idsOfPicked(notes, picked)])];
 }
 
 /** The marquee moved to `x`, `y`, with the selection it gives. */

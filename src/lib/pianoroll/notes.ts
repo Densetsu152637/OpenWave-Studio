@@ -15,6 +15,27 @@ export function sortNotes(notes: readonly Note[]): Note[] {
 /** Identity of a note inside its clip: notes on one key never overlap, so key and start name one. */
 export const noteId = (note: Pick<Note, "key" | "start">): string => `${note.key}:${note.start}`;
 
+/**
+ * One id per note of the list, unique even when notes share key and start (quantize can put
+ * two notes of a key on one start): the first keeps `noteId`, later ones get `#1`, `#2`, ...
+ * in list order. A selection is a set of these ids for the list it was made on.
+ */
+export function noteIds(notes: readonly Pick<Note, "key" | "start">[]): string[] {
+  const seen = new Map<string, number>();
+  return notes.map((n) => {
+    const id = noteId(n);
+    const count = seen.get(id) ?? 0;
+    seen.set(id, count + 1);
+    return count === 0 ? id : `${id}#${count}`;
+  });
+}
+
+/** The ids, in `notes`, of the notes that are (by identity) in `picked`. */
+export function idsOfPicked(notes: readonly Note[], picked: ReadonlySet<Note>): string[] {
+  const ids = noteIds(notes);
+  return ids.filter((_, i) => picked.has(notes[i]!));
+}
+
 const sameNote = (a: Note, b: Note) =>
   a.key === b.key && a.start === b.start && a.length === b.length;
 
@@ -151,6 +172,30 @@ export function replaceContentCommand(clip: Clip, change: ClipEdit): EditCommand
 /** The controller events of a MIDI clip (none for other clips). */
 export function clipControllers(clip: Clip): readonly Controller[] {
   return clip.content.type === "midi" ? clip.content.controllers : [];
+}
+
+/** True when both lists hold the same notes in the same order. */
+export function sameNotes(a: readonly Note[], b: readonly Note[]): boolean {
+  return (
+    a === b ||
+    (a.length === b.length &&
+      a.every((n, i) => {
+        const m = b[i]!;
+        return n.start === m.start && n.length === m.length && n.key === m.key && n.velocity === m.velocity;
+      }))
+  );
+}
+
+/** True when both lists hold the same controller events in the same order. */
+export function sameControllers(a: readonly Controller[], b: readonly Controller[]): boolean {
+  return (
+    a === b ||
+    (a.length === b.length &&
+      a.every((c, i) => {
+        const d = b[i]!;
+        return c.beat === d.beat && c.controller === d.controller && c.value === d.value;
+      }))
+  );
 }
 
 /** The notes of a MIDI clip (none for other clips). */

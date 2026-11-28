@@ -22,7 +22,7 @@ import {
 import { dragMarquee, dragPreview, marqueeIds, press } from "./gesture";
 import { noteRect } from "./grid";
 import { rollKeyAction } from "./keys";
-import { replaceContentCommand } from "./notes";
+import { noteIds, replaceContentCommand, sameControllers, sameNotes } from "./notes";
 import { SCALES, ROOTS, rowKind, scaleById } from "./scale";
 import {
   DEFAULT_OPS,
@@ -332,5 +332,41 @@ describe("keys and commands", () => {
     expect(onlyCc).toMatchObject({ clip: { content: { notes: [n(0, 1, 60)], controllers: [] } } });
     const onlyNotes = replaceContentCommand(clip, { notes: [] });
     expect(onlyNotes).toMatchObject({ clip: { content: { notes: [], controllers: [{ beat: 1, controller: 1, value: 2 }] } } });
+  });
+});
+
+describe("notes that share key and start", () => {
+  // Quantize can put two notes of one key on one start.
+  const twins = [n(1, 0.5, 60), n(1, 0.5, 60, 80), n(2, 1, 62)];
+
+  it("gives every note its own id, in list order", () => {
+    expect(noteIds(twins)).toEqual(["60:1", "60:1#1", "62:2"]);
+    expect(new Set(noteIds(twins)).size).toBe(3);
+  });
+
+  it("selects exactly one of the twins and edits only that one", () => {
+    expect(indicesOf(twins, new Set(["60:1#1"]))).toEqual([1]);
+    expect(indicesOf(twins, new Set(["60:1"]))).toEqual([0]);
+    const r = moveNotes(twins, [1], 1, 0, 1, GRID, CLIP)!;
+    expect(r.notes).toHaveLength(3);
+    expect(r.notes.filter((x) => x.key === 60)).toHaveLength(1);
+    expect(r.selected).toEqual(["61:1"]);
+    const rect = noteRect(view, twins[1]!);
+    // The topmost (last) twin is the one grabbed.
+    expect(press(twins, new Set(), view, rect.x + 30, rect.y + 2, opts())).toMatchObject({
+      type: "drag",
+      selection: ["60:1#1"],
+    });
+  });
+
+  it("marquee names every twin", () => {
+    expect(marqueeIds(twins, view, { x0: 0, y0: 0, x1: 5000, y1: 5000, base: [] })).toEqual(noteIds(twins));
+  });
+
+  it("compares note and controller lists by content", () => {
+    expect(sameNotes([n(0, 1, 60)], [n(0, 1, 60)])).toBe(true);
+    expect(sameNotes([n(0, 1, 60)], [n(0, 1, 60, 99)])).toBe(false);
+    expect(sameControllers([{ beat: 0, controller: 1, value: 3 }], [{ beat: 0, controller: 1, value: 3 }])).toBe(true);
+    expect(sameControllers([], [{ beat: 0, controller: 1, value: 3 }])).toBe(false);
   });
 });

@@ -45,7 +45,14 @@
     zoomRoll,
   } from "../pianoroll/grid";
   import { type RollKeyAction, ROLL_SHORTCUTS, rollKeyAction } from "../pianoroll/keys";
-  import { type ClipEdit, clipControllers, clipNotes, noteId } from "../pianoroll/notes";
+  import {
+    type ClipEdit,
+    clipControllers,
+    clipNotes,
+    noteIds,
+    sameControllers,
+    sameNotes,
+  } from "../pianoroll/notes";
   import { ROOTS, SCALES, rowKind, scaleById } from "../pianoroll/scale";
   import {
     DEFAULT_OPS,
@@ -84,7 +91,7 @@
     color: number;
     signatures: SignatureMap;
     /** Replaces the clip's notes and/or controller events (one undo step). */
-    onEdit: (change: ClipEdit) => void;
+    onEdit: (change: ClipEdit) => unknown;
     /** Runs a note operation on the notes at these indices (all when null). */
     onMidiEdit: (edit: MidiEdit, notes: number[] | null) => Promise<MidiEditReply | undefined>;
     onClose: () => void;
@@ -129,10 +136,29 @@
   let velocitySurface = $state<HTMLElement>();
   let ccSurface = $state<HTMLElement>();
   /** A toolbar operation is waiting for the clip to change, to select the same notes again. */
-  let pending = $state<{ before: readonly Note[]; indices: number[] } | null>(null);
+  let pending = $state.raw<{ before: readonly Note[]; indices: number[] } | null>(null);
+  /**
+   * What the last edits set, shown (and built on) until the clip's own content changes: the
+   * patch of an edit arrives after the gesture ended, and a second gesture in between must not
+   * start from the stale clip and overwrite the first.
+   */
+  let optimistic = $state.raw<{
+    notes: readonly Note[];
+    controllers: readonly Controller[];
+    baseNotes: readonly Note[];
+    baseControllers: readonly Controller[];
+  } | null>(null);
+  let inflight: Promise<unknown> = Promise.resolve();
 
-  const committed = $derived(clipNotes(clip));
-  const committedCc = $derived(clipControllers(clip));
+  const stored = $derived(clipNotes(clip));
+  const storedCc = $derived(clipControllers(clip));
+  const committed = $derived(
+    optimistic && optimistic.baseNotes === stored ? optimistic.notes : stored,
+  );
+  const committedCc = $derived(
+    optimistic && optimistic.baseControllers === storedCc ? optimistic.controllers : storedCc,
+  );
+  const selectedCount = $derived(indicesOf(committed, new Set(selected)).length);
   const notes = $derived(
     drag
       ? (drag.preview?.notes ?? drag.drag.notes)
@@ -142,13 +168,14 @@
   );
   const controllers = $derived(ccDrag ? ccDrag.preview : committedCc);
   const selectedSet = $derived(new Set(selected));
+  const shownIds = $derived(noteIds(notes));
   const size = $derived(rollSize(view, clip.length));
   const lines = $derived(gridLines(view, clip.start, clip.length, prefs.grid, signatures));
   const coarse = $derived(lines.filter((l) => l.kind !== "grid"));
   const keys = Array.from({ length: KEYS }, (_, row) => KEYS - 1 - row);
   const scale = $derived(scaleById(prefs.scale));
   const shownCc = $derived(ccEvents(controllers, prefs.controller));
-  const scope = $derived(selected.length > 0 ? `${selected.length} selected` : "whole clip");
+  const scope = $derived(selectedCount > 0 ? `${selectedCount} selected` : "whole clip");
   const ccPresetKnown = $derived(CC_PRESETS.some((p) => p.controller === prefs.controller));
 
   // Scroll the notes' key range into view when a clip opens (not on every edit).
@@ -175,14 +202,43 @@
     }
   });
 
+  // A selection never names notes that are gone (undo, redo or an MCP edit removed them).
+  $effect(() => {
+    if (drag || marquee || velocityDrag) return;
+    const present = new Set(noteIds(committed));
+    if (selected.some((id) => !present.has(id))) selected = selected.filter((id) => present.has(id));
+  });
+
   // After a toolbar operation changed the clip, select the notes at the same positions again.
   $effect(() => {
     const wait = pending;
-    if (wait && committed !== wait.before) {
-      selected = idsAt(committed, wait.indices);
+    if (wait && stored !== wait.before) {
+      selected = idsAt(stored, wait.indices);
       pending = null;
     }
   });
+
+  /** Sends an edit (unless it changes nothing) and shows its result until the patch arrives. */
+  function commit(change: ClipEdit) {
+    const notes = change.notes && !sameNotes(change.notes, committed) ? change.notes : undefined;
+    const controllers =
+      change.controllers && !sameControllers(change.controllers, committedCc) ? change.controllers : undefined;
+    if (!notes && !controllers) return;
+    const mine = {
+      notes: notes ?? committed,
+      controllers: controllers ?? committedCc,
+      baseNotes: stored,
+      baseControllers: storedCc,
+    };
+    optimistic = mine;
+    inflight = Promise.resolve(onEdit({ notes, controllers }))
+      .catch(() => undefined)
+      .then(() => {
+        setTimeout(() => {
+          if (optimistic === mine) optimistic = null;
+        }, 400);
+      });
+  }
 
   function surfacePoint(target: HTMLElement | undefined, event: { clientX: number; clientY: number }) {
     const rect = target!.getBoundingClientRect();
@@ -204,7 +260,7 @@
     });
     selected = result.selection;
     if (result.type === "add") {
-      onEdit({ notes: result.notes });
+      commit({ notes: result.notes });
     } else if (result.type === "drag") {
       surface.setPointerCapture(event.pointerId);
       drag = { drag: result.drag, preview: null, base: result.selection };
@@ -239,7 +295,7 @@
     if (event.type !== "pointerup") {
       selected = done.base;
     } else if (done.preview) {
-      onEdit({ notes: done.preview.notes });
+      commit({ notes: done.preview.notes });
     } else if (done.drag.clickSelection) {
       selected = done.drag.clickSelection;
     }
@@ -252,7 +308,7 @@
     const hit = hitTest(committed, view, x, y);
     if (hit) {
       selected = [];
-      onEdit({ notes: deleteNotes(committed, [hit.index]) });
+      commit({ notes: deleteNotes(committed, [hit.index]) });
     }
   }
 
@@ -264,7 +320,7 @@
     const { x, y } = surfacePoint(velocitySurface, event);
     const hit = hitBar(committed, view, x, y, LANE_HEIGHT);
     if (hit === null) return;
-    const id = noteId(committed[hit]!);
+    const id = noteIds(committed)[hit]!;
     if (event.shiftKey && !selectedSet.has(id)) selected = [...selected, id];
     else if (!selectedSet.has(id)) selected = [id];
     const indices = indicesOf(committed, new Set(selected));
@@ -289,7 +345,7 @@
     if (!velocityDrag) return;
     const done = velocityDrag;
     velocityDrag = null;
-    if (event.type === "pointerup" && done.preview) onEdit({ notes: done.preview });
+    if (event.type === "pointerup" && done.preview) commit({ notes: done.preview });
   }
 
   // ---- The controller lane ----
@@ -322,7 +378,7 @@
     if (!ccDrag) return;
     const done = ccDrag;
     ccDrag = null;
-    if (event.type === "pointerup") onEdit({ controllers: done.preview });
+    if (event.type === "pointerup") commit({ controllers: done.preview });
   }
 
   function onCcContextMenu(event: MouseEvent) {
@@ -330,21 +386,30 @@
     if (!ccSurface) return;
     const { x } = surfacePoint(ccSurface, event);
     const next = eraseNear(committedCc, prefs.controller, view, x);
-    if (next) onEdit({ controllers: next });
+    if (next) commit({ controllers: next });
   }
 
   // ---- Operations ----
 
   /** Runs a note operation on the selection (the whole clip when nothing is selected). */
   async function runOp(edit: MidiEdit) {
-    const before = committed;
-    const indices = indicesOf(before, selectedSet);
+    // Edits still on their way come first, so the indices below name the same notes there.
+    await inflight;
+    const before = stored;
+    const indices = indicesOf(committed, selectedSet);
     const reply = await onMidiEdit(edit, indices.length > 0 ? indices : null);
     if (indices.length === 0 || !reply) return;
     // Operations keep the order of the notes, so the same positions are the same notes (unless
     // a transpose dropped some, then the selection ends).
-    if (reply.notesAfter === reply.notesBefore) pending = { before, indices };
-    else selected = [];
+    if (reply.notesAfter !== reply.notesBefore) {
+      selected = [];
+      return;
+    }
+    pending = { before, indices };
+    // An operation that changed nothing sends no new content: stop waiting for it.
+    setTimeout(() => {
+      if (pending?.before === before) pending = null;
+    }, 500);
   }
 
   async function runHumanize() {
@@ -361,7 +426,7 @@
     const result = moveNotes(committed, indices, indices[0]!, deltaBeats, deltaKeys, prefs.grid, clip.length);
     if (!result) return;
     selected = result.selected;
-    onEdit({ notes: result.notes });
+    commit({ notes: result.notes });
   }
 
   function perform(action: RollKeyAction): boolean {
@@ -370,7 +435,7 @@
       case "delete":
         if (indices.length === 0) return false;
         selected = [];
-        onEdit({ notes: deleteNotes(committed, indices) });
+        commit({ notes: deleteNotes(committed, indices) });
         return true;
       case "select-all":
         selected = allIds(committed);
@@ -379,7 +444,7 @@
         const result = duplicateNotes(committed, indices, prefs.grid, clip.length);
         if (!result) return indices.length > 0;
         selected = result.selected;
-        onEdit({ notes: result.notes });
+        commit({ notes: result.notes });
         return true;
       }
       case "deselect":
@@ -565,11 +630,11 @@
         {#each lines as line (line.beat)}
           <div class="line {line.kind}" style:left="{line.x}px"></div>
         {/each}
-        {#each notes as note (noteId(note))}
+        {#each notes as note, index (shownIds[index])}
           {@const rect = noteRect(view, note)}
           <div
             class="note"
-            class:selected={selectedSet.has(noteId(note))}
+            class:selected={selectedSet.has(shownIds[index]!)}
             style:left="{rect.x}px"
             style:top="{rect.y}px"
             style:width="{rect.width}px"
@@ -613,11 +678,11 @@
           {#each coarse as line (line.beat)}
             <div class="line {line.kind}" style:left="{line.x}px"></div>
           {/each}
-          {#each notes as note (noteId(note))}
+          {#each notes as note, index (shownIds[index])}
             {@const bar = barRect(view, note, LANE_HEIGHT)}
             <div
               class="bar"
-              class:selected={selectedSet.has(noteId(note))}
+              class:selected={selectedSet.has(shownIds[index]!)}
               style:left="{bar.x}px"
               style:top="{bar.y}px"
               style:width="{bar.width}px"
@@ -663,7 +728,7 @@
       <button
         type="button"
         disabled={shownCc.length === 0}
-        onclick={() => onEdit({ controllers: clearController(committedCc, prefs.controller) })}>Clear</button
+        onclick={() => commit({ controllers: clearController(committedCc, prefs.controller) })}>Clear</button
       >
     </div>
     <div class="lane-body" style:height="{LANE_HEIGHT}px">
