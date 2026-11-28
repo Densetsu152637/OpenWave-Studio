@@ -86,6 +86,7 @@
     onEdit,
     onMidiEdit,
     onClose,
+    onChrome,
   }: {
     clip: Clip;
     /** The track's color (0xRRGGBB). */
@@ -96,10 +97,12 @@
     /** Runs a note operation on the notes at these indices (all when null). */
     onMidiEdit: (clip: number, edit: MidiEdit, notes: number[] | null) => Promise<MidiEditReply | undefined>;
     onClose: () => void;
+    /** Reports the roll's height besides its note grid (toolbar rows and lanes), as it changes. */
+    onChrome?: (height: number) => void;
   } = $props();
 
   const ZOOM_STEP = 1.25;
-  const LANE_HEIGHT = 72;
+  const LANE_HEIGHT = 56;
   const PREFS_KEY = "openwave.pianoroll.prefs";
 
   function loadPrefs(): RollPrefs {
@@ -131,6 +134,18 @@
   let scroller = $state<HTMLElement>();
   let scrollLeft = $state(0);
   let root = $state<HTMLElement>();
+
+  // Measure everything but the note grid; the toolbar rows wrap when the roll is narrow.
+  $effect(() => {
+    const el = root;
+    if (!el || !onChrome) return;
+    const parts = () => [...el.children].filter((child) => child !== scroller) as HTMLElement[];
+    const report = () => onChrome(Math.ceil(parts().reduce((sum, part) => sum + part.offsetHeight, 0)));
+    const observer = new ResizeObserver(report);
+    for (const part of parts()) observer.observe(part);
+    report();
+    return () => observer.disconnect();
+  });
   /** The last press was inside the roll, so its keys act on the roll. */
   let active = $state(false);
   let surface = $state<HTMLElement>();
@@ -861,7 +876,7 @@
   }
   .scroll {
     flex: 1;
-    min-height: 60px;
+    min-height: 48px;
     overflow: auto;
   }
   .inner {

@@ -4,6 +4,16 @@
   import { tauriTransport } from "../ipc";
   import Lane from "./Lane.svelte";
   import PianoRoll from "./PianoRoll.svelte";
+  import {
+    DOCK_KEY,
+    clampDock,
+    dockHeight,
+    dockLowest,
+    dockMax,
+    parseDockHeight,
+    reserveOf,
+    type DockSpace,
+  } from "../arrange/dock";
   import LoopBrowser from "../browser/LoopBrowser.svelte";
   import {
     clampTranspose,
@@ -188,6 +198,16 @@
   let view = $state.raw<View>(DEFAULT_VIEW);
   let width = $state(800);
   let selectedTrack = $state<number | null>(null);
+  /** Height of the arrangement column; the dock is sized against it. */
+  let columnHeight = $state(0);
+  /** Measured heights of the toolbar and the ruler block, which the dock must leave room for. */
+  let toolbarHeight = $state(0);
+  let rulerHeight = $state(0);
+  /** Measured height of the open roll besides its note grid. */
+  let rollChrome = $state(300);
+  /** The height the user dragged the dock to, or null for the default. */
+  let savedDock = $state<number | null>(loadDock());
+  let dockDrag: { pointer: number; startY: number; startHeight: number } | null = null;
   /** The loop browser is shown above the dock. */
   let browserOpen = $state(false);
   /** A bus (its id) or the master selected instead of a track; its FX and sends fill the dock. */
@@ -299,6 +319,64 @@
     return clip?.content.type === "midi" ? clip : undefined;
   });
   const rollTrack = $derived(rollClip ? tracks.find((t) => t.id === rollClip.track) : undefined);
+  function loadDock(): number | null {
+    try {
+      return parseDockHeight(localStorage.getItem(DOCK_KEY));
+    } catch {
+      return null;
+    }
+  }
+  function storeDock(height: number | null) {
+    try {
+      if (height === null) localStorage.removeItem(DOCK_KEY);
+      else localStorage.setItem(DOCK_KEY, String(height));
+    } catch {
+      // Browser storage can be unavailable; the dock still resizes.
+    }
+  }
+  const dockSpace = $derived<DockSpace>({
+    available: columnHeight || 800,
+    reserve: reserveOf(toolbarHeight, rulerHeight),
+    chrome: rollChrome,
+  });
+  const dockPx = $derived(dockHeight(savedDock, dockSpace, rollClip !== undefined));
+  const dockLow = $derived(dockLowest(dockSpace, true));
+  const dockHigh = $derived(dockMax(dockSpace, true));
+  function dockDown(event: PointerEvent) {
+    if (event.button !== 0) return;
+    try {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    } catch {
+      // Capture is only a convenience; the drag still follows the pointer over the handle.
+    }
+    dockDrag = { pointer: event.pointerId, startY: event.clientY, startHeight: dockPx };
+    event.preventDefault();
+  }
+  function dockMove(event: PointerEvent) {
+    if (!dockDrag || event.pointerId !== dockDrag.pointer) return;
+    savedDock = clampDock(
+      dockDrag.startHeight + dockDrag.startY - event.clientY,
+      dockSpace,
+      true,
+    );
+  }
+  function dockUp(event: PointerEvent) {
+    if (!dockDrag || event.pointerId !== dockDrag.pointer) return;
+    dockDrag = null;
+    storeDock(savedDock);
+  }
+  function dockReset() {
+    savedDock = null;
+    storeDock(null);
+  }
+  function dockKey(event: KeyboardEvent) {
+    const step = event.key === "ArrowUp" ? 24 : event.key === "ArrowDown" ? -24 : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    savedDock = clampDock(dockPx + step, dockSpace, true);
+    storeDock(savedDock);
+  }
+
   /** The track whose FX list and panel the dock shows: the open clip's, else the selected one. */
   const dockTrack = $derived(rollTrack ?? tracks.find((t) => t.id === selectedTrack));
   /** The bus or master the dock shows when no track is selected. */
@@ -863,8 +941,8 @@
   onpointercancel={() => dragging && onDragEnd(false)}
 />
 
-<main class="arrangement" aria-label="Arrangement">
-  <div class="toolbar">
+<main class="arrangement" aria-label="Arrangement" bind:clientHeight={columnHeight}>
+  <div class="toolbar" bind:clientHeight={toolbarHeight}>
     <button type="button" onclick={addAudioTrack} disabled={!project}>Add audio track</button>
     <button type="button" onclick={() => addInstrumentTrack()} disabled={!project || descriptors.length === 0}>
       Add MIDI track
@@ -1027,7 +1105,7 @@
       onscroll={() => (scrollTop = scroller?.scrollTop ?? 0)}
     >
       <div class="content">
-        <div class="ruler-block">
+        <div class="ruler-block" bind:clientHeight={rulerHeight}>
           <div class="row ruler-row" style:height="{RULER_PX}px">
             <div class="corner" style:width="{HEADER_PX}px"></div>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1278,7 +1356,27 @@
       />
     {/if}
     {#if dockRef && dockStrip}
-      <section class="dock" aria-label="Piano roll, FX and device panel">
+      {#if rollClip}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+        <div
+          class="dock-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the dock"
+          aria-valuenow={dockPx}
+          aria-valuemin={dockLow}
+          aria-valuemax={dockHigh}
+          aria-valuetext="{dockPx} pixels high"
+          tabindex="0"
+          onpointerdown={dockDown}
+          onpointermove={dockMove}
+          onpointerup={dockUp}
+          onpointercancel={dockUp}
+          ondblclick={dockReset}
+          onkeydown={dockKey}
+        ></div>
+      {/if}
+      <section class="dock" style:height="{dockPx}px" aria-label="Piano roll, FX and device panel">
         {#if rollClip && rollTrack}
           <PianoRoll
             clip={rollClip}
@@ -1294,6 +1392,7 @@
               }
             }}
             onClose={() => (openClip = null)}
+            onChrome={(height) => (rollChrome = height)}
           />
         {:else}
           <p class="dock-hint">
@@ -1501,10 +1600,25 @@
   }
   .dock {
     display: flex;
-    height: 280px;
     flex: none;
+    min-height: 0;
+    overflow: hidden;
     border-top: 1px solid var(--border);
     background: var(--bg);
+  }
+  .dock-handle {
+    flex: none;
+    height: 6px;
+    margin-bottom: -6px;
+    position: relative;
+    z-index: 5;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .dock-handle:hover,
+  .dock-handle:focus-visible {
+    background: color-mix(in srgb, var(--accent) 50%, transparent);
+    outline: none;
   }
   .dock-hint {
     flex: 1;
