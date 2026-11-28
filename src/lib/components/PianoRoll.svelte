@@ -99,7 +99,7 @@
   } = $props();
 
   const ZOOM_STEP = 1.25;
-  const LANE_HEIGHT = 72;
+  const LANE_HEIGHT = 56;
   const PREFS_KEY = "openwave.pianoroll.prefs";
 
   function loadPrefs(): RollPrefs {
@@ -861,7 +861,7 @@
   }
   .scroll {
     flex: 1;
-    min-height: 60px;
+    min-height: 100px;
     overflow: auto;
   }
   .inner {
