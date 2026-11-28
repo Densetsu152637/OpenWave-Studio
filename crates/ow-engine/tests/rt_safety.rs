@@ -804,7 +804,23 @@ fn the_midi_clip_player_and_synth_are_allocation_free() {
                     muted: false,
                     content: ClipContent::Midi {
                         notes,
-                        controllers: vec![],
+                        controllers: vec![
+                            ow_model::Controller {
+                                beat: 0.5,
+                                controller: 1,
+                                value: 64,
+                            },
+                            ow_model::Controller {
+                                beat: 1.0,
+                                controller: 64,
+                                value: 127,
+                            },
+                            ow_model::Controller {
+                                beat: 3.0,
+                                controller: 64,
+                                value: 0,
+                            },
+                        ],
                     },
                     take: None,
                 }],
@@ -927,7 +943,23 @@ fn the_mix_stages_and_the_limiter_are_allocation_free() {
                         muted: false,
                         content: ClipContent::Midi {
                             notes,
-                            controllers: vec![],
+                            controllers: vec![
+                                ow_model::Controller {
+                                    beat: 0.5,
+                                    controller: 1,
+                                    value: 64,
+                                },
+                                ow_model::Controller {
+                                    beat: 1.0,
+                                    controller: 64,
+                                    value: 127,
+                                },
+                                ow_model::Controller {
+                                    beat: 3.0,
+                                    controller: 64,
+                                    value: 0,
+                                },
+                            ],
                         },
                         take: None,
                     }],
