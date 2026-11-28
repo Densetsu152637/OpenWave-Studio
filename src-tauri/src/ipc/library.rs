@@ -18,7 +18,8 @@ use ow_ipc::{
 };
 use ow_media::import::{ImportLimits, decode_file};
 use ow_media::library::{
-    LibraryEntry, LibraryIndex, Query, ScanControl, ScanOptions, load_index, preview_in_tempo, scan,
+    LibraryEntry, LibraryIndex, Query, ScanControl, ScanOptions, ScanReport, load_index,
+    preview_in_tempo, scan,
 };
 
 use std::sync::{Arc, Mutex};
@@ -240,6 +241,16 @@ fn begin_scan(state: &Mutex<LibraryState>, roots: &[PathBuf]) -> Result<ScanCont
     Ok(control)
 }
 
+/// Clears the running mark when dropped, so every exit of a scan (normal, cancelled or a panic
+/// unwinding out of the analysis) leaves the state free for the next one.
+struct RunningGuard<'a>(&'a Mutex<LibraryState>);
+
+impl Drop for RunningGuard<'_> {
+    fn drop(&mut self) {
+        lock(self.0).running = None;
+    }
+}
+
 /// Runs the scan to its end and keeps the result; clears the running mark.
 fn run_scan(
     state: &Mutex<LibraryState>,
@@ -248,17 +259,28 @@ fn run_scan(
     cache: &Path,
     force: bool,
 ) -> LibraryScanStatus {
-    let report = scan(
-        roots,
-        &ScanOptions {
-            cache_path: Some(cache.to_path_buf()),
-            force,
-            control: Some(control),
-            ..ScanOptions::default()
-        },
-    );
+    run_scan_with(state, roots, || {
+        scan(
+            roots,
+            &ScanOptions {
+                cache_path: Some(cache.to_path_buf()),
+                force,
+                control: Some(control),
+                ..ScanOptions::default()
+            },
+        )
+    })
+}
+
+/// [`run_scan`] with the scan itself supplied, so a test can make it panic.
+fn run_scan_with(
+    state: &Mutex<LibraryState>,
+    roots: &[PathBuf],
+    scan: impl FnOnce() -> ScanReport,
+) -> LibraryScanStatus {
+    let _running = RunningGuard(state);
+    let report = scan();
     let mut library = lock(state);
-    library.running = None;
     library.last = LibraryScanStatus {
         scanning: false,
         done: 0,
@@ -315,6 +337,22 @@ mod tests {
             writer.write_sample((value * 20_000.0) as i16).unwrap();
         }
         writer.finalize().unwrap();
+    }
+
+    #[test]
+    fn a_panicking_scan_clears_the_running_mark() {
+        let state = Mutex::new(LibraryState::default());
+        let roots = [PathBuf::from("unused")];
+        lock(&state).running = Some(ScanControl::new());
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            run_scan_with(&state, &roots, || panic!("analysis failed"))
+        }));
+        assert!(outcome.is_err());
+        assert!(lock(&state).running.is_none());
+        // A normal end clears it too.
+        lock(&state).running = Some(ScanControl::new());
+        run_scan_with(&state, &roots, ScanReport::default);
+        assert!(lock(&state).running.is_none());
     }
 
     #[test]

@@ -25,6 +25,11 @@ export class TempoMap {
     this.#seconds = seconds;
   }
 
+  /** The tempo points, in beat order (at least one). */
+  get points(): readonly TempoPointJson[] {
+    return this.#points;
+  }
+
   #segmentAtBeat(beat: number): number {
     let index = 0;
     while (index + 1 < this.#points.length && this.#points[index + 1]!.beat <= beat) index++;
