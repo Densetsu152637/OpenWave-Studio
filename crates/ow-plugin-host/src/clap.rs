@@ -729,6 +729,8 @@ impl ClapProcessor {
                         0.0,
                     ));
                 }
+                // Controller events are not forwarded to hosted plugins yet.
+                EventKind::ControlChange { .. } => {}
             }
         }
 

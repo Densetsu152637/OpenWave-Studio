@@ -6,9 +6,11 @@ import {
   formatParam,
   newDevice,
   panelControls,
+  panelGroups,
   paramValue,
   positionToValue,
   setParamCommand,
+  shortName,
   valueToPosition,
 } from "./params";
 import type { DeviceDescriptor, ParamDescriptorDto } from "../ipc/types";
@@ -142,6 +144,50 @@ describe("generated panel", () => {
     });
     expect(descriptorFor([synth], device)).toBe(synth);
     expect(descriptorFor([synth], { kind: "vst3:x" })).toBeUndefined();
+  });
+});
+
+describe("sections", () => {
+  const osc2Level = param({ id: 13, name: "Osc 2 Level", group: "Osc 2" });
+  const osc2Wave = param({ id: 12, name: "Osc 2 Waveform", group: "Osc 2", max: 3, default: 0, choices: ["Saw", "Square", "Sine", "Tri"] });
+  const osc1Wave = param({ id: 0, name: "Waveform", group: "Osc 1", max: 1, default: 0, choices: ["A", "B"] });
+  const envAmount = param({ id: 23, name: "Filter Env Amount", group: "Filter", min: -96, max: 96, default: 0, unit: "semitones" });
+  const filterAttack = param({ id: 24, name: "Filter Attack", group: "Filter Envelope", min: 0.001, max: 5, default: 0.01, unit: "seconds" });
+  const loose = param({ id: 99, name: "Loose" });
+  const modular: DeviceDescriptor = {
+    kind: "builtin.x",
+    name: "X",
+    instrument: true,
+    params: [osc1Wave, osc2Level, loose, osc2Wave, envAmount, filterAttack],
+  };
+
+  it("groups controls by section in order of first appearance", () => {
+    const groups = panelGroups({ params: {} }, modular);
+    expect(groups.map((g) => g.name)).toEqual(["Osc 1", "Osc 2", "", "Filter", "Filter Envelope"]);
+    expect(groups[1].controls.map((c) => c.param.name)).toEqual(["Osc 2 Level", "Osc 2 Waveform"]);
+  });
+
+  it("shortens names that repeat their section and keeps the rest", () => {
+    expect(shortName(osc2Level)).toBe("Level");
+    expect(shortName(envAmount)).toBe("Env Amount");
+    expect(shortName(filterAttack)).toBe("Filter Attack");
+    expect(shortName(osc1Wave)).toBe("Waveform");
+    expect(shortName(param({ name: "Op 1", group: "Op 1" }))).toBe("Op 1");
+    expect(shortName(loose)).toBe("Loose");
+  });
+
+  it("marks short choice lists as segmented", () => {
+    const controls = panelControls({ params: {} }, modular);
+    expect(controls.map((c) => c.segmented)).toEqual([true, false, false, true, false, false]);
+    const long = param({ max: 4, choices: ["a", "b", "c", "d", "e"] });
+    expect(panelControls({ params: {} }, { params: [long] })[0].segmented).toBe(false);
+  });
+
+  it("formats pitch units", () => {
+    expect(formatParam(envAmount, 12)).toBe("+12 st");
+    expect(formatParam(envAmount, -3.25)).toBe("-3.3 st");
+    expect(formatParam(param({ unit: "cents", min: -100, max: 100, default: 0 }), 7)).toBe("+7 ct");
+    expect(formatParam(envAmount, 0)).toBe("0 st");
   });
 });
 

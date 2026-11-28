@@ -273,7 +273,7 @@ fn synth_output_stays_finite_at_extreme_settings() {
 fn synth_descriptors_are_consistent_and_registered() {
     let info = find(synth::KIND).expect("registered");
     assert!(info.instrument);
-    assert_eq!(info.params.len(), 8);
+    assert_eq!(info.params.len(), 36);
     let mut ids: Vec<u32> = info.params.iter().map(|p| p.id).collect();
     ids.sort_unstable();
     ids.dedup();

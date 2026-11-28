@@ -730,3 +730,134 @@ fn a_deferred_live_off_comes_before_a_note_on_at_frame_zero_of_the_next_block() 
         .collect();
     assert_eq!(kinds, [(50, true), (0, false), (0, true)], "{log:?}");
 }
+
+/// A graph with one live-input logger instrument; returns the shared log, the core and the
+/// producer of live MIDI.
+fn live_logger(
+    info: &'static DeviceInfo,
+    gate: ow_engine::LiveGate,
+) -> (
+    std::sync::Arc<std::sync::Mutex<Vec<Event>>>,
+    ow_engine::AudioCore,
+    ow_engine::RingSender<Message>,
+    ow_engine::ControlLink,
+) {
+    use ow_engine::{CoreBuilder, MidiClock};
+    let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut graph = Graph::new();
+    let node = DeviceNode::instrument(
+        info,
+        Box::new(Logger(std::sync::Arc::clone(&log))),
+        MidiClipPlayer::new(vec![]),
+    )
+    .with_live_input(gate);
+    let node = graph.add_node(Box::new(node));
+    let master = graph.add_node(Box::new(ow_engine::MasterNode::new()));
+    graph.connect(node, 0, master, 0).unwrap();
+    graph.connect(node, 1, master, 1).unwrap();
+    graph.set_master(master).unwrap();
+    let mut builder = CoreBuilder::new().midi_clock(MidiClock::StreamFrames);
+    let midi = builder.producer_ring(2048);
+    let (mut link, core) = builder.build();
+    link.swap_plan(graph.compile(RATE, MAX_BLOCK).unwrap())
+        .unwrap();
+    (log, core, midi, link)
+}
+
+/// A burst of live controller changes that fills the buffer cannot crowd out a note-off: the
+/// key held from the block before is still released.
+#[test]
+fn a_controller_burst_does_not_crowd_out_a_live_note_off() {
+    use ow_engine::MidiMessage;
+    static INFO: DeviceInfo =
+        DeviceInfo::new("test.logger4", "Logger", true, &[], || Box::new(Skew));
+    let (log, mut core, mut midi, _link) = live_logger(&INFO, ow_engine::LiveGate::Always);
+    let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(RATE)).round() as u64;
+    let msg = |status, data1, data2, frame| Message::MidiIn {
+        message: MidiMessage {
+            status,
+            data1,
+            data2,
+        },
+        timestamp_us: stamp(frame),
+    };
+    midi.push(msg(0x90, 61, 90, 5));
+    let mut buffer = vec![0.0_f32; 128];
+    core.process(&mut buffer, 2, None);
+    // Block two: far more controller changes than the buffer holds, then the note-off.
+    for i in 0..1500_u64 {
+        midi.push(msg(0xB0, 1, (i % 128) as u8, 64 + i % 60));
+    }
+    midi.push(msg(0x80, 61, 0, 125));
+    core.process(&mut buffer, 2, None);
+    let log = log.lock().unwrap();
+    assert!(
+        log.iter()
+            .any(|e| matches!(e.kind, EventKind::NoteOff { key: 61 })),
+        "the note-off arrived"
+    );
+    let controllers = log
+        .iter()
+        .filter(|e| matches!(e.kind, EventKind::ControlChange { .. }))
+        .count();
+    assert!(controllers <= 512, "{controllers} controller events kept");
+}
+
+/// A gate that closes while the live input holds the sustain pedal down lifts the pedal (and
+/// releases the held key) instead of waiting for a physical lift.
+#[test]
+fn closing_the_gate_lifts_a_forwarded_pedal() {
+    use ow_engine::MidiMessage;
+    static INFO: DeviceInfo =
+        DeviceInfo::new("test.logger5", "Logger", true, &[], || Box::new(Skew));
+    let armed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (log, mut core, mut midi, _link) = live_logger(
+        &INFO,
+        ow_engine::LiveGate::Armed(std::sync::Arc::clone(&armed)),
+    );
+    let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(RATE)).round() as u64;
+    for (status, data1, data2, frame) in [(0xB0, 64, 127, 4), (0x90, 61, 90, 8)] {
+        midi.push(Message::MidiIn {
+            message: MidiMessage {
+                status,
+                data1,
+                data2,
+            },
+            timestamp_us: stamp(frame),
+        });
+    }
+    let mut buffer = vec![0.0_f32; 128];
+    core.process(&mut buffer, 2, None);
+    armed.store(false, std::sync::atomic::Ordering::Relaxed);
+    core.process(&mut buffer, 2, None);
+    let log = log.lock().unwrap();
+    let events: Vec<(u32, EventKind)> = log.iter().map(|e| (e.offset, e.kind)).collect();
+    assert_eq!(
+        events,
+        [
+            (
+                4,
+                EventKind::ControlChange {
+                    controller: 64,
+                    value: 127
+                }
+            ),
+            (
+                8,
+                EventKind::NoteOn {
+                    key: 61,
+                    velocity: 90
+                }
+            ),
+            (
+                0,
+                EventKind::ControlChange {
+                    controller: 64,
+                    value: 0
+                }
+            ),
+            (0, EventKind::NoteOff { key: 61 }),
+        ],
+        "{log:?}"
+    );
+}

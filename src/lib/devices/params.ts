@@ -62,6 +62,10 @@ export function formatParam(param: ParamDescriptorDto, value: number): string {
       return `${trim(v, 1)} dB`;
     case "percent":
       return `${trim(v, 0)} %`;
+    case "semitones":
+      return `${v > 0 ? "+" : ""}${trim(v, 1)} st`;
+    case "cents":
+      return `${v > 0 ? "+" : ""}${trim(v, 0)} ct`;
     default:
       return trim(v, 2);
   }
@@ -109,6 +113,32 @@ export interface PanelControl {
   text: string;
   /** A selector (options) rather than a knob. */
   choice: boolean;
+  /** A choice with few options, shown as a row of buttons instead of a drop-down. */
+  segmented: boolean;
+  /** The name to show: the parameter name without its section's name as a prefix. */
+  label: string;
+}
+
+/** The most options a choice can have and still be shown as a row of buttons. */
+export const SEGMENTED_MAX = 4;
+
+/**
+ * The name shown next to a control: `Osc 2 Level` in the section `Osc 2` reads `Level`. A name that
+ * does not start with its section's name is shown whole.
+ */
+export function shortName(param: Pick<ParamDescriptorDto, "name" | "group">): string {
+  const group = param.group;
+  if (group && param.name.startsWith(`${group} `) && param.name.length > group.length + 1) {
+    return param.name.slice(group.length + 1);
+  }
+  return param.name;
+}
+
+/** One section of a generated panel: the controls that share a `group`. */
+export interface PanelGroup {
+  /** The section name; empty for parameters without one. */
+  name: string;
+  controls: PanelControl[];
 }
 
 /** The controls of a device's panel, in the descriptor's order. */
@@ -124,8 +154,32 @@ export function panelControls(
       position: valueToPosition(param, value),
       text: formatParam(param, value),
       choice: isChoice(param),
+      segmented: isChoice(param) && param.choices.length <= SEGMENTED_MAX,
+      label: shortName(param),
     };
   });
+}
+
+/**
+ * The controls of a device's panel split into sections, in the order each section's first
+ * parameter appears; parameters keep their descriptor order within a section. A device whose
+ * parameters have no group gets one section with an empty name.
+ */
+export function panelGroups(
+  device: Pick<Device, "params">,
+  descriptor: Pick<DeviceDescriptor, "params">,
+): PanelGroup[] {
+  const groups: PanelGroup[] = [];
+  for (const control of panelControls(device, descriptor)) {
+    const name = control.param.group ?? "";
+    let group = groups.find((g) => g.name === name);
+    if (!group) {
+      group = { name, controls: [] };
+      groups.push(group);
+    }
+    group.controls.push(control);
+  }
+  return groups;
 }
 
 /** A new device of `descriptor` with every parameter at its default. */

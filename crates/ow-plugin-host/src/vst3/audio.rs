@@ -156,7 +156,9 @@ impl AudioSide {
         for event in events.iter().take(EVENT_SLOTS) {
             let offset = i32::try_from(event.offset).unwrap_or(0);
             let offset = offset.min(i32::try_from(frames - 1).unwrap_or(0));
-            self.events_in.push(note_event(event.kind, offset));
+            if let Some(vst_event) = note_event(event.kind, offset) {
+                self.events_in.push(vst_event);
+            }
         }
 
         // Input: the main bus carries the signal (a mono plugin gets the sum).
@@ -287,8 +289,9 @@ fn bus_buffers(count: usize) -> Vec<AudioBusBuffers> {
         .collect()
 }
 
-/// A note event of the engine as a VST3 event.
-fn note_event(kind: EventKind, offset: i32) -> VstEvent {
+/// A note event of the engine as a VST3 event; `None` for a controller event, which is not
+/// forwarded to hosted plugins yet.
+fn note_event(kind: EventKind, offset: i32) -> Option<VstEvent> {
     // SAFETY: `Event` is plain old data: all zeroes is a valid (empty) event.
     let mut event: VstEvent = unsafe { std::mem::zeroed() };
     event.busIndex = 0;
@@ -315,8 +318,9 @@ fn note_event(kind: EventKind, offset: i32) -> VstEvent {
                 tuning: 0.0,
             };
         }
+        EventKind::ControlChange { .. } => return None,
     }
-    event
+    Some(event)
 }
 
 /// The SDK's event struct (`Event` alone is the engine's note event here).

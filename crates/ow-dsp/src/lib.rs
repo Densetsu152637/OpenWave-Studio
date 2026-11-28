@@ -17,5 +17,8 @@ pub mod instruments;
 pub mod registry;
 pub mod stretch;
 
-pub use device::{Device, DeviceInfo, Event, EventKind, ParamDescriptor, ParamKind, Scale, Unit};
+pub use device::{
+    Device, DeviceInfo, Event, EventKind, ParamBank, ParamDescriptor, ParamKind, Scale, StateError,
+    Unit,
+};
 pub use registry::{all, find};

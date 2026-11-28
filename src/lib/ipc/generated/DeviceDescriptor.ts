@@ -33,4 +33,8 @@ vendor?: string,
  * True when the plugin has an editor window that this platform can show (Windows and
  * macOS); absent otherwise, and for every built-in device.
  */
-editor?: boolean, };
+editor?: boolean, 
+/**
+ * True when the device takes a sidechain (key) input; absent otherwise.
+ */
+sidechain?: boolean, };

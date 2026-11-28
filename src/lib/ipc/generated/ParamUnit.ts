@@ -3,4 +3,4 @@
 /**
  * What a parameter's number means.
  */
-export type ParamUnit = "none" | "decibels" | "hertz" | "seconds" | "percent";
+export type ParamUnit = "none" | "decibels" | "hertz" | "seconds" | "percent" | "semitones" | "cents";
