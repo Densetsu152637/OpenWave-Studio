@@ -1259,6 +1259,21 @@ fn the_built_in_synthesizers_are_allocation_free_in_the_cycle() {
                     timestamp_us: stamp(frame),
                 });
             }
+            // Mod wheel moves every cycle; the pedal is down for three cycles of six, so its
+            // lift releases the voices it held.
+            for (frame, controller, value) in [
+                (cycle * 64 + 5, 1, (cycle * 37 % 128) as u8),
+                (cycle * 64 + 40, 64, if cycle % 6 < 3 { 127 } else { 0 }),
+            ] {
+                midi.push(Message::MidiIn {
+                    message: MidiMessage {
+                        status: 0xB0,
+                        data1: controller,
+                        data2: value,
+                    },
+                    timestamp_us: stamp(frame),
+                });
+            }
             core.process(&mut buffer, 2, None);
             heard = buffer.iter().fold(heard, |m, s| m.max(s.abs()));
             assert!(buffer.iter().all(|s| s.is_finite()), "{kind} cycle {cycle}");

@@ -148,6 +148,28 @@ impl DeviceNode {
     }
 }
 
+/// Orders events by frame. At one frame control changes come first (and keep their arrival
+/// order, so a pedal down then up at one frame ends up), then note-offs, then note-ons (so a key
+/// retriggers); notes of one kind are fixed by key and velocity so their order never depends on
+/// arrival. An insertion sort: stable, in place and allocation-free (the clip events arrive
+/// sorted and the few live events are merged in, so it moves little).
+fn sort_events(events: &mut [Event]) {
+    fn key(event: &Event) -> (u32, u8, u8, u8) {
+        match event.kind {
+            EventKind::ControlChange { .. } => (event.offset, 0, 0, 0),
+            EventKind::NoteOff { key } => (event.offset, 1, key, 0),
+            EventKind::NoteOn { key, velocity } => (event.offset, 2, key, velocity),
+        }
+    }
+    for i in 1..events.len() {
+        let mut j = i;
+        while j > 0 && key(&events[j - 1]) > key(&events[j]) {
+            events.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
 impl Node for DeviceNode {
     fn name(&self) -> &'static str {
         "device"
@@ -210,6 +232,15 @@ impl Node for DeviceNode {
                     self.live_events.push(Event::note_off(offset, key));
                 }
             }
+            // A control change (mod wheel, pedal) plays while the gate is open; a pedal lift
+            // always passes so a pedal held when the gate closed cannot stick.
+            0xB0 => {
+                let value = message.data2 & 0x7F;
+                if (open || (key == 64 && value < 64)) && self.live_events.len() < MAX_LIVE_EVENTS {
+                    self.live_events
+                        .push(Event::control_change(offset, key, value));
+                }
+            }
             _ => {}
         }
     }
@@ -239,17 +270,7 @@ impl Node for DeviceNode {
                     self.events.push(event);
                 }
             }
-            // Clip and live events interleave by frame. At one frame a control change comes
-            // first, then a note-off, then a note-on (so a key retriggers), and the rest is fixed
-            // by key and velocity so the order never depends on the sort; an unstable sort never
-            // allocates.
-            self.events.sort_unstable_by_key(|event| match event.kind {
-                EventKind::ControlChange { controller, value } => {
-                    (event.offset, 0_u8, controller, value)
-                }
-                EventKind::NoteOff { key } => (event.offset, 1, key, 0),
-                EventKind::NoteOn { key, velocity } => (event.offset, 2, key, velocity),
-            });
+            sort_events(&mut self.events);
         }
         if self.inputs == 2 {
             // A NaN or infinity would stay in an effect's feedback state for good, so a
@@ -282,5 +303,51 @@ impl Node for DeviceNode {
             self.device
                 .set_param(param, descriptor.clamp(f64::from(value)));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cc(offset: u32, controller: u8, value: u8) -> Event {
+        Event::control_change(offset, controller, value)
+    }
+
+    #[test]
+    fn same_frame_control_changes_keep_their_arrival_order() {
+        // Pedal down then up at one frame stays down-then-up, however the values compare.
+        let mut events = [cc(10, 64, 127), cc(10, 64, 0)];
+        sort_events(&mut events);
+        assert_eq!(events, [cc(10, 64, 127), cc(10, 64, 0)]);
+        let mut events = [cc(10, 64, 0), cc(10, 64, 127)];
+        sort_events(&mut events);
+        assert_eq!(events, [cc(10, 64, 0), cc(10, 64, 127)]);
+        // Repeated CC1 at one frame: the last arrival stays last.
+        let mut events = [cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)];
+        sort_events(&mut events);
+        assert_eq!(events, [cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)]);
+    }
+
+    #[test]
+    fn a_frame_orders_control_changes_then_note_offs_then_note_ons() {
+        let mut events = [
+            Event::note_on(7, 60, 100),
+            Event::note_off(7, 60),
+            cc(7, 64, 127),
+            Event::note_on(3, 61, 90),
+            Event::note_on(7, 59, 80),
+        ];
+        sort_events(&mut events);
+        assert_eq!(
+            events,
+            [
+                Event::note_on(3, 61, 90),
+                cc(7, 64, 127),
+                Event::note_off(7, 60),
+                Event::note_on(7, 59, 80),
+                Event::note_on(7, 60, 100),
+            ]
+        );
     }
 }

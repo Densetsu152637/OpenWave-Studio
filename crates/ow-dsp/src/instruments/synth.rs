@@ -143,6 +143,11 @@ pub const UNISON_COUNTS: &[&str] = &["1", "2", "3", "4", "5", "6", "7"];
 /// Vibrato depth in semitones the mod wheel adds at full travel.
 pub const WHEEL_VIBRATO: f64 = 1.0;
 
+/// Starting phase of each unison copy (cycles). Chosen so that for 2 to 7 copies the sum of the
+/// copies at the fundamental and its first harmonics stays within about 5 dB of one copy's
+/// power-normalised level: no cancellation at note-on.
+const UNISON_PHASES: [f64; 7] = [0.0, 0.0285, 0.1103, 0.3008, 0.9662, 0.6430, 0.8477];
+
 /// Most unison copies of an oscillator.
 pub const UNISON_MAX: usize = 7;
 
@@ -586,7 +591,7 @@ impl Synth {
         for (slot, voice) in slots.iter_mut().zip(&self.voices) {
             *slot = Slot {
                 active: voice.active,
-                gate: voice.gate,
+                gate: voice.gate && !voice.sustained,
                 level: voice.amp.level,
                 age: voice.age,
             };
@@ -599,8 +604,11 @@ impl Synth {
         if !voice.active {
             *voice = Voice::idle();
             for phases in &mut voice.phases {
-                for (j, phase) in phases.iter_mut().enumerate().take(frame.unison) {
-                    *phase = j as f64 / frame.unison as f64;
+                // One copy starts at phase 0 (so a note's first sample is non-zero); with
+                // unison the others start from a fixed table that never lines the copies up
+                // in antiphase, so the fundamental does not cancel at note-on.
+                for (phase, start) in phases.iter_mut().zip(&UNISON_PHASES).take(frame.unison) {
+                    *phase = *start;
                 }
             }
         }

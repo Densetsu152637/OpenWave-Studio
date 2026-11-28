@@ -69,7 +69,7 @@ pub struct EnvCoefs {
 }
 
 impl EnvCoefs {
-    /// Coefficients for times in seconds (each at least a millisecond) and a sustain level.
+    /// Coefficients for times in seconds (each at least 0.1 ms) and a sustain level.
     pub fn new(attack: f64, decay: f64, sustain: f64, release: f64, sample_rate: f64) -> Self {
         let ln_1000 = 1000.0_f64.ln();
         Self {
@@ -128,7 +128,14 @@ impl Envelope {
                 }
             }
             Stage::Sustain => self.level = c.sustain,
-            Stage::Release => self.level *= c.release,
+            Stage::Release => {
+                self.level *= c.release;
+                // Flush the tail to exact zero: a plugin cannot rely on the host's
+                // flush-to-zero mode, and denormals are slow.
+                if self.level < SILENT {
+                    self.level = 0.0;
+                }
+            }
         }
         self.level
     }

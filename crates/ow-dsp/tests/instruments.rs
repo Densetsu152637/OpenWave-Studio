@@ -957,7 +957,11 @@ fn instruments_are_realtime_safe() {
         for block in 0..1500_u32 {
             let events = [
                 Event::note_on(3, (30 + block % 60) as u8, 100),
+                Event::control_change(10, 1, (block * 37 % 128) as u8),
                 Event::note_on(20, (35 + block % 50) as u8, 80),
+                // The pedal is down for three blocks of six: its lift releases held voices.
+                Event::control_change(30, 64, if block % 6 < 3 { 127 } else { 0 }),
+                Event::control_change(30, 7, 99),
                 Event::note_off(64, (30 + (block + 7) % 60) as u8),
                 Event::note_off(100, (35 + (block + 3) % 50) as u8),
             ];
@@ -984,4 +988,200 @@ fn instruments_are_realtime_safe() {
             );
         }
     }
+}
+
+// ----- gate round 1 -------------------------------------------------------------------------
+
+#[test]
+fn instruments_unison_does_not_cancel_at_note_on() {
+    for waveform in [0.0, 1.0, 2.0, 3.0] {
+        let first_50_ms = |voices: f64, detune: f64| {
+            let mut synth = flat_synth(waveform);
+            set(
+                &mut synth,
+                &[
+                    (sub::PARAM_UNISON_VOICES, voices),
+                    (sub::PARAM_UNISON_DETUNE, detune),
+                    (sub::PARAM_UNISON_SPREAD, 0.0),
+                ],
+            );
+            let (out, _) = render(&mut synth, &[Event::note_on(0, 57, 127)], 2400);
+            rms(&out)
+        };
+        for detune in [0.0, 20.0] {
+            let single = first_50_ms(0.0, detune);
+            for voices in 1..=6 {
+                let level = db(first_50_ms(f64::from(voices), detune) / single);
+                assert!(
+                    level.abs() < 6.0,
+                    "waveform {waveform}, {} copies, detune {detune}: {level} dB",
+                    voices + 1
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn instruments_same_frame_controllers_apply_in_arrival_order() {
+    let tail = |events: &[Event], kind: &str| {
+        let mut device = find(kind).unwrap().create(RATE, 4096);
+        set(&mut *device, &[(sub::PARAM_GAIN, 0.0)]);
+        let (out, _) = render(&mut *device, events, 48_000);
+        rms(&out[40_000..])
+    };
+    for kind in [sub::KIND, fm::KIND] {
+        // Pedal down then up at one frame: up wins, the note-off releases.
+        let released = [
+            Event::note_on(0, 60, 127),
+            Event::control_change(1000, 64, 127),
+            Event::control_change(1000, 64, 0),
+            Event::note_off(2000, 60),
+        ];
+        assert!(tail(&released, kind) < 1e-6, "{kind}");
+        // Up then down: down wins, the note is held by the pedal.
+        let held = [
+            Event::note_on(0, 60, 127),
+            Event::control_change(1000, 64, 0),
+            Event::control_change(1000, 64, 127),
+            Event::note_off(2000, 60),
+        ];
+        assert!(tail(&held, kind) > 0.01, "{kind}");
+    }
+    // Repeated mod wheel at one frame: the last value stands.
+    let swing = |events: &[Event]| {
+        let mut synth = flat_synth(2.0);
+        let (out, _) = render(&mut synth, events, 48_000);
+        let freqs: Vec<f64> = blocks(&out, 960).map(measure_hz).collect();
+        let (lo, hi) = freqs
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(a, b), f| (a.min(*f), b.max(*f)));
+        cents(hi, lo)
+    };
+    let off_last = [
+        Event::control_change(0, 1, 127),
+        Event::control_change(0, 1, 0),
+        Event::note_on(0, 69, 127),
+    ];
+    let on_last = [
+        Event::control_change(0, 1, 0),
+        Event::control_change(0, 1, 127),
+        Event::note_on(0, 69, 127),
+    ];
+    assert!(swing(&off_last) < 2.0 && swing(&on_last) > 100.0);
+}
+
+#[test]
+fn instruments_a_pedal_held_voice_is_stolen_like_a_released_one() {
+    for kind in [sub::KIND, fm::KIND] {
+        let mut device = find(kind).unwrap().create(RATE, 4096);
+        set(&mut *device, &[(sub::PARAM_GAIN, 0.0)]);
+        if kind == sub::KIND {
+            set(&mut *device, &[(sub::PARAM_WAVEFORM, 2.0)]);
+        }
+        let mut events = vec![Event::note_on(0, 40, 100)];
+        events.extend((41..55).map(|key| Event::note_on(0, key, 100)));
+        // Key 55 is released under the pedal; keys 40 to 54 stay held.
+        events.push(Event::note_on(0, 55, 100));
+        events.push(Event::control_change(100, 64, 127));
+        events.push(Event::note_off(200, 55));
+        // A seventeenth note: it must take the pedal-held voice, not the oldest held one.
+        events.push(Event::note_on(300, 90, 100));
+        let (out, _) = render(&mut *device, &events, 48_000);
+        let spec = steady(&out, 8000);
+        // Key 40 (the oldest held note) still sounds; key 55's voice is gone.
+        assert!(at(&spec, hz(40)) > at(&spec, hz(55)) * 5.0, "{kind}");
+    }
+}
+
+#[test]
+fn instruments_envelope_tail_flushes_to_exact_zero() {
+    use ow_dsp::instruments::common::{EnvCoefs, Envelope};
+    let coefs = EnvCoefs::new(0.001, 0.01, 0.5, 0.05, 48_000.0);
+    let mut envelope = Envelope::idle();
+    envelope.trigger();
+    for _ in 0..2000 {
+        envelope.tick(&coefs);
+    }
+    envelope.release();
+    for _ in 0..48_000 {
+        let level = envelope.tick(&coefs);
+        assert!(
+            level == 0.0 || level >= 1.0e-5,
+            "no sub-threshold level: {level}"
+        );
+    }
+    assert!(envelope.finished() && envelope.level == 0.0);
+}
+
+/// The default `builtin.synth` patch, and a resonant square patch with stealing, render what the
+/// synth before stage 16 rendered (fixture `tests/fixtures/legacy_synth.txt`, made with the
+/// code at 96d0f48: the whole-signal RMS and every 64th left sample), so projects saved before
+/// the new synth sound the same.
+#[test]
+fn instruments_the_default_synth_patch_still_sounds_like_the_original() {
+    let fixture = include_str!("fixtures/legacy_synth.txt");
+    let signal = |name: &str| -> (f64, Vec<(usize, f32)>) {
+        let mut rms_value = 0.0;
+        let mut samples = Vec::new();
+        for line in fixture.lines() {
+            let parts: Vec<&str> = line.split(' ').collect();
+            if parts[0] != name {
+                continue;
+            }
+            if parts[1] == "rms" {
+                rms_value = parts[2].parse().unwrap();
+            } else {
+                samples.push((parts[1].parse().unwrap(), parts[2].parse().unwrap()));
+            }
+        }
+        (rms_value, samples)
+    };
+    let check = |name: &str, synth: &mut Synth, events: &[Event], frames: usize| {
+        let (expected_rms, expected) = signal(name);
+        let (out, right) = render(synth, events, frames);
+        assert_eq!(out, right);
+        assert!((rms(&out) / expected_rms - 1.0).abs() < 1e-4, "{name} rms");
+        for (i, value) in expected {
+            assert!(
+                (out[i] - value).abs() < 2e-4,
+                "{name} frame {i}: {} vs {value}",
+                out[i]
+            );
+        }
+    };
+    let mut a = Synth::new();
+    a.prepare(RATE, 4096);
+    let events_a = [
+        Event::note_on(0, 60, 100),
+        Event::note_on(4000, 64, 90),
+        Event::note_on(8000, 67, 110),
+        Event::note_off(14_000, 60),
+        Event::note_off(16_000, 64),
+        Event::note_off(18_000, 67),
+        Event::note_on(20_000, 72, 127),
+    ];
+    check("A", &mut a, &events_a, 40_000);
+
+    let mut b = Synth::new();
+    b.prepare(RATE, 4096);
+    set(
+        &mut b,
+        &[
+            (sub::PARAM_WAVEFORM, 1.0),
+            (sub::PARAM_CUTOFF, 1500.0),
+            (sub::PARAM_RESONANCE, 0.6),
+            (sub::PARAM_ATTACK, 0.02),
+            (sub::PARAM_DECAY, 0.15),
+            (sub::PARAM_SUSTAIN, 0.4),
+            (sub::PARAM_RELEASE, 0.25),
+            (sub::PARAM_GAIN, -6.0),
+        ],
+    );
+    let mut events_b: Vec<Event> = (0..20_u32)
+        .map(|i| Event::note_on(i * 100, 40 + (i * 2) as u8, 100))
+        .collect();
+    events_b.extend((0..20_u32).map(|i| Event::note_off(5000 + i * 50, 40 + (i * 2) as u8)));
+    events_b.sort_by_key(|e| e.offset);
+    check("B", &mut b, &events_b, 30_000);
 }

@@ -462,7 +462,7 @@ impl FmSynth {
         for (slot, voice) in slots.iter_mut().zip(&self.voices) {
             *slot = Slot {
                 active: voice.active,
-                gate: voice.gate,
+                gate: voice.gate && !voice.sustained,
                 level: voice.level(carriers),
                 age: voice.age,
             };
