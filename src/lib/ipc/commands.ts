@@ -13,6 +13,8 @@ import type {
   LibraryScanStatus,
   LibrarySearchReply,
   MediaImportReply,
+  MidiEdit,
+  MidiEditReply,
   ModelPatch,
   PluginScanSummary,
   Snapshot,
@@ -66,6 +68,22 @@ export function ipcCommand(
 /** Applies an edit as one undo step (or as part of the open transaction). */
 export function edit(edit: EditCommand, transport?: IpcTransport): Promise<CommandReply> {
   return ipcCommand({ type: "edit", edit }, transport);
+}
+
+/**
+ * Runs one note operation (quantize, legato, humanize, transpose, velocity) on MIDI clip `clip`
+ * as one undo step: on the notes at the indices `notes` (positions in the clip's note list), or
+ * on all of them when `notes` is null.
+ */
+export function midiEdit(
+  clip: number,
+  edit: MidiEdit,
+  notes: readonly number[] | null,
+  transport: IpcTransport = tauriTransport,
+): Promise<MidiEditReply> {
+  return queued(transport, () =>
+    transport.invoke<MidiEditReply>("midi_edit", { clip, edit, notes: notes ? [...notes] : null }),
+  );
 }
 
 export const undo = (transport?: IpcTransport) => ipcCommand({ type: "undo" }, transport);

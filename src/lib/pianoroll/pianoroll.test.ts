@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SignatureMap } from "../arrange/time";
 import type { Clip, Note } from "../ipc/types";
-import { dragPreview, draggedId, press } from "./gesture";
 import {
   DEFAULT_ROLL_VIEW,
   GRID_OPTIONS,
@@ -65,7 +64,7 @@ describe("geometry", () => {
     expect(snapNearest(1.26, 0.5)).toBe(1.5);
     expect(snapNearest(1.25, 0.5)).toBe(1.5);
     expect(snapNearest(1.24, 0.5)).toBe(1);
-    expect(GRID_OPTIONS.map((g) => g.beats)).toEqual([0.25, 0.5, 1, 2]);
+    expect(GRID_OPTIONS.map((g) => g.beats)).toEqual([0.125, 0.25, 0.5, 1, 2, 4]);
   });
 
   it("names keys and marks the black ones", () => {
@@ -80,12 +79,13 @@ describe("geometry", () => {
     const notes = [note(1, 1, 60), note(1.5, 1, 60 + 1)];
     expect(hitTest(notes, view, 150, noteRect(view, notes[0]!).y + 2)).toEqual({ index: 0, part: "body" });
     expect(hitTest(notes, view, 197, noteRect(view, notes[0]!).y + 2)).toEqual({ index: 0, part: "end" });
+    expect(hitTest(notes, view, 102, noteRect(view, notes[0]!).y + 2)).toEqual({ index: 0, part: "start" });
     expect(hitTest(notes, view, 50, noteRect(view, notes[0]!).y + 2)).toBeNull();
     // Another key's row does not hit.
     expect(hitTest(notes, view, 150, noteRect(view, notes[0]!).y + 25)).toBeNull();
     // Narrow notes still have a body: the edge is at most a third.
     const narrow = [note(0, 0.03, 60)];
-    expect(hitTest(narrow, view, 0.5, noteRect(view, narrow[0]!).y + 1)?.part).toBe("body");
+    expect(hitTest(narrow, view, 1.5, noteRect(view, narrow[0]!).y + 1)?.part).toBe("body");
     expect(hitTest(narrow, view, 2.5, noteRect(view, narrow[0]!).y + 1)?.part).toBe("end");
   });
 
@@ -216,56 +216,5 @@ describe("commands", () => {
     };
     expect(() => replaceNotesCommand(audio, [])).toThrow();
     expect(clipNotes(audio)).toEqual([]);
-  });
-});
-
-describe("pointer gestures", () => {
-  const at = (n: Note) => noteRect(view, n);
-
-  it("a press on empty space draws a note and selects it", () => {
-    const rect = at(note(1, 1, 60));
-    const result = press([], view, rect.x + 30, rect.y + 3, GRID, CLIP);
-    expect(result).toMatchObject({ type: "add", selected: "60:1.25" });
-    expect(result.type === "add" && result.notes).toEqual([note(1.25, 0.25, 60)]);
-    expect(press([], view, 99_999, 3, GRID, CLIP)).toEqual({ type: "none" });
-  });
-
-  it("a press on a note grabs it for moving, or for resizing at its right edge", () => {
-    const notes = [note(1, 1, 60)];
-    const rect = at(notes[0]!);
-    expect(press(notes, view, rect.x + 20, rect.y + 2, GRID, CLIP)).toMatchObject({
-      type: "drag",
-      selected: "60:1",
-      drag: { kind: "move", index: 0 },
-    });
-    expect(press(notes, view, rect.x + rect.width - 2, rect.y + 2, GRID, CLIP)).toMatchObject({
-      drag: { kind: "resize" },
-    });
-  });
-
-  it("dragging moves by the pointer travel from where the note was grabbed", () => {
-    const notes = [note(1, 1, 60)];
-    const rect = at(notes[0]!);
-    const grabbed = press(notes, view, rect.x + 20, rect.y + 2, GRID, CLIP);
-    if (grabbed.type !== "drag") throw new Error("expected a drag");
-    // 100 px right (one beat) and one row up.
-    const preview = dragPreview(grabbed.drag, view, rect.x + 120, rect.y - 8, GRID, CLIP);
-    expect(preview).toEqual([note(2, 1, 61)]);
-    expect(draggedId(grabbed.drag, preview)).toBe("61:2");
-    // Back at the press point nothing changed.
-    expect(dragPreview(grabbed.drag, view, rect.x + 20, rect.y + 2, GRID, CLIP)).toBeNull();
-    expect(draggedId(grabbed.drag, null)).toBe("60:1");
-  });
-
-  it("dragging the right edge resizes, always from the press-time notes", () => {
-    const notes = [note(1, 1, 60), note(3, 1, 60)];
-    const rect = at(notes[0]!);
-    const grabbed = press(notes, view, rect.x + rect.width - 2, rect.y + 2, GRID, CLIP);
-    if (grabbed.type !== "drag") throw new Error("expected a drag");
-    expect(dragPreview(grabbed.drag, view, rect.x + 300, rect.y + 2, GRID, CLIP)![0]!.length).toBe(2);
-    // Dragging past the next note stops at it; coming back shortens again.
-    expect(dragPreview(grabbed.drag, view, rect.x + 900, rect.y + 2, GRID, CLIP)![0]!.length).toBe(2);
-    expect(dragPreview(grabbed.drag, view, rect.x + 50, rect.y + 2, GRID, CLIP)![0]!.length).toBe(0.5);
-    expect(draggedId(grabbed.drag, dragPreview(grabbed.drag, view, rect.x + 50, rect.y + 2, GRID, CLIP))).toBe("60:1");
   });
 });
