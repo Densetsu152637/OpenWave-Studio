@@ -6,9 +6,26 @@
 //!
 //! # Realtime contract
 //!
-//! [`Device::process`], [`Device::set_param`] and [`Device::reset`] run on the audio thread:
-//! they must not allocate, lock, block or perform I/O. Everything is preallocated in
-//! [`DeviceInfo::create`] or [`Device::prepare`], both called on a control thread.
+//! [`Device::process`], [`Device::process_sidechain`], [`Device::set_param`] and
+//! [`Device::reset`] run on the audio thread: they must not allocate, lock, block or perform I/O.
+//! Everything is preallocated in [`DeviceInfo::create`] or [`Device::prepare`], both called on a
+//! control thread, as are [`Device::save_state`] and [`Device::load_state`].
+//!
+//! # What a device declares
+//!
+//! * **Parameters** ([`ParamDescriptor`]): stable id, range, default, unit, scale, a choice list
+//!   or a continuous range, a display `group` (a panel section, a plugin editor page) and a
+//!   `smoothing_ms` (how long a change takes to glide; 0 steps at once). A UI is generated from
+//!   these alone. [`ParamBank`] implements the smoothing for devices that want it.
+//! * **Notes**: [`Event`]s with a frame offset inside the block.
+//! * **State** ([`Device::save_state`] / [`Device::load_state`]): versioned bytes for anything the
+//!   parameters do not capture; see [`StateError`] and the [`ParamBank`] snapshot format.
+//! * **Latency** ([`Device::latency_frames`]): reported to delay compensation.
+//! * **Sidechain** ([`DeviceInfo::sidechain`], [`Device::process_sidechain`]): a device that takes
+//!   a second stereo signal (a compressor keyed from another strip) says so in its info and
+//!   receives the signal in `process_sidechain`.
+
+use std::fmt;
 
 /// What a parameter's number means, for panels and for converting stored values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +40,10 @@ pub enum Unit {
     Seconds,
     /// A percentage, 0 to 100.
     Percent,
+    /// Semitones (a pitch offset, or a modulation depth in pitch).
+    Semitones,
+    /// Cents, hundredths of a semitone.
+    Cents,
 }
 
 /// How a control maps its travel to the value.
@@ -64,6 +85,12 @@ pub struct ParamDescriptor {
     pub scale: Scale,
     /// Continuous or a choice list.
     pub kind: ParamKind,
+    /// The panel section (and plugin-editor page) the parameter belongs to; empty for none.
+    /// Sections appear in order of their first parameter.
+    pub group: &'static str,
+    /// Milliseconds a change takes to settle (a one-pole glide), 0 to apply at once. A choice is
+    /// never smoothed whatever this says; [`ParamBank`] applies it.
+    pub smoothing_ms: f32,
 }
 
 impl ParamDescriptor {
@@ -85,6 +112,8 @@ impl ParamDescriptor {
             unit,
             scale: Scale::Linear,
             kind: ParamKind::Continuous,
+            group: "",
+            smoothing_ms: 0.0,
         }
     }
 
@@ -119,6 +148,21 @@ impl ParamDescriptor {
             unit: Unit::None,
             scale: Scale::Linear,
             kind: ParamKind::Choice(options),
+            group: "",
+            smoothing_ms: 0.0,
+        }
+    }
+
+    /// The same parameter in the panel section `group`.
+    pub const fn group(self, group: &'static str) -> Self {
+        Self { group, ..self }
+    }
+
+    /// The same parameter gliding over about `ms` milliseconds when it changes.
+    pub const fn smoothed(self, ms: f32) -> Self {
+        Self {
+            smoothing_ms: ms,
+            ..self
         }
     }
 
@@ -160,6 +204,14 @@ pub enum EventKind {
         /// MIDI key, 0 to 127.
         key: u8,
     },
+    /// A MIDI control change (7-bit): the built-in synths follow controller 1 (mod wheel) and
+    /// 64 (sustain pedal, down at 64 and above) and ignore the others.
+    ControlChange {
+        /// MIDI controller number, 0 to 127.
+        controller: u8,
+        /// Controller value, 0 to 127.
+        value: u8,
+    },
 }
 
 impl Event {
@@ -176,6 +228,14 @@ impl Event {
         Self {
             offset,
             kind: EventKind::NoteOff { key },
+        }
+    }
+
+    /// A control change at `offset`.
+    pub const fn control_change(offset: u32, controller: u8, value: u8) -> Self {
+        Self {
+            offset,
+            kind: EventKind::ControlChange { controller, value },
         }
     }
 }
@@ -209,6 +269,220 @@ pub trait Device: Send {
     fn latency_frames(&self) -> u32 {
         0
     }
+
+    /// Like [`process`](Self::process) for a device whose [`DeviceInfo::sidechain`] is set:
+    /// `sidechain` is the external key signal, the same length as `audio`. The default ignores
+    /// it. A host with no sidechain source connected calls `process` instead.
+    fn process_sidechain(
+        &mut self,
+        audio: &mut [&mut [f32]; 2],
+        sidechain: &[&[f32]; 2],
+        events: &[Event],
+    ) {
+        let _ = sidechain;
+        self.process(audio, events);
+    }
+
+    /// The device's saved state as versioned bytes (see [`StateError`]); empty when it keeps
+    /// nothing beyond its parameters. Control thread only: it allocates.
+    fn save_state(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    /// Restores what [`save_state`](Self::save_state) wrote, including parameter values; the
+    /// host sets the project's own parameter values afterwards, so they win. Control thread only.
+    /// Bytes from a newer version, or damaged bytes, are an error and leave the device as it was.
+    fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {
+        let _ = data;
+        Ok(())
+    }
+}
+
+/// Why [`Device::load_state`] refused some bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateError {
+    /// The bytes end early or are not state at all.
+    Malformed,
+    /// Written by a newer version of the device than this one understands.
+    UnsupportedVersion(u32),
+}
+
+impl fmt::Display for StateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Malformed => f.write_str("device state is damaged"),
+            Self::UnsupportedVersion(v) => write!(f, "device state version {v} is not supported"),
+        }
+    }
+}
+
+impl std::error::Error for StateError {}
+
+/// Version of the [`ParamBank`] snapshot format.
+pub const STATE_VERSION: u32 = 1;
+
+/// The values of a device's parameters with optional per-parameter smoothing.
+///
+/// Built once from a static descriptor list (allocates, control thread). [`set`](Self::set)
+/// clamps and stores a target; [`advance`](Self::advance) moves every smoothed value toward its
+/// target by a number of frames (closed form, so two half steps equal one whole step up to
+/// rounding); [`value`](Self::value) is the current smoothed value and [`target`](Self::target)
+/// the unsmoothed one. Until the first `advance` after [`snap`](Self::snap) (and so for the
+/// values a host sets right after creating a device) a change applies at once, so a project's
+/// values never glide in from the defaults. None of the per-sample methods allocate.
+#[derive(Debug, Clone)]
+pub struct ParamBank {
+    params: &'static [ParamDescriptor],
+    /// Descriptor slot of each id (`u16::MAX` for a gap).
+    slot_of: Vec<u16>,
+    target: Vec<f64>,
+    current: Vec<f64>,
+    /// Per-frame decay of the distance to the target; 0 for an unsmoothed parameter.
+    decay: Vec<f64>,
+    sample_rate: f64,
+    /// Set by the first `advance`; cleared by `snap`.
+    live: bool,
+}
+
+impl ParamBank {
+    /// A bank of `params` at their defaults, for 48 kHz until [`prepare`](Self::prepare).
+    pub fn new(params: &'static [ParamDescriptor]) -> Self {
+        let max_id = params.iter().map(|p| p.id).max().unwrap_or(0) as usize;
+        let mut slot_of = vec![u16::MAX; max_id + 1];
+        for (slot, param) in params.iter().enumerate() {
+            slot_of[param.id as usize] = slot as u16;
+        }
+        let values: Vec<f64> = params.iter().map(|p| p.default).collect();
+        let mut bank = Self {
+            params,
+            slot_of,
+            target: values.clone(),
+            current: values,
+            decay: vec![0.0; params.len()],
+            sample_rate: 48_000.0,
+            live: false,
+        };
+        bank.prepare(48_000.0);
+        bank
+    }
+
+    /// Recomputes the glide rates for `sample_rate` and applies every target at once.
+    pub fn prepare(&mut self, sample_rate: f32) {
+        self.sample_rate = f64::from(sample_rate).max(1.0);
+        for (decay, param) in self.decay.iter_mut().zip(self.params) {
+            let tau = f64::from(param.smoothing_ms) / 1000.0;
+            let smoothable = matches!(param.kind, ParamKind::Continuous);
+            *decay = if tau > 0.0 && smoothable {
+                (-1.0 / (tau * self.sample_rate)).exp()
+            } else {
+                0.0
+            };
+        }
+        self.snap();
+    }
+
+    /// Applies every target at once; changes made before the next `advance` also apply at once.
+    pub fn snap(&mut self) {
+        self.current.copy_from_slice(&self.target);
+        self.live = false;
+    }
+
+    /// Every parameter back to its default, applied at once.
+    pub fn reset_to_defaults(&mut self) {
+        for (value, param) in self.target.iter_mut().zip(self.params) {
+            *value = param.default;
+        }
+        self.snap();
+    }
+
+    fn slot(&self, id: u32) -> Option<usize> {
+        match self.slot_of.get(id as usize) {
+            Some(&slot) if slot != u16::MAX => Some(usize::from(slot)),
+            _ => None,
+        }
+    }
+
+    /// Sets parameter `id` (clamped to its range; a value that is not a number becomes the
+    /// default). False for an unknown id.
+    pub fn set(&mut self, id: u32, value: f64) -> bool {
+        let Some(slot) = self.slot(id) else {
+            return false;
+        };
+        let value = self.params[slot].clamp(value);
+        self.target[slot] = value;
+        if !self.live || self.decay[slot] == 0.0 {
+            self.current[slot] = value;
+        }
+        true
+    }
+
+    /// The smoothed value of parameter `id` (0 for an unknown id).
+    pub fn value(&self, id: u32) -> f64 {
+        self.slot(id).map_or(0.0, |slot| self.current[slot])
+    }
+
+    /// The value last set for parameter `id`, before smoothing (0 for an unknown id).
+    pub fn target(&self, id: u32) -> f64 {
+        self.slot(id).map_or(0.0, |slot| self.target[slot])
+    }
+
+    /// Moves every smoothed value `frames` frames toward its target.
+    pub fn advance(&mut self, frames: usize) {
+        self.live = true;
+        let frames = frames.min(i32::MAX as usize) as i32;
+        let slots = self.current.iter_mut().zip(&self.target).zip(&self.decay);
+        for ((current, &target), &decay) in slots {
+            if decay > 0.0 && *current != target {
+                let next = target + (*current - target) * decay.powi(frames);
+                *current = if (next - target).abs() < 1.0e-9 * (1.0 + target.abs()) {
+                    target
+                } else {
+                    next
+                };
+            }
+        }
+    }
+
+    /// Version, count, then (id, value) pairs, little endian; the targets, not the glide
+    /// positions. Allocates.
+    pub fn save_state(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(8 + self.params.len() * 12);
+        out.extend_from_slice(&STATE_VERSION.to_le_bytes());
+        out.extend_from_slice(&(self.params.len() as u32).to_le_bytes());
+        for (param, value) in self.params.iter().zip(&self.target) {
+            out.extend_from_slice(&param.id.to_le_bytes());
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        out
+    }
+
+    /// Reads a [`save_state`](Self::save_state) snapshot and applies it at once. Unknown ids are
+    /// skipped (a snapshot from a newer device); nothing changes on error.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {
+        let word = |at: usize| -> Option<[u8; 4]> { data.get(at..at + 4)?.try_into().ok() };
+        let version = u32::from_le_bytes(word(0).ok_or(StateError::Malformed)?);
+        if version == 0 || version > STATE_VERSION {
+            return Err(StateError::UnsupportedVersion(version));
+        }
+        let count = u32::from_le_bytes(word(4).ok_or(StateError::Malformed)?) as usize;
+        if data.len() != 8 + count.saturating_mul(12) {
+            return Err(StateError::Malformed);
+        }
+        let entries: Vec<(u32, f64)> = (0..count)
+            .map(|i| {
+                let entry = &data[8 + i * 12..8 + (i + 1) * 12];
+                let id = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
+                let mut bits = [0_u8; 8];
+                bits.copy_from_slice(&entry[4..]);
+                (id, f64::from_le_bytes(bits))
+            })
+            .collect();
+        for (id, value) in entries {
+            self.set(id, value);
+        }
+        self.snap();
+        Ok(())
+    }
 }
 
 /// Static facts about a kind of device, plus its constructor.
@@ -223,6 +497,8 @@ pub struct DeviceInfo {
     pub instrument: bool,
     /// The parameters, in display order.
     pub params: &'static [ParamDescriptor],
+    /// True for a device that takes a sidechain (key) input.
+    pub sidechain: bool,
     create: fn() -> Box<dyn Device>,
 }
 
@@ -240,7 +516,16 @@ impl DeviceInfo {
             name,
             instrument,
             params,
+            sidechain: false,
             create,
+        }
+    }
+
+    /// The same info for a device that takes a sidechain input.
+    pub const fn with_sidechain(self) -> Self {
+        Self {
+            sidechain: true,
+            ..self
         }
     }
 

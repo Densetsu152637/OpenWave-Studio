@@ -38,4 +38,9 @@ scale: ParamScale,
  * Option labels when the parameter is a choice (the value is the option's index, 0 up);
  * empty for a continuous parameter.
  */
-choices: Array<string>, };
+choices: Array<string>, 
+/**
+ * The panel section the parameter sits in (sections appear in order of their first
+ * parameter); absent for an ungrouped parameter.
+ */
+group?: string, };

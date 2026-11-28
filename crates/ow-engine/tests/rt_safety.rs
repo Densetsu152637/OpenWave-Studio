@@ -1180,3 +1180,89 @@ fn live_midi_input_and_the_midi_tap_are_allocation_free() {
     }
     assert!(events > 1000, "{events} messages recorded");
 }
+
+/// Both built-in synthesizers, with every modulation path on (unison, LFO, filter envelope,
+/// feedback), playing live MIDI through the engine cycle under the allocation guard.
+#[test]
+fn the_built_in_synthesizers_are_allocation_free_in_the_cycle() {
+    let synth_params: std::collections::BTreeMap<u32, f64> = [
+        (8, 1.0),
+        (13, 0.7),
+        (17, 0.5),
+        (20, 0.1),
+        (23, 36.0),
+        (28, 4.0),
+        (30, 0.3),
+        (31, 12.0),
+        (32, 0.3),
+        (33, 6.0),
+        (35, 0.8),
+    ]
+    .into();
+    let fm_params: std::collections::BTreeMap<u32, f64> =
+        [(0, 4.0), (1, 0.5), (13, 0.6), (21, 0.5), (29, 0.7)].into();
+    for (kind, params) in [("builtin.synth", synth_params), ("builtin.fm", fm_params)] {
+        let mut editor = Editor::new(Project::new("synths"));
+        let track = editor.alloc_id().unwrap();
+        let device = editor.alloc_id().unwrap();
+        editor
+            .apply(EditCommand::InsertTrack {
+                index: 0,
+                bundle: Box::new(Owned {
+                    item: Track {
+                        id: track,
+                        name: "Keys".into(),
+                        color: 0,
+                        kind: TrackKind::Midi,
+                        strip: Strip::default(),
+                        instrument: Some(device),
+                        input: None,
+                        monitor: Default::default(),
+                    },
+                    clips: vec![],
+                    devices: vec![ow_model::Device {
+                        id: device,
+                        kind: kind.into(),
+                        name: "Synth".into(),
+                        enabled: true,
+                        params,
+                        state: vec![],
+                        sidechain: None,
+                    }],
+                    lanes: vec![],
+                }),
+            })
+            .unwrap();
+        let ctx = CompileContext::default();
+        ctx.armed.set(track, true);
+        let compiled =
+            compile_project_metered(editor.project(), &ctx, SAMPLE_RATE, MAX_BLOCK, None).unwrap();
+        let mut core_builder = builder().midi_clock(ow_engine::MidiClock::StreamFrames);
+        let mut midi = core_builder.producer_ring(1024);
+        let (mut link, mut core) = core_builder.build();
+        link.swap_timeline(compiled.timeline).unwrap();
+        link.swap_plan(compiled.plan).unwrap();
+        assert!(link.send(Message::Transport(TransportCommand::Play)));
+        let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(SAMPLE_RATE)).round() as u64;
+        let mut buffer = vec![0.0_f32; 64 * 2];
+        let mut heard = 0.0_f32;
+        for cycle in 0..1500_u64 {
+            let key = 36 + (cycle % 48) as u8;
+            for (frame, status, data2) in [(cycle * 64 + 10, 0x90, 100), (cycle * 64 + 70, 0x80, 0)]
+            {
+                midi.push(Message::MidiIn {
+                    message: MidiMessage {
+                        status,
+                        data1: key,
+                        data2,
+                    },
+                    timestamp_us: stamp(frame),
+                });
+            }
+            core.process(&mut buffer, 2, None);
+            heard = buffer.iter().fold(heard, |m, s| m.max(s.abs()));
+            assert!(buffer.iter().all(|s| s.is_finite()), "{kind} cycle {cycle}");
+        }
+        assert!(heard > 0.02, "{kind} played the input: {heard}");
+    }
+}

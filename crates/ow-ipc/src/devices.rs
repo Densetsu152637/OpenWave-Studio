@@ -28,6 +28,10 @@ pub enum ParamUnit {
     Seconds,
     /// A percentage, 0 to 100.
     Percent,
+    /// Semitones.
+    Semitones,
+    /// Cents (hundredths of a semitone).
+    Cents,
 }
 
 /// How a control maps its travel to the value.
@@ -63,6 +67,11 @@ pub struct ParamDescriptorDto {
     /// Option labels when the parameter is a choice (the value is the option's index, 0 up);
     /// empty for a continuous parameter.
     pub choices: Vec<String>,
+    /// The panel section the parameter sits in (sections appear in order of their first
+    /// parameter); absent for an ungrouped parameter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<String>,
 }
 
 /// One device kind: a built-in device or a scanned third-party plugin.
@@ -91,6 +100,10 @@ pub struct DeviceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub editor: Option<bool>,
+    /// True when the device takes a sidechain (key) input; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sidechain: Option<bool>,
 }
 
 /// A plugin file the last scan could not use.
@@ -137,6 +150,8 @@ impl From<&ParamDescriptor> for ParamDescriptorDto {
                 Unit::Hertz => ParamUnit::Hertz,
                 Unit::Seconds => ParamUnit::Seconds,
                 Unit::Percent => ParamUnit::Percent,
+                Unit::Semitones => ParamUnit::Semitones,
+                Unit::Cents => ParamUnit::Cents,
             },
             scale: match param.scale {
                 Scale::Linear => ParamScale::Linear,
@@ -146,6 +161,7 @@ impl From<&ParamDescriptor> for ParamDescriptorDto {
                 ParamKind::Continuous => Vec::new(),
                 ParamKind::Choice(options) => options.iter().map(|o| (*o).to_string()).collect(),
             },
+            group: (!param.group.is_empty()).then(|| param.group.to_string()),
         }
     }
 }
@@ -160,6 +176,7 @@ impl From<&DeviceInfo> for DeviceDescriptor {
             format: None,
             vendor: None,
             editor: None,
+            sidechain: info.sidechain.then_some(true),
         }
     }
 }
@@ -179,8 +196,9 @@ mod tests {
         let synth = all.iter().find(|d| d.kind == "builtin.synth").unwrap();
         assert!(synth.instrument);
         let waveform = synth.params.iter().find(|p| p.name == "Waveform").unwrap();
-        assert_eq!(waveform.choices, ["Saw", "Square", "Sine"]);
-        assert_eq!(waveform.max, 2.0);
+        assert_eq!(waveform.choices, ["Saw", "Square", "Sine", "Triangle"]);
+        assert_eq!(waveform.max, 3.0);
+        assert_eq!(waveform.group.as_deref(), Some("Osc 1"));
         let cutoff = synth.params.iter().find(|p| p.name == "Cutoff").unwrap();
         assert_eq!(
             (cutoff.scale, cutoff.unit),

@@ -5,11 +5,12 @@
 
 use crate::device::DeviceInfo;
 use crate::effects::{compressor, eq, limiter, reverb};
-use crate::instruments::synth;
+use crate::instruments::{fm, synth};
 
 /// Every built-in device kind, instruments first.
 pub static ALL: &[DeviceInfo] = &[
     synth::INFO,
+    fm::INFO,
     eq::INFO,
     compressor::INFO,
     reverb::INFO,

@@ -863,6 +863,16 @@ fn make_device(
     max_block: usize,
 ) -> Box<dyn ow_dsp::Device> {
     let mut made = info.create(sample_rate as f32, max_block);
+    // A saved `builtin` state chunk (the device's own `save_state` bytes) restores first; the
+    // project's parameter values below override it. A damaged chunk is ignored.
+    if let Some(bytes) = device
+        .state
+        .iter()
+        .find(|chunk| chunk.format == "builtin")
+        .and_then(|chunk| decode_state(&chunk.data))
+    {
+        let _ = made.load_state(&bytes);
+    }
     for param in info.params {
         if let Some(value) = device.params.get(&param.id) {
             made.set_param(param.id, param.clamp(*value));

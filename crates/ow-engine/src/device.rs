@@ -239,12 +239,16 @@ impl Node for DeviceNode {
                     self.events.push(event);
                 }
             }
-            // Clip and live events interleave by frame. At one frame a note-off comes before a
-            // note-on (so a key retriggers), and the rest is fixed by key and velocity so the
-            // order never depends on the sort; an unstable sort never allocates.
+            // Clip and live events interleave by frame. At one frame a control change comes
+            // first, then a note-off, then a note-on (so a key retriggers), and the rest is fixed
+            // by key and velocity so the order never depends on the sort; an unstable sort never
+            // allocates.
             self.events.sort_unstable_by_key(|event| match event.kind {
-                EventKind::NoteOff { key } => (event.offset, false, key, 0),
-                EventKind::NoteOn { key, velocity } => (event.offset, true, key, velocity),
+                EventKind::ControlChange { controller, value } => {
+                    (event.offset, 0_u8, controller, value)
+                }
+                EventKind::NoteOff { key } => (event.offset, 1, key, 0),
+                EventKind::NoteOn { key, velocity } => (event.offset, 2, key, velocity),
             });
         }
         if self.inputs == 2 {

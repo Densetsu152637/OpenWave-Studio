@@ -283,11 +283,13 @@ pub fn descriptor_of(info: &PluginInfo) -> DeviceDescriptor {
                 unit: ParamUnit::None,
                 scale: ParamScale::Linear,
                 choices: param.choices.clone(),
+                group: None,
             })
             .collect(),
         format: Some(info.format.prefix().to_string()),
         vendor: Some(info.vendor.clone()),
         editor: (info.editor && ow_plugin_host::editor::AVAILABLE).then_some(true),
+        sidechain: None,
     }
 }
 
