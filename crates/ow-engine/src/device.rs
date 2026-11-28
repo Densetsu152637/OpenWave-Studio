@@ -148,6 +148,26 @@ impl DeviceNode {
         self
     }
 
+    /// The gate is closed for this block. Live events accepted earlier in the cycle, while it
+    /// was open, are moot: everything but note-offs is dropped (a note-on or a pedal-down at
+    /// frame 50 would otherwise sort after the release at frame 0 and leave its note or the
+    /// pedal stuck). A pending pedal event means the device's pedal may be down, so the release
+    /// always ends with a lift at frame 0.
+    fn close_live_gate(&mut self) {
+        if self
+            .live_events
+            .iter()
+            .any(|event| matches!(event.kind, EventKind::ControlChange { controller: 64, .. }))
+        {
+            self.live_pedal = true;
+        }
+        self.live_events
+            .retain(|event| matches!(event.kind, EventKind::NoteOff { .. }));
+        if self.live_held_count > 0 || self.live_pedal {
+            self.release_live();
+        }
+    }
+
     /// Releases every key the live input holds, and lifts a forwarded sustain pedal, at frame 0.
     fn release_live(&mut self) {
         if self.live_pedal {
@@ -323,16 +343,9 @@ impl Node for DeviceNode {
         // What was deferred while this block was being prepared is due in the next one.
         self.live_due = self.live_deferred;
         self.live_deferred = [false; 128];
-        // The gate is read once per block. If it closed during the cycle, note-ons accepted
-        // while it was open are moot: drop them, so a release at frame 0 cannot sort before
-        // one and leave its note hanging.
-        let gate_closed = self.live.as_ref().is_some_and(|gate| !gate.is_open());
-        if gate_closed {
-            self.live_events
-                .retain(|event| !matches!(event.kind, EventKind::NoteOn { .. }));
-            if self.live_held_count > 0 || self.live_pedal {
-                self.release_live();
-            }
+        // The gate is read once per block.
+        if self.live.as_ref().is_some_and(|gate| !gate.is_open()) {
+            self.close_live_gate();
         }
         if !self.live_events.is_empty() {
             // Live events always fit: if the clip events leave too little room, the tail of the
@@ -384,6 +397,88 @@ impl Node for DeviceNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    struct Silent;
+
+    impl ow_dsp::Device for Silent {
+        fn prepare(&mut self, _rate: f32, _max_block: usize) {}
+        fn set_param(&mut self, _id: u32, _value: f64) {}
+        fn reset(&mut self) {}
+        fn process(&mut self, _audio: &mut [&mut [f32]; 2], _events: &[Event]) {}
+    }
+
+    static SILENT_INFO: DeviceInfo =
+        DeviceInfo::new("test.silent", "Silent", true, &[], || Box::new(Silent));
+
+    /// An armed live instrument node, and the flag that arms it.
+    fn live_node() -> (DeviceNode, Arc<AtomicBool>) {
+        let flag = Arc::new(AtomicBool::new(true));
+        let mut node =
+            DeviceNode::instrument(&SILENT_INFO, Box::new(Silent), MidiClipPlayer::new(vec![]))
+                .with_live_input(LiveGate::Armed(Arc::clone(&flag)));
+        node.prepare(48_000, 64);
+        (node, flag)
+    }
+
+    fn message(status: u8, data1: u8, data2: u8) -> MidiMessage {
+        MidiMessage {
+            status,
+            data1,
+            data2,
+        }
+    }
+
+    /// The pedal value the device ends up with after the node orders its pending live events.
+    fn final_pedal(node: &mut DeviceNode) -> Option<u8> {
+        let mut events: Vec<Event> = node.live_events.drain(..).collect();
+        order_events(&mut events, &mut Vec::with_capacity(64));
+        events.iter().rev().find_map(|e| match e.kind {
+            EventKind::ControlChange {
+                controller: 64,
+                value,
+            } => Some(value),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_pedal_down_accepted_before_the_gate_closed_is_lifted() {
+        use std::sync::atomic::Ordering;
+        let (mut node, flag) = live_node();
+        node.on_live_midi(50, message(0xB0, 64, 127));
+        node.on_live_midi(60, message(0x90, 61, 90));
+        flag.store(false, Ordering::Relaxed);
+        node.close_live_gate();
+        assert_eq!(final_pedal(&mut node), Some(0), "the pedal ends up");
+        assert!(!node.live_pedal);
+        // The note-on is gone and nothing is held.
+        assert!(node.live_events.is_empty() && node.live_held_count == 0);
+    }
+
+    #[test]
+    fn a_pedal_down_from_an_earlier_block_that_lifts_this_cycle_ends_up() {
+        use std::sync::atomic::Ordering;
+        let (mut node, flag) = live_node();
+        node.on_live_midi(10, message(0xB0, 64, 127));
+        node.live_events.clear(); // that block was delivered: the device's pedal is down
+        node.on_live_midi(30, message(0xB0, 64, 0)); // lifted in this cycle, not yet delivered
+        flag.store(false, Ordering::Relaxed);
+        node.close_live_gate();
+        assert_eq!(final_pedal(&mut node), Some(0));
+    }
+
+    #[test]
+    fn a_gate_that_closes_with_a_pedal_held_and_no_events_pending_lifts_it() {
+        use std::sync::atomic::Ordering;
+        let (mut node, flag) = live_node();
+        node.on_live_midi(10, message(0xB0, 64, 127));
+        node.live_events.clear();
+        flag.store(false, Ordering::Relaxed);
+        node.close_live_gate();
+        assert_eq!(final_pedal(&mut node), Some(0));
+    }
 
     #[test]
     fn trimming_drops_note_ons_and_controllers_before_note_offs() {
