@@ -12,6 +12,9 @@ import type { Clip, Warp } from "../ipc/types";
 /** The stretcher's range: the ratio of output to input duration, either way. */
 export const WARP_RATIO_LIMIT = 4;
 
+/** The most pieces a ramp is cut into (the engine uses 1024 for a long clip). */
+const MAX_RAMP_PIECES = 1024;
+
 /** The source frame at clip-local `beat`. */
 export function sourceFrameAt(
   warp: Pick<Warp, "source_bpm" | "markers">,
@@ -64,8 +67,23 @@ export function warpOutOfRange(clip: Clip, tempo: TempoMap, mediaRate: number): 
   const offset = clip.content.source_offset;
   const beats = new Set<number>([0, clip.length]);
   for (const m of warp.markers) if (m.beat > 0 && m.beat < clip.length) beats.add(m.beat);
-  const step = Math.max(1, clip.length / 32);
-  for (let b = step; b < clip.length; b += step) beats.add(b);
+  // The engine's own cuts: every tempo change inside the clip, and beat-long pieces where the
+  // tempo map ramps, so a short out-of-range stretch between two tempo changes is not averaged
+  // away by a coarse sample.
+  const points = tempo.points;
+  for (const p of points) {
+    const local = p.beat - clip.start;
+    if (local > 0 && local < clip.length) beats.add(local);
+  }
+  const end = clip.start + clip.length;
+  const ramps = points.some((p, i) => {
+    const next = points[i + 1];
+    return p.ramp && next !== undefined && p.beat < end && next.beat > clip.start;
+  });
+  if (ramps) {
+    const step = Math.max(1, clip.length / MAX_RAMP_PIECES);
+    for (let b = step; b < clip.length; b += step) beats.add(b);
+  }
   const sorted = [...beats].sort((a, b) => a - b);
   for (let i = 0; i + 1 < sorted.length; i++) {
     const [from, to] = [sorted[i]!, sorted[i + 1]!];

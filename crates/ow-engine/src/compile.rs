@@ -622,6 +622,12 @@ struct ClipEnv<'a> {
 /// The most threads that render warped clips at once.
 const MAX_WARP_THREADS: usize = 4;
 
+/// Threads to prerender with on a machine with `cores` cores: at most [`MAX_WARP_THREADS`], one
+/// core is left to the audio callback, and never fewer than one.
+fn warp_threads(cores: usize) -> usize {
+    cores.saturating_sub(1).clamp(1, MAX_WARP_THREADS)
+}
+
 /// Renders the warped clips that are not cached yet, several at a time, before the strips are
 /// built, so the sequential build then finds every render in the cache. A project with one
 /// uncached warped clip gains nothing and is left to the build. (Rendering still happens while
@@ -684,10 +690,9 @@ fn prerender_warps(project: &Project, ctx: &CompileContext, timeline: &Timeline,
     if jobs.len() < 2 {
         return;
     }
-    let threads = std::thread::available_parallelism()
-        .map_or(1, std::num::NonZero::get)
-        .min(MAX_WARP_THREADS)
-        .min(jobs.len());
+    let threads =
+        warp_threads(std::thread::available_parallelism().map_or(1, std::num::NonZero::get))
+            .min(jobs.len());
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for _ in 0..threads {
@@ -1102,6 +1107,16 @@ fn build_strip(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn warp_threads_leave_a_core_to_the_audio_callback() {
+        assert_eq!(super::warp_threads(0), 1);
+        assert_eq!(super::warp_threads(1), 1);
+        assert_eq!(super::warp_threads(2), 1);
+        assert_eq!(super::warp_threads(3), 2);
+        assert_eq!(super::warp_threads(5), 4);
+        assert_eq!(super::warp_threads(64), super::MAX_WARP_THREADS);
+    }
+
     use ow_ipc::TelemetryBank;
     use ow_model::{
         AuxSend, Bus, Clip, ClipContent, Device, EditCommand, Editor, MediaItem, Owned, Strip,
