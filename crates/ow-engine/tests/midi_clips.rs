@@ -1378,3 +1378,82 @@ fn the_pedal_state_at_a_clip_end_is_its_latest_cc64_whatever_the_list_order() {
     let scheduled = schedule_controllers(project.clips.values(), &timeline, RATE);
     assert_eq!(scheduled.last().copied(), Some(cc_at(BEAT, 64, 0)));
 }
+
+/// A clip with `controllers` (beat, controller, value) at `start` for `length` beats.
+fn cc_clip(id: u64, track: u64, start: f64, length: f64, controllers: &[(f64, u8, u8)]) -> Clip {
+    Clip {
+        content: ClipContent::Midi {
+            notes: vec![],
+            controllers: controllers
+                .iter()
+                .map(|&(beat, controller, value)| ow_model::Controller {
+                    beat,
+                    controller,
+                    value,
+                })
+                .collect(),
+        },
+        ..midi_clip(id, track, start, length, vec![])
+    }
+}
+
+fn scheduled_pedal(clips: impl FnOnce(u64) -> Vec<Clip>) -> Vec<(u64, u8)> {
+    let project = project_with(120.0, clips);
+    let timeline = Timeline::new(
+        project.tempo_map.clone(),
+        project.time_signature_map.clone(),
+    );
+    schedule_controllers(project.clips.values(), &timeline, RATE)
+        .iter()
+        .filter(|e| e.controller == 64)
+        .map(|e| (e.sample, e.value))
+        .collect()
+}
+
+#[test]
+fn a_pedal_inherited_from_an_earlier_clip_is_lifted_at_the_last_clips_end() {
+    // A presses the pedal; the adjacent B never touches it.
+    let pedal = scheduled_pedal(|t| {
+        vec![
+            cc_clip(100, t, 0.0, 1.0, &[(0.0, 64, 127)]),
+            cc_clip(101, t, 1.0, 1.0, &[(0.5, 1, 30)]),
+        ]
+    });
+    assert_eq!(pedal, [(0, 127), (2 * BEAT, 0)]);
+
+    // The right part of a split, trimmed before its lift (the lift is past its end).
+    let pedal = scheduled_pedal(|t| {
+        vec![
+            cc_clip(100, t, 0.0, 2.0, &[(0.0, 64, 127)]),
+            cc_clip(101, t, 2.0, 1.0, &[(1.5, 64, 0)]),
+        ]
+    });
+    assert_eq!(pedal, [(0, 127), (3 * BEAT, 0)]);
+}
+
+#[test]
+fn chained_and_overlapping_clips_lift_the_pedal_once_at_the_last_uncovered_end() {
+    let chain = scheduled_pedal(|t| {
+        vec![
+            cc_clip(100, t, 0.0, 1.0, &[(0.0, 64, 127)]),
+            cc_clip(101, t, 1.0, 1.0, &[]),
+            cc_clip(102, t, 2.0, 1.0, &[]),
+        ]
+    });
+    assert_eq!(chain, [(0, 127), (3 * BEAT, 0)]);
+    let overlap = scheduled_pedal(|t| {
+        vec![
+            cc_clip(100, t, 0.0, 3.0, &[(0.0, 64, 127)]),
+            cc_clip(101, t, 2.0, 2.0, &[]),
+        ]
+    });
+    assert_eq!(overlap, [(0, 127), (4 * BEAT, 0)]);
+    // A pedal that is up at a clip's end needs no lift, and a gap between clips lifts at the gap.
+    let up = scheduled_pedal(|t| {
+        vec![
+            cc_clip(100, t, 0.0, 1.0, &[(0.0, 64, 127), (0.5, 64, 0)]),
+            cc_clip(101, t, 3.0, 1.0, &[(0.0, 64, 127)]),
+        ]
+    });
+    assert_eq!(up, [(0, 127), (12_000, 0), (3 * BEAT, 127), (4 * BEAT, 0)]);
+}

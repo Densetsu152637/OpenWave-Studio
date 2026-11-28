@@ -72,70 +72,94 @@ const REST: [u8; 6] = [0, 100, 64, 127, 0, 64];
 /// The controller events of `clips` (MIDI clips only, muted clips are silent) at `sample_rate`,
 /// sorted by sample; events at one sample keep the order of the clips and of the model. An event
 /// at or after its clip's end is dropped.
+///
+/// A sustain pedal left down is lifted, per track, where the last clip it ran through ends: the
+/// track's events and clip ends are walked in time order with a pedal-down flag (every CC 64
+/// sets it); at a clip end, if the pedal is down and no other unmuted MIDI clip of the track
+/// covers that sample (a split clip's right part, an overlapping or adjacent clip), a CC 64 = 0
+/// is added there and the flag cleared. The pedal a clip inherits from an earlier one therefore
+/// counts, and a lift goes before the other events of its sample (a clip-end check comes first).
 pub fn schedule_controllers<'a>(
     clips: impl IntoIterator<Item = &'a Clip>,
     timeline: &Timeline,
     sample_rate: u32,
 ) -> Vec<ScheduledCc> {
+    let mut tracks: std::collections::BTreeMap<u64, Vec<&Clip>> = std::collections::BTreeMap::new();
+    for clip in clips {
+        if matches!(clip.content, ClipContent::Midi { .. }) && !clip.muted {
+            tracks.entry(clip.track.0).or_default().push(clip);
+        }
+    }
     // The bool marks a pedal lift added at a clip's end.
-    let mut events: Vec<(ScheduledCc, bool)> = Vec::new();
-    let clips: Vec<&Clip> = clips.into_iter().collect();
-    // Another unmuted MIDI clip of the track runs on at `beat` (a split clip: the pedal goes on).
-    let continues = |clip: &Clip, beat: f64| {
-        clips.iter().any(|other| {
-            other.id != clip.id
-                && other.track == clip.track
-                && !other.muted
-                && matches!(other.content, ClipContent::Midi { .. })
-                && other.start <= beat + 1e-9
-                && beat < other.start + other.length - 1e-9
-        })
-    };
-    for &clip in &clips {
-        let ClipContent::Midi { controllers, .. } = &clip.content else {
-            continue;
-        };
-        if clip.muted {
-            continue;
-        }
-        let clip_end = clip.start + clip.length;
-        // The pedal's state at the clip's end is the CC 64 with the latest beat (the validator
-        // does not sort controllers); of equal beats, the later one in the list.
-        let mut last_pedal: Option<(f64, bool)> = None;
-        for cc in controllers {
-            let beat = clip.start + cc.beat;
-            if beat >= clip_end || cc.controller > 127 || cc.value > 127 {
+    let mut all: Vec<(ScheduledCc, bool)> = Vec::new();
+    for track in tracks.values() {
+        let mut events: Vec<ScheduledCc> = Vec::new();
+        for clip in track {
+            let ClipContent::Midi { controllers, .. } = &clip.content else {
                 continue;
+            };
+            let clip_end = clip.start + clip.length;
+            for cc in controllers {
+                let beat = clip.start + cc.beat;
+                if beat < clip_end && cc.controller <= 127 && cc.value <= 127 {
+                    events.push(ScheduledCc {
+                        sample: timeline.beat_to_sample_index(beat, sample_rate),
+                        controller: cc.controller,
+                        value: cc.value,
+                    });
+                }
             }
-            if cc.controller == 64 && last_pedal.is_none_or(|(at, _)| cc.beat >= at) {
-                last_pedal = Some((cc.beat, cc.value >= 64));
-            }
-            events.push((
-                ScheduledCc {
-                    sample: timeline.beat_to_sample_index(beat, sample_rate),
-                    controller: cc.controller,
-                    value: cc.value,
-                },
-                false,
-            ));
         }
-        // A pedal the clip leaves down is lifted where the clip ends (before the note-offs of
-        // notes cut there, and before a following clip's own events), so nothing rings on;
-        // unless the track's next clip carries on from there, as the right part of a split.
-        if last_pedal.is_some_and(|(_, down)| down) && !continues(clip, clip_end) {
-            events.push((
-                ScheduledCc {
-                    sample: timeline.beat_to_sample_index(clip_end, sample_rate),
-                    controller: 64,
-                    value: 0,
-                },
-                true,
-            ));
+        // Stable: equal samples keep the order they were added in.
+        events.sort_by_key(|e| e.sample);
+        let mut ends: Vec<(u64, &Clip)> = track
+            .iter()
+            .map(|c| {
+                (
+                    timeline.beat_to_sample_index(c.start + c.length, sample_rate),
+                    *c,
+                )
+            })
+            .collect();
+        ends.sort_by_key(|(sample, _)| *sample);
+        // Another unmuted clip of the track runs on at `beat`.
+        let covered = |clip: &Clip, beat: f64| {
+            track.iter().any(|other| {
+                other.id != clip.id
+                    && other.start <= beat + 1e-9
+                    && beat < other.start + other.length - 1e-9
+            })
+        };
+        let mut down = false;
+        let mut next_event = 0;
+        for &(end, clip) in &ends {
+            // Events before this end (and at its sample, after the end check) first.
+            while let Some(event) = events.get(next_event).filter(|e| e.sample < end) {
+                if event.controller == 64 {
+                    down = event.value >= 64;
+                }
+                all.push((*event, false));
+                next_event += 1;
+            }
+            if down && !covered(clip, clip.start + clip.length) {
+                down = false;
+                all.push((
+                    ScheduledCc {
+                        sample: end,
+                        controller: 64,
+                        value: 0,
+                    },
+                    true,
+                ));
+            }
+        }
+        for event in &events[next_event..] {
+            all.push((*event, false));
         }
     }
     // Stable: equal samples keep the order they were added in, lifts first.
-    events.sort_by_key(|(e, lift)| (e.sample, !lift));
-    events.into_iter().map(|(e, _)| e).collect()
+    all.sort_by_key(|(e, lift)| (e.sample, !lift));
+    all.into_iter().map(|(e, _)| e).collect()
 }
 
 /// The note events of `clips` (MIDI clips only; audio and pattern clips are ignored, muted clips
