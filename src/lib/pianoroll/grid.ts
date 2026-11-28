@@ -25,10 +25,12 @@ export interface GridOption {
 }
 
 export const GRID_OPTIONS: readonly GridOption[] = [
+  { label: "1/32", beats: 0.125 },
   { label: "1/16", beats: 0.25 },
   { label: "1/8", beats: 0.5 },
   { label: "1/4", beats: 1 },
   { label: "1/2", beats: 2 },
+  { label: "1 bar", beats: 4 },
 ];
 export const DEFAULT_GRID = 0.25;
 
@@ -65,11 +67,11 @@ export const snapNearest = (beat: number, grid: number): number =>
 /** Pixels at a note's right edge that grab it for resizing. */
 export const EDGE_PX = 6;
 
-export type NotePart = "body" | "end";
+export type NotePart = "body" | "start" | "end";
 
 /**
  * The topmost note under pixel `x`, `y` (the last in the list wins an overlap) and which part:
- * its right edge (resize) or its body (move).
+ * its left edge (resize the start), its right edge (resize the end) or its body (move).
  */
 export function hitTest(
   notes: readonly Note[],
@@ -81,7 +83,8 @@ export function hitTest(
     const rect = noteRect(view, notes[index]!);
     if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height) {
       const edge = Math.min(EDGE_PX, rect.width / 3);
-      return { index, part: x >= rect.x + rect.width - edge ? "end" : "body" };
+      const part = x >= rect.x + rect.width - edge ? "end" : x < rect.x + edge ? "start" : "body";
+      return { index, part };
     }
   }
   return null;

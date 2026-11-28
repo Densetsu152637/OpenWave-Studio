@@ -2,10 +2,35 @@
   import { tick } from "svelte";
   import type { SignatureMap } from "../arrange/time";
   import { cssColor } from "../arrange/view";
-  import type { Clip, Note } from "../ipc/types";
-  import { type Drag, dragPreview, draggedId, press } from "../pianoroll/gesture";
+  import type { Clip, Controller, MidiEdit, MidiEditReply, Note } from "../ipc/types";
   import {
-    DEFAULT_GRID,
+    CC_PRESETS,
+    type StrokePoint,
+    ccEvents,
+    ccPoint,
+    ccValueAtY,
+    clampController,
+    clearController,
+    eraseNear,
+    paintStroke,
+  } from "../pianoroll/cc";
+  import {
+    allIds,
+    deleteNotes,
+    duplicateNotes,
+    idsAt,
+    indicesOf,
+    moveNotes,
+    scaleVelocities,
+  } from "../pianoroll/edit";
+  import {
+    type Drag,
+    type Marquee,
+    dragMarquee,
+    dragPreview,
+    press,
+  } from "../pianoroll/gesture";
+  import {
     DEFAULT_ROLL_VIEW,
     GRID_OPTIONS,
     KEYS,
@@ -19,46 +44,112 @@
     rollSize,
     zoomRoll,
   } from "../pianoroll/grid";
-  import { clipNotes, noteId, removeNote } from "../pianoroll/notes";
+  import { type RollKeyAction, ROLL_SHORTCUTS, rollKeyAction } from "../pianoroll/keys";
+  import { type ClipEdit, clipControllers, clipNotes, noteId } from "../pianoroll/notes";
+  import { ROOTS, SCALES, rowKind, scaleById } from "../pianoroll/scale";
+  import {
+    DEFAULT_OPS,
+    DEFAULT_PREFS,
+    type OpSettings,
+    type RollPrefs,
+    humanizeEdit,
+    legatoEdit,
+    nextSeed,
+    parsePrefs,
+    quantizeEdit,
+    transposeEdit,
+    velocityScaleEdit,
+    velocitySetEdit,
+  } from "../pianoroll/toolbar";
+  import { barRect, hitBar, velocityAtY } from "../pianoroll/velocity";
 
   /**
-   * The piano roll of one MIDI clip: click to draw a note, drag a note to move it, drag its right
-   * edge to resize it, select it and press Delete (or right-click it) to remove it. Every
-   * finished gesture is one `onEdit` with the clip's new note list; the clip itself only changes
-   * when the resulting patch arrives.
+   * The piano roll of one MIDI clip. Draw or select notes (click, shift-click, drag a
+   * rectangle), move and resize them (the group together), delete, duplicate and nudge them,
+   * edit velocities and a controller lane below the roll, shade a scale, and run quantize,
+   * legato, humanize, transpose and velocity operations on the selection (or the whole clip).
+   * Every finished gesture is one `onEdit` (one undo step); operations go through `onMidiEdit`.
+   * The clip itself only changes when the resulting patch arrives.
    */
   let {
     clip,
     color,
     signatures,
     onEdit,
+    onMidiEdit,
     onClose,
   }: {
     clip: Clip;
     /** The track's color (0xRRGGBB). */
     color: number;
     signatures: SignatureMap;
-    onEdit: (notes: Note[]) => void;
+    /** Replaces the clip's notes and/or controller events (one undo step). */
+    onEdit: (change: ClipEdit) => void;
+    /** Runs a note operation on the notes at these indices (all when null). */
+    onMidiEdit: (edit: MidiEdit, notes: number[] | null) => Promise<MidiEditReply | undefined>;
     onClose: () => void;
   } = $props();
 
   const ZOOM_STEP = 1.25;
+  const LANE_HEIGHT = 72;
+  const PREFS_KEY = "openwave.pianoroll.prefs";
+
+  function loadPrefs(): RollPrefs {
+    try {
+      return parsePrefs(localStorage.getItem(PREFS_KEY));
+    } catch {
+      return { ...DEFAULT_PREFS };
+    }
+  }
 
   let view = $state<RollView>({ ...DEFAULT_ROLL_VIEW });
-  let grid = $state(DEFAULT_GRID);
-  let selected = $state<string | null>(null);
-  let drag = $state<{ drag: Drag; preview: Note[] | null } | null>(null);
+  let prefs = $state<RollPrefs>(loadPrefs());
+  let ops = $state<OpSettings>({ ...DEFAULT_OPS });
+  let selected = $state<string[]>([]);
+  let drag = $state<{
+    drag: Drag;
+    preview: { notes: Note[]; selected: string[] } | null;
+    base: string[];
+  } | null>(null);
+  let marquee = $state<Marquee | null>(null);
+  let velocityDrag = $state<{
+    notes: readonly Note[];
+    indices: number[];
+    anchor: number;
+    preview: Note[] | null;
+  } | null>(null);
+  let ccDrag = $state<{ preview: Controller[]; last: StrokePoint } | null>(null);
+  let cursor = $state("");
   let scroller = $state<HTMLElement>();
+  let scrollLeft = $state(0);
   let root = $state<HTMLElement>();
-  /** The last press was inside the roll, so Delete means "delete the selected note". */
+  /** The last press was inside the roll, so its keys act on the roll. */
   let active = $state(false);
   let surface = $state<HTMLElement>();
+  let velocitySurface = $state<HTMLElement>();
+  let ccSurface = $state<HTMLElement>();
+  /** A toolbar operation is waiting for the clip to change, to select the same notes again. */
+  let pending = $state<{ before: readonly Note[]; indices: number[] } | null>(null);
 
   const committed = $derived(clipNotes(clip));
-  const notes = $derived(drag ? (drag.preview ?? drag.drag.notes) : committed);
+  const committedCc = $derived(clipControllers(clip));
+  const notes = $derived(
+    drag
+      ? (drag.preview?.notes ?? drag.drag.notes)
+      : velocityDrag
+        ? (velocityDrag.preview ?? velocityDrag.notes)
+        : committed,
+  );
+  const controllers = $derived(ccDrag ? ccDrag.preview : committedCc);
+  const selectedSet = $derived(new Set(selected));
   const size = $derived(rollSize(view, clip.length));
-  const lines = $derived(gridLines(view, clip.start, clip.length, grid, signatures));
+  const lines = $derived(gridLines(view, clip.start, clip.length, prefs.grid, signatures));
+  const coarse = $derived(lines.filter((l) => l.kind !== "grid"));
   const keys = Array.from({ length: KEYS }, (_, row) => KEYS - 1 - row);
+  const scale = $derived(scaleById(prefs.scale));
+  const shownCc = $derived(ccEvents(controllers, prefs.controller));
+  const scope = $derived(selected.length > 0 ? `${selected.length} selected` : "whole clip");
+  const ccPresetKnown = $derived(CC_PRESETS.some((p) => p.controller === prefs.controller));
 
   // Scroll the notes' key range into view when a clip opens (not on every edit).
   let shownClip: number | null = null;
@@ -67,70 +158,270 @@
     const target = scroller;
     if (!target || shownClip === id) return;
     shownClip = id;
-    selected = null;
+    selected = [];
+    pending = null;
     void tick().then(() => {
       target.scrollTop = initialScrollTop(committed, view, target.clientHeight);
     });
   });
 
-  function local(event: PointerEvent) {
-    const rect = surface!.getBoundingClientRect();
+  // Keep the preferences for the next time the roll opens.
+  $effect(() => {
+    const snapshot = JSON.stringify($state.snapshot(prefs));
+    try {
+      localStorage.setItem(PREFS_KEY, snapshot);
+    } catch {
+      // Browser storage can be unavailable; the roll works without it.
+    }
+  });
+
+  // After a toolbar operation changed the clip, select the notes at the same positions again.
+  $effect(() => {
+    const wait = pending;
+    if (wait && committed !== wait.before) {
+      selected = idsAt(committed, wait.indices);
+      pending = null;
+    }
+  });
+
+  function surfacePoint(target: HTMLElement | undefined, event: { clientX: number; clientY: number }) {
+    const rect = target!.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  // ---- The note surface ----
+
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0 || !surface) return;
-    const { x, y } = local(event);
-    const result = press(committed, view, x, y, grid, clip.length);
-    if (result.type === "none") {
-      selected = null;
-      return;
-    }
-    selected = result.selected;
+    pending = null;
+    const { x, y } = surfacePoint(surface, event);
+    const result = press(committed, selectedSet, view, x, y, {
+      tool: prefs.tool,
+      grid: prefs.grid,
+      clipLength: clip.length,
+      shift: event.shiftKey,
+      ctrl: event.ctrlKey || event.metaKey,
+    });
+    selected = result.selection;
     if (result.type === "add") {
-      onEdit(result.notes);
-      return;
+      onEdit({ notes: result.notes });
+    } else if (result.type === "drag") {
+      surface.setPointerCapture(event.pointerId);
+      drag = { drag: result.drag, preview: null, base: result.selection };
+    } else if (result.type === "marquee") {
+      surface.setPointerCapture(event.pointerId);
+      marquee = result.marquee;
     }
-    surface.setPointerCapture(event.pointerId);
-    drag = { drag: result.drag, preview: null };
   }
 
   function onPointerMove(event: PointerEvent) {
-    if (!drag) return;
-    const { x, y } = local(event);
-    const preview = dragPreview(drag.drag, view, x, y, grid, clip.length);
-    drag = { drag: drag.drag, preview };
-    selected = draggedId(drag.drag, preview);
+    if (!surface) return;
+    const { x, y } = surfacePoint(surface, event);
+    if (drag) {
+      const preview = dragPreview(drag.drag, view, x, y, prefs.grid, clip.length);
+      drag = { ...drag, preview };
+      selected = preview ? preview.selected : drag.base;
+    } else if (marquee) {
+      const next = dragMarquee(committed, view, marquee, x, y);
+      marquee = next.marquee;
+      selected = next.selection;
+    } else {
+      const hit = hitTest(committed, view, x, y);
+      cursor = hit ? (hit.part === "body" ? "grab" : "ew-resize") : prefs.tool === "draw" ? "crosshair" : "default";
+    }
   }
 
   function onPointerUp(event: PointerEvent) {
+    marquee = null;
     if (!drag) return;
     const done = drag;
     drag = null;
-    if (event.type === "pointerup" && done.preview) onEdit(done.preview);
+    if (event.type !== "pointerup") {
+      selected = done.base;
+    } else if (done.preview) {
+      onEdit({ notes: done.preview.notes });
+    } else if (done.drag.clickSelection) {
+      selected = done.drag.clickSelection;
+    }
   }
 
   function onContextMenu(event: MouseEvent) {
     event.preventDefault();
     if (!surface) return;
-    const rect = surface.getBoundingClientRect();
-    const hit = hitTest(committed, view, event.clientX - rect.left, event.clientY - rect.top);
+    const { x, y } = surfacePoint(surface, event);
+    const hit = hitTest(committed, view, x, y);
     if (hit) {
-      selected = null;
-      onEdit(removeNote(committed, hit.index));
+      selected = [];
+      onEdit({ notes: deleteNotes(committed, [hit.index]) });
+    }
+  }
+
+  // ---- The velocity lane ----
+
+  function onVelocityDown(event: PointerEvent) {
+    if (event.button !== 0 || !velocitySurface) return;
+    pending = null;
+    const { x, y } = surfacePoint(velocitySurface, event);
+    const hit = hitBar(committed, view, x, y, LANE_HEIGHT);
+    if (hit === null) return;
+    const id = noteId(committed[hit]!);
+    if (event.shiftKey && !selectedSet.has(id)) selected = [...selected, id];
+    else if (!selectedSet.has(id)) selected = [id];
+    const indices = indicesOf(committed, new Set(selected));
+    velocitySurface.setPointerCapture(event.pointerId);
+    velocityDrag = { notes: committed, indices, anchor: hit, preview: null };
+    onVelocityMove(event);
+  }
+
+  function onVelocityMove(event: PointerEvent) {
+    if (!velocityDrag || !velocitySurface) return;
+    const { y } = surfacePoint(velocitySurface, event);
+    const preview = scaleVelocities(
+      velocityDrag.notes,
+      velocityDrag.indices,
+      velocityDrag.anchor,
+      velocityAtY(y, LANE_HEIGHT),
+    );
+    velocityDrag = { ...velocityDrag, preview };
+  }
+
+  function onVelocityUp(event: PointerEvent) {
+    if (!velocityDrag) return;
+    const done = velocityDrag;
+    velocityDrag = null;
+    if (event.type === "pointerup" && done.preview) onEdit({ notes: done.preview });
+  }
+
+  // ---- The controller lane ----
+
+  function strokePoint(event: PointerEvent): StrokePoint {
+    const { x, y } = surfacePoint(ccSurface, event);
+    return { beat: Math.max(0, x / view.pxPerBeat), value: ccValueAtY(y, LANE_HEIGHT) };
+  }
+
+  function onCcDown(event: PointerEvent) {
+    if (event.button !== 0 || !ccSurface) return;
+    ccSurface.setPointerCapture(event.pointerId);
+    const to = strokePoint(event);
+    ccDrag = {
+      preview: paintStroke(committedCc, prefs.controller, null, to, prefs.grid, clip.length),
+      last: to,
+    };
+  }
+
+  function onCcMove(event: PointerEvent) {
+    if (!ccDrag || !ccSurface) return;
+    const to = strokePoint(event);
+    ccDrag = {
+      preview: paintStroke(ccDrag.preview, prefs.controller, ccDrag.last, to, prefs.grid, clip.length),
+      last: to,
+    };
+  }
+
+  function onCcUp(event: PointerEvent) {
+    if (!ccDrag) return;
+    const done = ccDrag;
+    ccDrag = null;
+    if (event.type === "pointerup") onEdit({ controllers: done.preview });
+  }
+
+  function onCcContextMenu(event: MouseEvent) {
+    event.preventDefault();
+    if (!ccSurface) return;
+    const { x } = surfacePoint(ccSurface, event);
+    const next = eraseNear(committedCc, prefs.controller, view, x);
+    if (next) onEdit({ controllers: next });
+  }
+
+  // ---- Operations ----
+
+  /** Runs a note operation on the selection (the whole clip when nothing is selected). */
+  async function runOp(edit: MidiEdit) {
+    const before = committed;
+    const indices = indicesOf(before, selectedSet);
+    const reply = await onMidiEdit(edit, indices.length > 0 ? indices : null);
+    if (indices.length === 0 || !reply) return;
+    // Operations keep the order of the notes, so the same positions are the same notes (unless
+    // a transpose dropped some, then the selection ends).
+    if (reply.notesAfter === reply.notesBefore) pending = { before, indices };
+    else selected = [];
+  }
+
+  async function runHumanize() {
+    const edit = humanizeEdit(ops);
+    ops.seed = nextSeed(ops.seed);
+    await runOp(edit);
+  }
+
+  // ---- Keys ----
+
+  function nudge(deltaBeats: number, deltaKeys: number) {
+    const indices = indicesOf(committed, selectedSet);
+    if (indices.length === 0) return;
+    const result = moveNotes(committed, indices, indices[0]!, deltaBeats, deltaKeys, prefs.grid, clip.length);
+    if (!result) return;
+    selected = result.selected;
+    onEdit({ notes: result.notes });
+  }
+
+  function perform(action: RollKeyAction): boolean {
+    const indices = indicesOf(committed, selectedSet);
+    switch (action) {
+      case "delete":
+        if (indices.length === 0) return false;
+        selected = [];
+        onEdit({ notes: deleteNotes(committed, indices) });
+        return true;
+      case "select-all":
+        selected = allIds(committed);
+        return true;
+      case "duplicate": {
+        const result = duplicateNotes(committed, indices, prefs.grid, clip.length);
+        if (!result) return indices.length > 0;
+        selected = result.selected;
+        onEdit({ notes: result.notes });
+        return true;
+      }
+      case "deselect":
+        if (selected.length === 0) return false;
+        selected = [];
+        return true;
+      case "nudge-left":
+      case "nudge-right":
+      case "nudge-up":
+      case "nudge-down":
+      case "octave-up":
+      case "octave-down": {
+        if (indices.length === 0) return false;
+        const beats = action === "nudge-left" ? -prefs.grid : action === "nudge-right" ? prefs.grid : 0;
+        const semis =
+          action === "nudge-up" ? 1 : action === "nudge-down" ? -1 : action === "octave-up" ? 12 : action === "octave-down" ? -12 : 0;
+        nudge(beats, semis);
+        return true;
+      }
+      case "tool-draw":
+        prefs.tool = "draw";
+        return true;
+      case "tool-select":
+        prefs.tool = "select";
+        return true;
+      case "quantize":
+        void runOp(quantizeEdit(prefs.grid, ops));
+        return true;
+      case "legato":
+        void runOp(legatoEdit(ops));
+        return true;
     }
   }
 
   function onKey(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
-    if (target?.closest("input, textarea, select, [contenteditable]")) return;
-    if (active && (event.key === "Delete" || event.key === "Backspace") && selected !== null) {
-      const index = committed.findIndex((n) => noteId(n) === selected);
-      if (index >= 0) {
+    if (target?.closest("input, textarea, select, [contenteditable]") || !active) return;
+    const action = rollKeyAction(event);
+    if (action && !(event.repeat && (action === "duplicate" || action === "quantize" || action === "legato"))) {
+      if (perform(action)) {
         event.preventDefault();
         event.stopPropagation();
-        selected = null;
-        onEdit(removeNote(committed, index));
       }
     }
   }
@@ -144,27 +435,104 @@
 <section class="roll" aria-label="Piano roll" style:--track={cssColor(color)} bind:this={root}>
   <header>
     <strong>{clip.name}</strong>
+    <span class="tools" role="group" aria-label="Tool">
+      <button
+        type="button"
+        class:on={prefs.tool === "draw"}
+        aria-pressed={prefs.tool === "draw"}
+        title="Draw notes (D)"
+        onclick={() => (prefs.tool = "draw")}>Draw</button
+      >
+      <button
+        type="button"
+        class:on={prefs.tool === "select"}
+        aria-pressed={prefs.tool === "select"}
+        title="Select notes with a rectangle (V)"
+        onclick={() => (prefs.tool = "select")}>Select</button
+      >
+    </span>
     <label>
       Grid
-      <select bind:value={grid} aria-label="Snap grid">
+      <select bind:value={prefs.grid} aria-label="Snap grid">
         {#each GRID_OPTIONS as option (option.beats)}
           <option value={option.beats}>{option.label}</option>
         {/each}
       </select>
     </label>
+    <label>
+      Scale
+      <select bind:value={prefs.root} aria-label="Scale root">
+        {#each ROOTS as name, index (name)}
+          <option value={index}>{name}</option>
+        {/each}
+      </select>
+      <select bind:value={prefs.scale} aria-label="Scale">
+        {#each SCALES as option (option.id)}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
     <span class="spacer"></span>
+    <span class="hint" title={ROLL_SHORTCUTS.map((s) => `${s.keys}: ${s.label}`).join("\n")}>Keys</span>
     <button type="button" aria-label="Zoom out" onclick={() => (view = zoomRoll(view, 1 / ZOOM_STEP))}>&minus;</button>
     <button type="button" aria-label="Zoom in" onclick={() => (view = zoomRoll(view, ZOOM_STEP))}>+</button>
     <button type="button" onclick={onClose}>Close</button>
   </header>
 
-  <div class="scroll" bind:this={scroller}>
+  <div class="ops" role="group" aria-label="Note operations">
+    <span class="scope" aria-live="polite">On: {scope}</span>
+    <span class="op">
+      <button type="button" title="Move note starts to the grid (Q)" onclick={() => runOp(quantizeEdit(prefs.grid, ops))}>Quantize</button>
+      <label>
+        <input type="number" min="0" max="100" step="5" bind:value={ops.strength} aria-label="Quantize strength percent" />%
+      </label>
+      <label><input type="checkbox" bind:checked={ops.lengths} /> lengths</label>
+    </span>
+    <span class="op">
+      <button type="button" title="Stretch notes to the next note (L)" onclick={() => runOp(legatoEdit(ops))}>Legato</button>
+      <select bind:value={ops.legato} aria-label="Legato mode">
+        <option value="any_key">any key</option>
+        <option value="same_key">same key</option>
+      </select>
+    </span>
+    <span class="op">
+      <button type="button" title="Random, repeatable timing and velocity changes" onclick={runHumanize}>Humanize</button>
+      <label>
+        t <input type="number" min="0" max="1" step="0.01" bind:value={ops.timing} aria-label="Humanize timing in beats" />
+      </label>
+      <label>
+        v <input type="number" min="0" max="127" step="1" bind:value={ops.velocity} aria-label="Humanize velocity range" />
+      </label>
+      <label>
+        seed <input type="number" min="0" step="1" bind:value={ops.seed} aria-label="Humanize seed" />
+      </label>
+    </span>
+    <span class="op">
+      Transpose
+      <button type="button" aria-label="Down an octave" onclick={() => runOp(transposeEdit(-12))}>-12</button>
+      <button type="button" aria-label="Down a semitone" onclick={() => runOp(transposeEdit(-1))}>-1</button>
+      <button type="button" aria-label="Up a semitone" onclick={() => runOp(transposeEdit(1))}>+1</button>
+      <button type="button" aria-label="Up an octave" onclick={() => runOp(transposeEdit(12))}>+12</button>
+    </span>
+    <span class="op">
+      Velocity
+      <input type="number" min="1" max="127" step="1" bind:value={ops.setTo} aria-label="Velocity to set" />
+      <button type="button" onclick={() => runOp(velocitySetEdit(ops))}>Set</button>
+      <input type="number" min="1" max="400" step="5" bind:value={ops.scalePercent} aria-label="Velocity scale percent" />%
+      <button type="button" onclick={() => runOp(velocityScaleEdit(ops))}>Scale</button>
+    </span>
+  </div>
+
+  <div class="scroll" bind:this={scroller} onscroll={() => (scrollLeft = scroller?.scrollLeft ?? 0)}>
     <div class="inner" style:width="{size.width + 48}px" style:height="{size.height}px">
       <div class="keys" aria-hidden="true">
         {#each keys as key (key)}
+          {@const kind = rowKind(key, prefs.root, scale)}
           <div
             class="key"
             class:black={isBlackKey(key)}
+            class:in-scale={kind === "scale"}
+            class:root-key={kind === "root"}
             style:height="{view.pxPerKey}px"
             style:line-height="{view.pxPerKey}px"
           >
@@ -178,6 +546,7 @@
         bind:this={surface}
         style:width="{size.width}px"
         style:height="{size.height}px"
+        style:cursor={cursor || (prefs.tool === "draw" ? "crosshair" : "default")}
         onpointerdown={onPointerDown}
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
@@ -185,9 +554,10 @@
         oncontextmenu={onContextMenu}
       >
         {#each keys as key (key)}
+          {@const kind = rowKind(key, prefs.root, scale)}
           <div
-            class="row"
-            class:black={isBlackKey(key)}
+            class="row {kind}"
+            class:black={kind === "plain" && isBlackKey(key)}
             style:top="{(KEYS - 1 - key) * view.pxPerKey}px"
             style:height="{view.pxPerKey}px"
           ></div>
@@ -199,14 +569,133 @@
           {@const rect = noteRect(view, note)}
           <div
             class="note"
-            class:selected={selected === noteId(note)}
+            class:selected={selectedSet.has(noteId(note))}
             style:left="{rect.x}px"
             style:top="{rect.y}px"
             style:width="{rect.width}px"
             style:height="{rect.height}px"
+            style:opacity={0.5 + (0.5 * note.velocity) / 127}
             role="presentation"
           ></div>
         {/each}
+        {#if marquee}
+          <div
+            class="marquee"
+            style:left="{Math.min(marquee.x0, marquee.x1)}px"
+            style:top="{Math.min(marquee.y0, marquee.y1)}px"
+            style:width="{Math.abs(marquee.x1 - marquee.x0)}px"
+            style:height="{Math.abs(marquee.y1 - marquee.y0)}px"
+          ></div>
+        {/if}
+      </div>
+    </div>
+  </div>
+
+  <div class="lane" aria-label="Velocity lane">
+    <div class="lane-head">
+      <span>Velocity</span>
+      <span class="hint">drag a bar; selected notes scale together</span>
+    </div>
+    <div class="lane-body" style:height="{LANE_HEIGHT}px">
+      <div class="gutter"></div>
+      <div class="lane-view">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="lane-surface"
+          bind:this={velocitySurface}
+          style:width="{size.width}px"
+          style:transform="translateX({-scrollLeft}px)"
+          onpointerdown={onVelocityDown}
+          onpointermove={onVelocityMove}
+          onpointerup={onVelocityUp}
+          onpointercancel={onVelocityUp}
+        >
+          {#each coarse as line (line.beat)}
+            <div class="line {line.kind}" style:left="{line.x}px"></div>
+          {/each}
+          {#each notes as note (noteId(note))}
+            {@const bar = barRect(view, note, LANE_HEIGHT)}
+            <div
+              class="bar"
+              class:selected={selectedSet.has(noteId(note))}
+              style:left="{bar.x}px"
+              style:top="{bar.y}px"
+              style:width="{bar.width}px"
+              style:height="{bar.height}px"
+              title={String(note.velocity)}
+            ></div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="lane" aria-label="Controller lane">
+    <div class="lane-head">
+      <select
+        aria-label="Controller"
+        value={ccPresetKnown ? prefs.controller : -1}
+        onchange={(event) => {
+          const value = Number(event.currentTarget.value);
+          if (value >= 0) prefs.controller = value;
+        }}
+      >
+        {#each CC_PRESETS as preset (preset.controller)}
+          <option value={preset.controller}>CC {preset.controller} {preset.name}</option>
+        {/each}
+        {#if !ccPresetKnown}
+          <option value={-1}>CC {prefs.controller}</option>
+        {/if}
+      </select>
+      <label>
+        CC
+        <input
+          type="number"
+          min="0"
+          max="127"
+          step="1"
+          value={prefs.controller}
+          aria-label="Controller number"
+          onchange={(event) => (prefs.controller = clampController(Number(event.currentTarget.value)))}
+        />
+      </label>
+      <span class="hint">{shownCc.length} events; drag to draw, right-click a point to erase</span>
+      <button
+        type="button"
+        disabled={shownCc.length === 0}
+        onclick={() => onEdit({ controllers: clearController(committedCc, prefs.controller) })}>Clear</button
+      >
+    </div>
+    <div class="lane-body" style:height="{LANE_HEIGHT}px">
+      <div class="gutter"></div>
+      <div class="lane-view">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="lane-surface cc"
+          bind:this={ccSurface}
+          style:width="{size.width}px"
+          style:transform="translateX({-scrollLeft}px)"
+          onpointerdown={onCcDown}
+          onpointermove={onCcMove}
+          onpointerup={onCcUp}
+          onpointercancel={onCcUp}
+          oncontextmenu={onCcContextMenu}
+        >
+          {#each coarse as line (line.beat)}
+            <div class="line {line.kind}" style:left="{line.x}px"></div>
+          {/each}
+          {#each shownCc as event, index (index)}
+            {@const point = ccPoint(view, event, LANE_HEIGHT)}
+            <div
+              class="ccbar"
+              style:left="{point.x}px"
+              style:top="{point.y}px"
+              style:height="{LANE_HEIGHT - point.y}px"
+              title={String(event.value)}
+            ></div>
+            <div class="ccdot" style:left="{point.x}px" style:top="{point.y}px"></div>
+          {/each}
+        </div>
       </div>
     </div>
   </div>
@@ -221,21 +710,46 @@
     min-height: 0;
     background: var(--bg);
   }
-  header {
+  header,
+  .ops {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 3px 8px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
     font-size: 12px;
   }
+  .ops {
+    background: var(--panel-2);
+    gap: 6px 14px;
+  }
+  .op {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .ops input[type="number"] {
+    width: 54px;
+  }
+  .scope,
+  .hint {
+    color: var(--muted);
+  }
+  .tools {
+    display: inline-flex;
+  }
+  .tools button.on {
+    background: var(--accent);
+    color: var(--bg);
+  }
   .spacer {
     flex: 1;
   }
   .scroll {
     flex: 1;
-    min-height: 0;
+    min-height: 60px;
     overflow: auto;
   }
   .inner {
@@ -262,10 +776,16 @@
   .key.black {
     background: var(--panel-2);
   }
+  .key.in-scale {
+    box-shadow: inset 4px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .key.root-key {
+    box-shadow: inset 4px 0 0 var(--accent);
+    color: var(--accent);
+  }
   .surface {
     position: relative;
     flex: none;
-    cursor: crosshair;
     touch-action: none;
     user-select: none;
   }
@@ -279,6 +799,15 @@
   }
   .row.black {
     background: color-mix(in srgb, var(--panel-2) 60%, transparent);
+  }
+  .row.scale {
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+  }
+  .row.root {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .row.out {
+    background: color-mix(in srgb, black 22%, transparent);
   }
   .line {
     position: absolute;
@@ -300,10 +829,87 @@
     border: 1px solid color-mix(in srgb, var(--track) 70%, black);
     border-radius: 2px;
     background: var(--track);
-    cursor: grab;
+    pointer-events: none;
   }
   .note.selected {
     outline: 2px solid var(--accent);
     outline-offset: -1px;
+    filter: brightness(1.25);
+  }
+  .marquee {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    pointer-events: none;
+  }
+  .lane {
+    flex: none;
+    border-top: 1px solid var(--border);
+  }
+  .lane-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 8px;
+    height: 22px;
+    box-sizing: border-box;
+    background: var(--panel);
+    font-size: 11px;
+  }
+  .lane-head input[type="number"] {
+    width: 54px;
+  }
+  .lane-body {
+    display: flex;
+  }
+  .gutter {
+    flex: none;
+    width: 48px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+  }
+  .lane-view {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .lane-surface {
+    position: relative;
+    height: 100%;
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+    background: color-mix(in srgb, var(--panel-2) 40%, transparent);
+  }
+  .lane-surface.cc {
+    cursor: crosshair;
+  }
+  .bar {
+    position: absolute;
+    box-sizing: border-box;
+    border-radius: 2px 2px 0 0;
+    background: color-mix(in srgb, var(--track) 80%, transparent);
+    pointer-events: none;
+  }
+  .bar.selected {
+    background: var(--accent);
+  }
+  .ccbar {
+    position: absolute;
+    width: 2px;
+    margin-left: -1px;
+    background: color-mix(in srgb, var(--accent) 70%, transparent);
+    pointer-events: none;
+  }
+  .ccdot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    margin: -3px 0 0 -3px;
+    border-radius: 50%;
+    background: var(--accent);
+    pointer-events: none;
   }
 </style>

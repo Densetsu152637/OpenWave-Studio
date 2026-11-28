@@ -1,4 +1,4 @@
-import type { Clip, EditCommand, Note } from "../ipc/types";
+import type { Clip, Controller, EditCommand, Note } from "../ipc/types";
 import { KEYS, snapDown, snapNearest } from "./grid";
 
 /** Every note the roll draws has this velocity (there are no velocity lanes yet). */
@@ -124,6 +124,33 @@ export function replaceNotesCommand(clip: Clip, notes: readonly Note[]): EditCom
     command: "replace_clip",
     clip: { ...clip, content: { ...clip.content, notes: [...notes] } },
   };
+}
+
+/** What a piano-roll edit changes in a MIDI clip; what it leaves out stays as it is. */
+export interface ClipEdit {
+  notes?: readonly Note[];
+  controllers?: readonly Controller[];
+}
+
+/** `ReplaceClip` with the clip's notes and/or controller events replaced, in one undo step. */
+export function replaceContentCommand(clip: Clip, change: ClipEdit): EditCommand {
+  if (clip.content.type !== "midi") throw new Error("not a MIDI clip");
+  return {
+    command: "replace_clip",
+    clip: {
+      ...clip,
+      content: {
+        ...clip.content,
+        notes: change.notes ? [...change.notes] : clip.content.notes,
+        controllers: change.controllers ? [...change.controllers] : clip.content.controllers,
+      },
+    },
+  };
+}
+
+/** The controller events of a MIDI clip (none for other clips). */
+export function clipControllers(clip: Clip): readonly Controller[] {
+  return clip.content.type === "midi" ? clip.content.controllers : [];
 }
 
 /** The notes of a MIDI clip (none for other clips). */

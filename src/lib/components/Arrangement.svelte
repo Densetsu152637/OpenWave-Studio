@@ -53,8 +53,8 @@
     watchPlugins,
   } from "../devices/descriptors";
   import { descriptorFor, setParamCommand } from "../devices/params";
-  import { pluginEditorOpen } from "../ipc/commands";
-  import { replaceNotesCommand } from "../pianoroll/notes";
+  import { midiEdit, pluginEditorOpen } from "../ipc/commands";
+  import { type ClipEdit, replaceContentCommand } from "../pianoroll/notes";
   import { nativeDialogs } from "../arrange/dialogs";
   import {
     addTrack,
@@ -148,7 +148,6 @@
     DeviceDescriptor,
     Marker,
     MixerRef,
-    Note,
     StripSettings,
     ParamDescriptorDto,
     Track,
@@ -688,8 +687,8 @@
       ]);
     });
 
-  const editNotes = (clip: Clip, notes: Note[]) =>
-    run(() => commandsApi.edit(replaceNotesCommand(clip, notes)));
+  const editClipContent = (clip: Clip, change: ClipEdit) =>
+    run(() => commandsApi.edit(replaceContentCommand(clip, change)));
 
   const setParam = (device: { id: number }, param: ParamDescriptorDto, value: number) =>
     run(() => commandsApi.edit(setParamCommand(device, param, value)));
@@ -1275,7 +1274,15 @@
             clip={rollClip}
             color={rollTrack.color}
             {signatures}
-            onEdit={(notes) => editNotes(rollClip, notes)}
+            onEdit={(change) => editClipContent(rollClip, change)}
+            onMidiEdit={async (edit, notes) => {
+              try {
+                return await midiEdit(rollClip.id, edit, notes);
+              } catch (error) {
+                onError(String(error));
+                return undefined;
+              }
+            }}
             onClose={() => (openClip = null)}
           />
         {:else}
