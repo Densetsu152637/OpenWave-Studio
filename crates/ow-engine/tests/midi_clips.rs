@@ -740,6 +740,7 @@ fn live_logger(
     std::sync::Arc<std::sync::Mutex<Vec<Event>>>,
     ow_engine::AudioCore,
     ow_engine::RingSender<Message>,
+    ow_engine::ControlLink,
 ) {
     use ow_engine::{CoreBuilder, MidiClock};
     let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -760,9 +761,7 @@ fn live_logger(
     let (mut link, core) = builder.build();
     link.swap_plan(graph.compile(RATE, MAX_BLOCK).unwrap())
         .unwrap();
-    // The link must outlive the plan swap's retire ring only for this test's short run.
-    std::mem::forget(link);
-    (log, core, midi)
+    (log, core, midi, link)
 }
 
 /// A burst of live controller changes that fills the buffer cannot crowd out a note-off: the
@@ -772,7 +771,7 @@ fn a_controller_burst_does_not_crowd_out_a_live_note_off() {
     use ow_engine::MidiMessage;
     static INFO: DeviceInfo =
         DeviceInfo::new("test.logger4", "Logger", true, &[], || Box::new(Skew));
-    let (log, mut core, mut midi) = live_logger(&INFO, ow_engine::LiveGate::Always);
+    let (log, mut core, mut midi, _link) = live_logger(&INFO, ow_engine::LiveGate::Always);
     let stamp = |frame: u64| (frame as f64 * 1e6 / f64::from(RATE)).round() as u64;
     let msg = |status, data1, data2, frame| Message::MidiIn {
         message: MidiMessage {
@@ -812,7 +811,7 @@ fn closing_the_gate_lifts_a_forwarded_pedal() {
     static INFO: DeviceInfo =
         DeviceInfo::new("test.logger5", "Logger", true, &[], || Box::new(Skew));
     let armed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let (log, mut core, mut midi) = live_logger(
+    let (log, mut core, mut midi, _link) = live_logger(
         &INFO,
         ow_engine::LiveGate::Armed(std::sync::Arc::clone(&armed)),
     );

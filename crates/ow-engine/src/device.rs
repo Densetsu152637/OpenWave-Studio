@@ -173,10 +173,12 @@ impl DeviceNode {
 /// note-offs, then note-ons (so a key retriggers); notes of one kind are fixed by key and
 /// velocity, so their order never depends on arrival.
 ///
-/// `scratch` holds a keyed copy of the events and must have room for all of them (the node's is
-/// sized for [`MAX_EVENTS_PER_BLOCK`]); the sort is `O(n log n)`.
-pub fn order_events(events: &mut [Event], scratch: &mut Vec<(u64, Event)>) {
-    assert!(scratch.capacity() >= events.len(), "sort scratch too small");
+/// `scratch` holds a keyed copy of the events; the node's is as large as its event buffer. Should
+/// it be smaller than `events` (it never is for the node) the surplus is trimmed first, as
+/// [`trim_events`] does, rather than panicking. The sort is `O(n log n)`.
+pub fn order_events(events: &mut Vec<Event>, scratch: &mut Vec<(u64, Event)>) {
+    let excess = events.len().saturating_sub(scratch.capacity());
+    trim_events(events, excess);
     scratch.clear();
     for (index, event) in events.iter().enumerate() {
         // Key bits: offset (32), class (2: control, off, on), then arrival or key and velocity.
@@ -190,6 +192,31 @@ pub fn order_events(events: &mut [Event], scratch: &mut Vec<(u64, Event)>) {
     scratch.sort_unstable_by_key(|(key, _)| *key);
     for (slot, (_, event)) in events.iter_mut().zip(scratch.iter()) {
         *slot = *event;
+    }
+}
+
+/// Removes `excess` events from the tail, allocation-free: first note-ons and controller
+/// changes (latest first), then, only if that is not enough, note-offs, so a trimmed block never
+/// leaves a sounding note without its release.
+pub fn trim_events(events: &mut Vec<Event>, excess: usize) {
+    let mut remaining = excess.min(events.len());
+    for pass in 0..2 {
+        if remaining == 0 {
+            break;
+        }
+        let len = events.len();
+        let mut write = len;
+        for read in (0..len).rev() {
+            let event = events[read];
+            let droppable = pass == 1 || !matches!(event.kind, EventKind::NoteOff { .. });
+            if remaining > 0 && droppable {
+                remaining -= 1;
+            } else {
+                write -= 1;
+                events[write] = event;
+            }
+        }
+        events.drain(..write);
     }
 }
 
@@ -216,7 +243,7 @@ impl Node for DeviceNode {
         self.left = vec![0.0; max_block];
         self.right = vec![0.0; max_block];
         self.events = Vec::with_capacity(MAX_EVENTS_PER_BLOCK);
-        self.sort_scratch = Vec::with_capacity(MAX_EVENTS_PER_BLOCK);
+        self.sort_scratch = Vec::with_capacity(self.events.capacity());
         self.live_events = Vec::with_capacity(MAX_LIVE_EVENTS);
         self.device.prepare(sample_rate as f32, max_block);
     }
@@ -260,11 +287,13 @@ impl Node for DeviceNode {
             // always passes so a pedal held when the gate closed cannot stick.
             0xB0 => {
                 let value = message.data2 & 0x7F;
-                let lift = key == 64 && value < 64;
-                let room = if open && !lift {
-                    LIVE_SOFT_LIMIT
-                } else {
+                // A lift of a pedal this input holds down is a state change that must get through
+                // (even with the gate closed or the soft limit reached); any other CC is not.
+                let lift = key == 64 && value < 64 && self.live_pedal;
+                let room = if lift {
                     MAX_LIVE_EVENTS
+                } else {
+                    LIVE_SOFT_LIMIT
                 };
                 if (open || lift) && self.live_events.len() < room {
                     if key == 64 {
@@ -294,19 +323,23 @@ impl Node for DeviceNode {
         // What was deferred while this block was being prepared is due in the next one.
         self.live_due = self.live_deferred;
         self.live_deferred = [false; 128];
-        if (self.live_held_count > 0 || self.live_pedal)
-            && self.live.as_ref().is_some_and(|gate| !gate.is_open())
-        {
-            self.release_live();
+        // The gate is read once per block. If it closed during the cycle, note-ons accepted
+        // while it was open are moot: drop them, so a release at frame 0 cannot sort before
+        // one and leave its note hanging.
+        let gate_closed = self.live.as_ref().is_some_and(|gate| !gate.is_open());
+        if gate_closed {
+            self.live_events
+                .retain(|event| !matches!(event.kind, EventKind::NoteOn { .. }));
+            if self.live_held_count > 0 || self.live_pedal {
+                self.release_live();
+            }
         }
         if !self.live_events.is_empty() {
             // Live events always fit: if the clip events leave too little room, the tail of the
-            // block's clip events is what gives way.
-            let room = self
-                .events
-                .capacity()
-                .saturating_sub(self.live_events.len());
-            self.events.truncate(room);
+            // block's clip events gives way, note-ons and controllers before note-offs.
+            let needed = self.events.len() + self.live_events.len();
+            let excess = needed.saturating_sub(self.events.capacity());
+            trim_events(&mut self.events, excess);
             for event in self.live_events.drain(..) {
                 if self.events.len() < self.events.capacity() {
                     self.events.push(event);
@@ -352,6 +385,46 @@ impl Node for DeviceNode {
 mod tests {
     use super::*;
 
+    #[test]
+    fn trimming_drops_note_ons_and_controllers_before_note_offs() {
+        let mut events = vec![
+            Event::note_on(1, 60, 100),
+            Event::note_off(2, 60),
+            Event::control_change(3, 1, 5),
+            Event::note_on(4, 62, 100),
+            Event::note_off(5, 62),
+        ];
+        // Two to drop: the latest note-on and the controller before it go; both offs stay.
+        trim_events(&mut events, 2);
+        assert_eq!(
+            events,
+            [
+                Event::note_on(1, 60, 100),
+                Event::note_off(2, 60),
+                Event::note_off(5, 62),
+            ]
+        );
+        // More than there are note-ons and controllers: offs go, latest first.
+        trim_events(&mut events, 2);
+        assert_eq!(events, [Event::note_off(2, 60)]);
+        trim_events(&mut events, 10);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn an_undersized_scratch_trims_instead_of_panicking() {
+        let mut events = vec![
+            Event::note_on(1, 60, 100),
+            Event::note_off(2, 60),
+            Event::note_on(3, 61, 100),
+        ];
+        let mut scratch = Vec::with_capacity(2);
+        let cap = scratch.capacity();
+        order_events(&mut events, &mut scratch);
+        assert_eq!(events.len(), 3.min(cap));
+        assert!(events.contains(&Event::note_off(2, 60)));
+    }
+
     fn cc(offset: u32, controller: u8, value: u8) -> Event {
         Event::control_change(offset, controller, value)
     }
@@ -359,21 +432,21 @@ mod tests {
     #[test]
     fn same_frame_control_changes_keep_their_arrival_order() {
         // Pedal down then up at one frame stays down-then-up, however the values compare.
-        let mut events = [cc(10, 64, 127), cc(10, 64, 0)];
+        let mut events = vec![cc(10, 64, 127), cc(10, 64, 0)];
         order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(events, [cc(10, 64, 127), cc(10, 64, 0)]);
-        let mut events = [cc(10, 64, 0), cc(10, 64, 127)];
+        let mut events = vec![cc(10, 64, 0), cc(10, 64, 127)];
         order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(events, [cc(10, 64, 0), cc(10, 64, 127)]);
         // Repeated CC1 at one frame: the last arrival stays last.
-        let mut events = [cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)];
+        let mut events = vec![cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)];
         order_events(&mut events, &mut Vec::with_capacity(16));
         assert_eq!(events, [cc(5, 1, 100), cc(5, 1, 20), cc(5, 1, 60)]);
     }
 
     #[test]
     fn a_frame_orders_control_changes_then_note_offs_then_note_ons() {
-        let mut events = [
+        let mut events = vec![
             Event::note_on(7, 60, 100),
             Event::note_off(7, 60),
             cc(7, 64, 127),
