@@ -4,7 +4,16 @@
   import { tauriTransport } from "../ipc";
   import Lane from "./Lane.svelte";
   import PianoRoll from "./PianoRoll.svelte";
-  import { DOCK_KEY, clampDock, dockHeight, parseDockHeight } from "../arrange/dock";
+  import {
+    DOCK_KEY,
+    clampDock,
+    dockHeight,
+    dockLowest,
+    dockMax,
+    parseDockHeight,
+    reserveOf,
+    type DockSpace,
+  } from "../arrange/dock";
   import LoopBrowser from "../browser/LoopBrowser.svelte";
   import {
     clampTranspose,
@@ -190,7 +199,12 @@
   let width = $state(800);
   let selectedTrack = $state<number | null>(null);
   /** Height of the arrangement column; the dock is sized against it. */
-  let columnHeight = $state(900);
+  let columnHeight = $state(0);
+  /** Measured heights of the toolbar and the ruler block, which the dock must leave room for. */
+  let toolbarHeight = $state(0);
+  let rulerHeight = $state(0);
+  /** Measured height of the open roll besides its note grid. */
+  let rollChrome = $state(300);
   /** The height the user dragged the dock to, or null for the default. */
   let savedDock = $state<number | null>(loadDock());
   let dockDrag: { pointer: number; startY: number; startHeight: number } | null = null;
@@ -320,7 +334,14 @@
       // Browser storage can be unavailable; the dock still resizes.
     }
   }
-  const dockPx = $derived(dockHeight(savedDock, columnHeight, rollClip !== undefined));
+  const dockSpace = $derived<DockSpace>({
+    available: columnHeight || 800,
+    reserve: reserveOf(toolbarHeight, rulerHeight),
+    chrome: rollChrome,
+  });
+  const dockPx = $derived(dockHeight(savedDock, dockSpace, rollClip !== undefined));
+  const dockLow = $derived(dockLowest(dockSpace, true));
+  const dockHigh = $derived(dockMax(dockSpace, true));
   function dockDown(event: PointerEvent) {
     if (event.button !== 0) return;
     try {
@@ -335,8 +356,8 @@
     if (!dockDrag || event.pointerId !== dockDrag.pointer) return;
     savedDock = clampDock(
       dockDrag.startHeight + dockDrag.startY - event.clientY,
-      columnHeight,
-      rollClip !== undefined,
+      dockSpace,
+      true,
     );
   }
   function dockUp(event: PointerEvent) {
@@ -352,7 +373,7 @@
     const step = event.key === "ArrowUp" ? 24 : event.key === "ArrowDown" ? -24 : 0;
     if (step === 0) return;
     event.preventDefault();
-    savedDock = clampDock(dockPx + step, columnHeight, rollClip !== undefined);
+    savedDock = clampDock(dockPx + step, dockSpace, true);
     storeDock(savedDock);
   }
 
@@ -921,7 +942,7 @@
 />
 
 <main class="arrangement" aria-label="Arrangement" bind:clientHeight={columnHeight}>
-  <div class="toolbar">
+  <div class="toolbar" bind:clientHeight={toolbarHeight}>
     <button type="button" onclick={addAudioTrack} disabled={!project}>Add audio track</button>
     <button type="button" onclick={() => addInstrumentTrack()} disabled={!project || descriptors.length === 0}>
       Add MIDI track
@@ -1084,7 +1105,7 @@
       onscroll={() => (scrollTop = scroller?.scrollTop ?? 0)}
     >
       <div class="content">
-        <div class="ruler-block">
+        <div class="ruler-block" bind:clientHeight={rulerHeight}>
           <div class="row ruler-row" style:height="{RULER_PX}px">
             <div class="corner" style:width="{HEADER_PX}px"></div>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1335,21 +1356,26 @@
       />
     {/if}
     {#if dockRef && dockStrip}
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
-      <div
-        class="dock-handle"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize the dock"
-        aria-valuenow={dockPx}
-        tabindex="0"
-        onpointerdown={dockDown}
-        onpointermove={dockMove}
-        onpointerup={dockUp}
-        onpointercancel={dockUp}
-        ondblclick={dockReset}
-        onkeydown={dockKey}
-      ></div>
+      {#if rollClip}
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
+        <div
+          class="dock-handle"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the dock"
+          aria-valuenow={dockPx}
+          aria-valuemin={dockLow}
+          aria-valuemax={dockHigh}
+          aria-valuetext="{dockPx} pixels high"
+          tabindex="0"
+          onpointerdown={dockDown}
+          onpointermove={dockMove}
+          onpointerup={dockUp}
+          onpointercancel={dockUp}
+          ondblclick={dockReset}
+          onkeydown={dockKey}
+        ></div>
+      {/if}
       <section class="dock" style:height="{dockPx}px" aria-label="Piano roll, FX and device panel">
         {#if rollClip && rollTrack}
           <PianoRoll
@@ -1366,6 +1392,7 @@
               }
             }}
             onClose={() => (openClip = null)}
+            onChrome={(height) => (rollChrome = height)}
           />
         {:else}
           <p class="dock-hint">

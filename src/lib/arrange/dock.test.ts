@@ -1,43 +1,64 @@
 import { describe, expect, it } from "vitest";
 import {
   DOCK_PLAIN_HEIGHT,
-  MIN_ARRANGEMENT,
+  FLOOR_GRID,
   MIN_GRID,
-  ROLL_CHROME,
   clampDock,
   defaultDock,
   dockHeight,
+  dockLowest,
   dockMax,
   dockMin,
   parseDockHeight,
+  reserveOf,
+  type DockSpace,
 } from "./dock";
 
+const space = (available: number, reserve = 230, chrome = 300): DockSpace => ({
+  available,
+  reserve,
+  chrome,
+});
+
 describe("dock sizing", () => {
-  it("keeps the grid and the arrangement visible when clamping", () => {
-    expect(dockMin(true)).toBe(MIN_GRID + ROLL_CHROME);
-    expect(clampDock(10, 900, true)).toBe(dockMin(true));
-    expect(clampDock(5000, 900, true)).toBe(900 - MIN_ARRANGEMENT);
-    expect(clampDock(500, 900, true)).toBe(500);
+  it("reserves the measured toolbar and ruler plus a lane", () => {
+    expect(reserveOf(70, 62)).toBe(232);
   });
 
-  it("falls back to the minimum when the space is tiny or the value is bad", () => {
-    expect(dockMax(200, true)).toBe(dockMin(true));
-    expect(clampDock(300, 200, true)).toBe(dockMin(true));
-    expect(clampDock(Number.NaN, 900, false)).toBe(dockMin(false));
+  it("keeps the grid and the arrangement visible when clamping", () => {
+    expect(dockMin(true, 300)).toBe(300 + MIN_GRID);
+    expect(clampDock(10, space(900), true)).toBe(460);
+    expect(clampDock(5000, space(900), true)).toBe(670);
+    expect(clampDock(500, space(900), true)).toBe(500);
+  });
+
+  it("shrinks below the preferred minimum rather than overflowing when space is short", () => {
+    const tight = space(600); // 370 px spare, preferred minimum 460
+    expect(dockMax(tight, true)).toBe(370);
+    expect(dockLowest(tight, true)).toBe(370);
+    expect(clampDock(500, tight, true)).toBe(370);
+    expect(clampDock(10, tight, true)).toBe(370);
+  });
+
+  it("never goes below the floor, and tolerates bad values", () => {
+    const tiny = space(200);
+    expect(dockMax(tiny, true)).toBe(300 + FLOOR_GRID);
+    expect(clampDock(Number.NaN, space(900), false)).toBe(120);
+    expect(dockMax(tiny, false)).toBe(80);
   });
 
   it("defaults to 45% of the space, at least 420, with a roll open", () => {
-    expect(defaultDock(1200, true)).toBe(540);
-    expect(defaultDock(800, true)).toBe(460);
-    expect(defaultDock(1100, true)).toBe(495);
-    expect(defaultDock(500, true)).toBe(460);
-    expect(defaultDock(900, false)).toBe(DOCK_PLAIN_HEIGHT);
+    expect(defaultDock(space(1200), true)).toBe(540);
+    expect(defaultDock(space(800), true)).toBe(460);
+    expect(defaultDock(space(1100), true)).toBe(495);
+    expect(defaultDock(space(900), false)).toBe(DOCK_PLAIN_HEIGHT);
   });
 
-  it("uses a saved height clamped to the current space", () => {
-    expect(dockHeight(null, 1200, true)).toBe(540);
-    expect(dockHeight(600, 1200, true)).toBe(600);
-    expect(dockHeight(900, 700, true)).toBe(580);
+  it("uses a saved height only for a roll, clamped to the current space", () => {
+    expect(dockHeight(null, space(1200), true)).toBe(540);
+    expect(dockHeight(600, space(1200), true)).toBe(600);
+    expect(dockHeight(900, space(700), true)).toBe(470);
+    expect(dockHeight(600, space(1200), false)).toBe(DOCK_PLAIN_HEIGHT);
   });
 
   it("parses stored heights", () => {
