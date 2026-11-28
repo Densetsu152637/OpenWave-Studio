@@ -16,8 +16,10 @@ export interface EditResult {
 const EPS = 1e-9;
 
 /** The ids a selection of `indices` of `notes` has. */
-export const idsAt = (notes: readonly Note[], indices: readonly number[]): string[] =>
-  noteIds(notes).filter((_, i) => indices.includes(i));
+export function idsAt(notes: readonly Note[], indices: readonly number[]): string[] {
+  const wanted = new Set(indices);
+  return noteIds(notes).filter((_, i) => wanted.has(i));
+}
 
 /** The indices in `notes` of the notes whose ids are in `selection` (ascending). */
 export function indicesOf(notes: readonly Note[], selection: ReadonlySet<string>): number[] {

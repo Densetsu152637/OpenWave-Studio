@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { EditQueue } from "../pianoroll/queue";
   import type { SignatureMap } from "../arrange/time";
   import { cssColor } from "../arrange/view";
   import type { Clip, Controller, MidiEdit, MidiEditReply, Note } from "../ipc/types";
@@ -138,26 +139,18 @@
   /** A toolbar operation is waiting for the clip to change, to select the same notes again. */
   let pending = $state.raw<{ before: readonly Note[]; indices: number[] } | null>(null);
   /**
-   * What the last edits set, shown (and built on) until the clip's own content changes: the
-   * patch of an edit arrives after the gesture ended, and a second gesture in between must not
-   * start from the stale clip and overwrite the first.
+   * What the latest edits set, shown (and built on) while edits are on their way: the patch of
+   * an edit arrives after the gesture ended, and a later gesture must not start from the stale
+   * clip and overwrite the earlier one. Edits are sent one at a time; gestures that happen
+   * while one is in flight are folded into this state and go out as one follow-up edit.
    */
-  let optimistic = $state.raw<{
-    notes: readonly Note[];
-    controllers: readonly Controller[];
-    baseNotes: readonly Note[];
-    baseControllers: readonly Controller[];
-  } | null>(null);
-  let inflight: Promise<unknown> = Promise.resolve();
+  type Content = { notes: readonly Note[]; controllers: readonly Controller[] };
+  let optimistic = $state.raw<Content | null>(null);
 
   const stored = $derived(clipNotes(clip));
   const storedCc = $derived(clipControllers(clip));
-  const committed = $derived(
-    optimistic && optimistic.baseNotes === stored ? optimistic.notes : stored,
-  );
-  const committedCc = $derived(
-    optimistic && optimistic.baseControllers === storedCc ? optimistic.controllers : storedCc,
-  );
+  const committed = $derived(optimistic ? optimistic.notes : stored);
+  const committedCc = $derived(optimistic ? optimistic.controllers : storedCc);
   const selectedCount = $derived(indicesOf(committed, new Set(selected)).length);
   const notes = $derived(
     drag
@@ -187,6 +180,7 @@
     shownClip = id;
     selected = [];
     pending = null;
+    optimistic = null;
     void tick().then(() => {
       target.scrollTop = initialScrollTop(committed, view, target.clientHeight);
     });
@@ -218,26 +212,38 @@
     }
   });
 
-  /** Sends an edit (unless it changes nothing) and shows its result until the patch arrives. */
+  /** Waits until `done()` holds, at most `limit` milliseconds. */
+  async function until(done: () => boolean, limit: number) {
+    for (let waited = 0; !done() && waited < limit; waited += 20) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  const queue = new EditQueue<Content>(
+    async (state) => {
+      const baseNotes = stored;
+      const baseControllers = storedCc;
+      // Both halves are sent, so an edit of one never reverts an earlier edit of the other.
+      await onEdit({ notes: state.notes, controllers: state.controllers });
+      await until(() => stored !== baseNotes || storedCc !== baseControllers, 400);
+    },
+    () => {
+      const mine = optimistic;
+      setTimeout(() => {
+        if (optimistic === mine && !queue.busy) optimistic = null;
+      }, 400);
+    },
+  );
+
+  /** Queues an edit (unless it changes nothing) and shows its result at once. */
   function commit(change: ClipEdit) {
     const notes = change.notes && !sameNotes(change.notes, committed) ? change.notes : undefined;
     const controllers =
       change.controllers && !sameControllers(change.controllers, committedCc) ? change.controllers : undefined;
     if (!notes && !controllers) return;
-    const mine = {
-      notes: notes ?? committed,
-      controllers: controllers ?? committedCc,
-      baseNotes: stored,
-      baseControllers: storedCc,
-    };
-    optimistic = mine;
-    inflight = Promise.resolve(onEdit({ notes, controllers }))
-      .catch(() => undefined)
-      .then(() => {
-        setTimeout(() => {
-          if (optimistic === mine) optimistic = null;
-        }, 400);
-      });
+    const next = { notes: notes ?? committed, controllers: controllers ?? committedCc };
+    optimistic = next;
+    queue.push(next);
   }
 
   function surfacePoint(target: HTMLElement | undefined, event: { clientX: number; clientY: number }) {
@@ -394,7 +400,7 @@
   /** Runs a note operation on the selection (the whole clip when nothing is selected). */
   async function runOp(edit: MidiEdit) {
     // Edits still on their way come first, so the indices below name the same notes there.
-    await inflight;
+    await queue.idle();
     const before = stored;
     const indices = indicesOf(committed, selectedSet);
     const reply = await onMidiEdit(edit, indices.length > 0 ? indices : null);

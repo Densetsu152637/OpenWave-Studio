@@ -10,7 +10,9 @@ import {
   eraseNear,
   paintStroke,
 } from "./cc";
+import { EditQueue } from "./queue";
 import {
+  idsAt,
   deleteNotes,
   duplicateNotes,
   indicesOf,
@@ -335,7 +337,49 @@ describe("keys and commands", () => {
   });
 });
 
+describe("edit queue", () => {
+  it("sends the first edit at once and folds rapid ones into a single follow-up", async () => {
+    let release!: () => void;
+    const sent: Note[][] = [];
+    const queue = new EditQueue<Note[]>(async (state) => {
+      sent.push(state);
+      if (sent.length === 1) await new Promise<void>((resolve) => (release = resolve));
+    });
+    // Three nudges of one grid step, each built from the latest state shown.
+    let shown: Note[] = [n(0, 1, 60)];
+    for (let i = 0; i < 3; i++) {
+      const moved = moveNotes(shown, [0], 0, GRID, 0, GRID, CLIP)!;
+      shown = moved.notes;
+      queue.push(shown);
+    }
+    expect(sent).toHaveLength(1);
+    expect(queue.busy).toBe(true);
+    release();
+    await queue.idle();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]![0]!.start).toBe(0.75);
+    expect(queue.busy).toBe(false);
+  });
+
+  it("keeps going after a failed send and reports idle once", async () => {
+    let idle = 0;
+    const queue = new EditQueue<number>(
+      async () => {
+        throw new Error("refused");
+      },
+      () => idle++,
+    );
+    queue.push(1);
+    await queue.idle();
+    expect(idle).toBe(1);
+  });
+});
+
 describe("notes that share key and start", () => {
+  it("builds the selection of some indices", () => {
+    expect(idsAt([n(0, 1, 60), n(1, 1, 61), n(2, 1, 62)], [0, 2])).toEqual(["60:0", "62:2"]);
+  });
+
   // Quantize can put two notes of one key on one start.
   const twins = [n(1, 0.5, 60), n(1, 0.5, 60, 80), n(2, 1, 62)];
 
