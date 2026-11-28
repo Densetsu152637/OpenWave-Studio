@@ -1154,7 +1154,7 @@ fn a_pedal_the_clip_leaves_down_is_lifted_at_the_clip_end() {
 }
 
 #[test]
-fn a_clip_end_lift_goes_before_a_following_clips_pedal_down() {
+fn adjacent_clips_keep_the_pedal_down_across_their_seam_and_lift_at_the_last_end() {
     let pedal = |beat: f64, value: u8| ow_model::Controller {
         beat,
         controller: 64,
@@ -1184,11 +1184,13 @@ fn a_clip_end_lift_goes_before_a_following_clips_pedal_down() {
         project.time_signature_map.clone(),
     );
     let scheduled = schedule_controllers(project.clips.values(), &timeline, RATE);
-    let at_end: Vec<_> = scheduled.iter().filter(|e| e.sample == 2 * BEAT).collect();
+    // No lift at the seam (the second clip carries on); the last clip's end lifts.
     assert_eq!(
-        at_end.iter().map(|e| e.value).collect::<Vec<_>>(),
-        [0, 127],
-        "{scheduled:?}"
+        scheduled
+            .iter()
+            .map(|e| (e.sample, e.value))
+            .collect::<Vec<_>>(),
+        [(BEAT, 127), (2 * BEAT, 127), (3 * BEAT, 0)],
     );
 }
 
@@ -1290,4 +1292,89 @@ fn a_locate_restores_the_rest_value_of_a_controller_the_new_position_has_no_even
             ..
         }
     )));
+}
+
+/// A clip split while the pedal is down: the left part keeps the pedal-down, the right part has
+/// the lift. The lift at the split must not happen, so the render matches the unsplit clip.
+#[test]
+fn a_clip_split_with_the_pedal_down_sounds_like_the_unsplit_clip() {
+    let pedal = |beat: f64, value: u8| ow_model::Controller {
+        beat,
+        controller: 64,
+        value,
+    };
+    let content = |notes: Vec<Note>, controllers: Vec<ow_model::Controller>| ClipContent::Midi {
+        notes,
+        controllers,
+    };
+    let whole = project_with(120.0, |track| {
+        vec![Clip {
+            content: content(
+                vec![note(0.0, 1.5, 60)],
+                vec![pedal(0.0, 127), pedal(3.0, 0)],
+            ),
+            ..midi_clip(100, track, 0.0, 4.0, vec![])
+        }]
+    });
+    let split = |mute_right: bool| {
+        project_with(120.0, |track| {
+            vec![
+                Clip {
+                    content: content(vec![note(0.0, 1.5, 60)], vec![pedal(0.0, 127)]),
+                    ..midi_clip(100, track, 0.0, 2.0, vec![])
+                },
+                Clip {
+                    content: content(vec![], vec![pedal(1.0, 0)]),
+                    muted: mute_right,
+                    ..midi_clip(101, track, 2.0, 2.0, vec![])
+                },
+            ]
+        })
+    };
+    let frames = 4 * BEAT as usize;
+    let reference = render(&whole, frames, 4096);
+    // The pedal holds the note until beat 3: it still sounds at beat 2.5.
+    let held = &reference[(2 * BEAT + BEAT / 2) as usize..(3 * BEAT) as usize - 4_800];
+    assert!(
+        held.iter().any(|s| s.abs() > 0.05),
+        "sustained by the pedal"
+    );
+    assert_eq!(render(&split(false), frames, 4096), reference);
+
+    // With the right part muted nothing continues the pedal: it is lifted at the split.
+    let muted = split(true);
+    let timeline = Timeline::new(muted.tempo_map.clone(), muted.time_signature_map.clone());
+    let scheduled = schedule_controllers(muted.clips.values(), &timeline, RATE);
+    assert_eq!(scheduled, [cc_at(0, 64, 127), cc_at(2 * BEAT, 64, 0)]);
+    let rendered = render(&muted, frames, 4096);
+    assert!(
+        rendered[(2 * BEAT) as usize + 12_000..]
+            .iter()
+            .all(|s| s.abs() < 1e-4)
+    );
+}
+
+#[test]
+fn the_pedal_state_at_a_clip_end_is_its_latest_cc64_whatever_the_list_order() {
+    let pedal = |beat: f64, value: u8| ow_model::Controller {
+        beat,
+        controller: 64,
+        value,
+    };
+    // Listed up before down, but the down is later in the clip.
+    let project = project_with(120.0, |track| {
+        vec![Clip {
+            content: ClipContent::Midi {
+                notes: vec![],
+                controllers: vec![pedal(0.5, 127), pedal(0.0, 0)],
+            },
+            ..midi_clip(100, track, 0.0, 1.0, vec![])
+        }]
+    });
+    let timeline = Timeline::new(
+        project.tempo_map.clone(),
+        project.time_signature_map.clone(),
+    );
+    let scheduled = schedule_controllers(project.clips.values(), &timeline, RATE);
+    assert_eq!(scheduled.last().copied(), Some(cc_at(BEAT, 64, 0)));
 }

@@ -79,7 +79,19 @@ pub fn schedule_controllers<'a>(
 ) -> Vec<ScheduledCc> {
     // The bool marks a pedal lift added at a clip's end.
     let mut events: Vec<(ScheduledCc, bool)> = Vec::new();
-    for clip in clips {
+    let clips: Vec<&Clip> = clips.into_iter().collect();
+    // Another unmuted MIDI clip of the track runs on at `beat` (a split clip: the pedal goes on).
+    let continues = |clip: &Clip, beat: f64| {
+        clips.iter().any(|other| {
+            other.id != clip.id
+                && other.track == clip.track
+                && !other.muted
+                && matches!(other.content, ClipContent::Midi { .. })
+                && other.start <= beat + 1e-9
+                && beat < other.start + other.length - 1e-9
+        })
+    };
+    for &clip in &clips {
         let ClipContent::Midi { controllers, .. } = &clip.content else {
             continue;
         };
@@ -87,14 +99,16 @@ pub fn schedule_controllers<'a>(
             continue;
         }
         let clip_end = clip.start + clip.length;
-        let mut pedal_down = false;
+        // The pedal's state at the clip's end is the CC 64 with the latest beat (the validator
+        // does not sort controllers); of equal beats, the later one in the list.
+        let mut last_pedal: Option<(f64, bool)> = None;
         for cc in controllers {
             let beat = clip.start + cc.beat;
             if beat >= clip_end || cc.controller > 127 || cc.value > 127 {
                 continue;
             }
-            if cc.controller == 64 {
-                pedal_down = cc.value >= 64;
+            if cc.controller == 64 && last_pedal.is_none_or(|(at, _)| cc.beat >= at) {
+                last_pedal = Some((cc.beat, cc.value >= 64));
             }
             events.push((
                 ScheduledCc {
@@ -106,8 +120,9 @@ pub fn schedule_controllers<'a>(
             ));
         }
         // A pedal the clip leaves down is lifted where the clip ends (before the note-offs of
-        // notes cut there, and before a following clip's own events), so nothing rings on.
-        if pedal_down {
+        // notes cut there, and before a following clip's own events), so nothing rings on;
+        // unless the track's next clip carries on from there, as the right part of a split.
+        if last_pedal.is_some_and(|(_, down)| down) && !continues(clip, clip_end) {
             events.push((
                 ScheduledCc {
                     sample: timeline.beat_to_sample_index(clip_end, sample_rate),
